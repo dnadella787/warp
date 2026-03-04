@@ -7,6 +7,7 @@ Warp is a high-performance HTTP framework that exposes a modern, Boost-free publ
 - Coroutine-friendly request handlers with value-oriented `request` and `response` wrappers.
 - Internal use of Boost.Asio for I/O multiplexing and Boost.Beast for HTTP parsing and serialization.
 - Route registry with thread-safe updates and zero-copy response paths where possible.
+- Pattern-based routing with `{param}` segments surfaced through `request::path_param()`.
 
 > **Prerequisites:** CMake 3.20+, a C++20-capable compiler (Clang 15+, GCC 11+, or MSVC 17.7+), and Boost headers (Asio + Beast) available on the include path.
 

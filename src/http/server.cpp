@@ -251,8 +251,9 @@ void server::impl::session::on_read(boost::beast::error_code ec, std::size_t) {
 
     auto warp_request = to_request(request_);
     warp::net::http::response resp;
-    if (auto handler = routes_.find(warp_request.target())) {
-        resp = (*handler)(warp_request);
+    if (auto match = routes_.find(warp_request.target())) {
+        warp_request.set_path_params(std::move(match->params));
+        resp = match->handler(warp_request);
     } else {
         resp = warp::net::http::response::not_found();
     }

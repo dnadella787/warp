@@ -16,7 +16,7 @@ int main() {
 
         auto const host = "127.0.0.1";
         auto const port = "8080";
-        auto const target = "/hello";
+        auto const target = "/hello/Dhanush";
 
         auto results = resolver.resolve(host, port);
         asio::connect(socket, results);

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -31,11 +32,16 @@ public:
     [[nodiscard]] std::string_view body() const noexcept;
     [[nodiscard]] const headers& header_map() const noexcept;
 
+    void set_path_params(std::unordered_map<std::string, std::string> params);
+    [[nodiscard]] const std::unordered_map<std::string, std::string>& path_params() const noexcept;
+    [[nodiscard]] std::optional<std::string_view> path_param(std::string_view key) const;
+
 private:
     method method_{method::unknown};
     std::string target_;
     std::string body_;
     headers headers_;
+    std::unordered_map<std::string, std::string> path_params_;
 };
 
 class response {
@@ -88,6 +94,21 @@ inline std::string_view request::body() const noexcept {
 
 inline const headers& request::header_map() const noexcept {
     return headers_;
+}
+
+inline void request::set_path_params(std::unordered_map<std::string, std::string> params) {
+    path_params_ = std::move(params);
+}
+
+inline const std::unordered_map<std::string, std::string>& request::path_params() const noexcept {
+    return path_params_;
+}
+
+inline std::optional<std::string_view> request::path_param(std::string_view key) const {
+    if (auto it = path_params_.find(std::string(key)); it != path_params_.end()) {
+        return it->second;
+    }
+    return std::nullopt;
 }
 
 inline response::response(unsigned status, std::string body)
