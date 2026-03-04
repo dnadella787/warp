@@ -20,6 +20,8 @@ class server;
 
 class server_builder {
 public:
+    server_builder() = default;
+
     server_builder& address(std::string address);
     server_builder& port(std::uint16_t port);
     server_builder& worker_threads(std::size_t count);
@@ -64,7 +66,5 @@ private:
 
     std::shared_ptr<impl> impl_;
 };
-
-server_builder builder();
 
 } // namespace warp::http

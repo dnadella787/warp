@@ -165,10 +165,6 @@ server::control server::controller() const {
     return control{impl_};
 }
 
-server_builder builder() {
-    return {};
-}
-
 server::impl::impl(std::string address,
                    std::uint16_t port,
                    std::size_t workers,

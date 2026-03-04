@@ -3,8 +3,9 @@
 #include <iostream>
 
 int main() {
-    auto server = warp::http::builder()
+    auto server = warp::http::server_builder()
                        .address("127.0.0.1")
+                       .worker_threads(4)
                        .port(8080)
                        .route("/hello", [](const warp::http::request& req) -> warp::http::response {
                            (void)req;
