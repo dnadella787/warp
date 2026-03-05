@@ -30,22 +30,24 @@ endif ()
 find_package(Boost 1.80 REQUIRED COMPONENTS json)
 find_package(Threads REQUIRED)
 
-add_library(warp_http
-    src/http/server.cpp
-    src/http/detail/server_impl.cpp
-    src/net/core/io_context_pool.cpp
-    src/net/http/json_support.cpp
-    src/net/router/router.cpp)
+add_library(
+    warp_http
+        src/http/server.cpp
+        src/http/detail/server_impl.cpp
+        src/net/core/io_context_pool.cpp
+        src/net/http/json_support.cpp
+        src/net/router/router.cpp)
 
-target_include_directories(warp_http
+target_include_directories(
+    warp_http
     PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-        $<INSTALL_INTERFACE:include>
-    PRIVATE
-        ${Boost_INCLUDE_DIRS})
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include> 
+        $<INSTALL_INTERFACE:include>)
 
 target_link_libraries(warp_http
     PUBLIC
+        Boost::json
+    PRIVATE
         Threads::Threads)
 
 if (TARGET Boost::headers)
