@@ -23,16 +23,18 @@ if (warp_FETCH_BOOST)
         GIT_REPOSITORY https://github.com/boostorg/boost.git
         GIT_TAG boost-1.84.0
         UPDATE_DISCONNECTED ON
-        FIND_PACKAGE_ARGS COMPONENTS beast asio)
+        FIND_PACKAGE_ARGS COMPONENTS beast asio json)
     FetchContent_MakeAvailable(boost)
 endif ()
 
-find_package(Boost 1.80 REQUIRED)
+find_package(Boost 1.80 REQUIRED COMPONENTS json)
 find_package(Threads REQUIRED)
 
 add_library(warp_http
     src/http/server.cpp
+    src/http/detail/server_impl.cpp
     src/net/core/io_context_pool.cpp
+    src/net/http/json_support.cpp
     src/net/util/status.cpp)
 
 target_include_directories(warp_http
@@ -51,6 +53,7 @@ if (TARGET Boost::headers)
 elseif (TARGET Boost::boost)
     target_link_libraries(warp_http PUBLIC Boost::boost)
 endif ()
+
 
 install(TARGETS warp_http
     EXPORT warpTargets

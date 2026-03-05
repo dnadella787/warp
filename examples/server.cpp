@@ -14,8 +14,8 @@ int main() {
                            return warp::http::response::ok("Hello, " + std::string(name) + "!");
                        })
                        .route("/hello", [](const warp::http::request& req) -> warp::http::response {
-                           (void)req;
-                           return warp::http::response::ok("Hello, World!");
+                           auto name = req.query_param("name").value_or(std::string_view("World"));
+                           return warp::http::response::ok("Hello, " + std::string(name) + "!");
                        })
                        .build();
 

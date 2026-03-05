@@ -48,17 +48,18 @@ public:
     void run();
     void stop();
 
-    class control {
+    class controller {
     public:
         void stop();
 
     private:
         friend class server;
-        explicit control(std::shared_ptr<impl> impl);
+        explicit controller(std::shared_ptr<impl> impl);
         std::weak_ptr<impl> impl_;
     };
 
-    [[nodiscard]] control controller() const;
+    [[nodiscard]] controller get_controller() const;
+    [[nodiscard]] std::uint16_t port() const;
 
 private:
     friend class server_builder;
