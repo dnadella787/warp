@@ -34,6 +34,7 @@ add_library(
     warp_http
         src/http/server.cpp
         src/http/detail/server_impl.cpp
+        src/http/detail/session.cpp
         src/net/core/io_context_pool.cpp
         src/net/http/json_support.cpp
         src/net/router/router.cpp)
@@ -44,18 +45,13 @@ target_include_directories(
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include> 
         $<INSTALL_INTERFACE:include>)
 
-target_link_libraries(warp_http
+target_link_libraries(
+    warp_http
     PUBLIC
         Boost::json
     PRIVATE
+        Boost::headers
         Threads::Threads)
-
-if (TARGET Boost::headers)
-    target_link_libraries(warp_http PUBLIC Boost::headers)
-elseif (TARGET Boost::boost)
-    target_link_libraries(warp_http PUBLIC Boost::boost)
-endif ()
-
 
 install(TARGETS warp_http
     EXPORT warpTargets

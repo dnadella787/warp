@@ -7,7 +7,6 @@
 #include <unordered_map>
 #include <utility>
 
-#include <boost/json/error.hpp>
 #include <boost/json/parse.hpp>
 #include <boost/json/value.hpp>
 

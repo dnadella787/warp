@@ -3,7 +3,6 @@
 #include <functional>
 #include <optional>
 #include <shared_mutex>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <unordered_map>
