@@ -15,12 +15,12 @@
 
 namespace warp::http {
 
-class server::impl : public std::enable_shared_from_this<server::impl> {
+class server::impl : public std::enable_shared_from_this<impl> {
 public:
     impl(std::string address,
          std::uint16_t port,
          std::size_t workers,
-         warp::net::router::registry routes);
+         net::router::registry routes);
 
     void run();
     void stop();
@@ -31,7 +31,7 @@ private:
 
     class session : public std::enable_shared_from_this<session> {
     public:
-        session(boost::asio::ip::tcp::socket socket, warp::net::router::registry& routes);
+        session(boost::asio::ip::tcp::socket socket, net::router::registry& routes);
         void start();
 
     private:
@@ -49,10 +49,10 @@ private:
 
     std::string address_;
     std::uint16_t port_;
-    warp::net::core::io_context_pool pool_;
+    net::core::io_context_pool pool_;
     std::shared_ptr<boost::asio::io_context> accept_ctx_;
     std::unique_ptr<boost::asio::ip::tcp::acceptor> acceptor_;
-    warp::net::router::registry routes_;
+    net::router::registry routes_;
     std::atomic<bool> running_{false};
 };
 

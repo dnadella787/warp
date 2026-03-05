@@ -73,22 +73,22 @@ std::unordered_map<std::string, std::string> parse_query(std::string_view query)
     return params;
 }
 
-warp::net::http::method map_method(boost::beast::http::verb v) {
+net::http::method map_method(boost::beast::http::verb v) {
     using verb = boost::beast::http::verb;
     switch (v) {
-    case verb::get: return warp::net::http::method::get;
-    case verb::post: return warp::net::http::method::post;
-    case verb::put: return warp::net::http::method::put;
-    case verb::delete_: return warp::net::http::method::delete_;
-    case verb::head: return warp::net::http::method::head;
-    case verb::options: return warp::net::http::method::options;
-    case verb::patch: return warp::net::http::method::patch;
-    default: return warp::net::http::method::unknown;
+    case verb::get: return method::get;
+    case verb::post: return method::post;
+    case verb::put: return method::put;
+    case verb::delete_: return method::delete_;
+    case verb::head: return method::head;
+    case verb::options: return method::options;
+    case verb::patch: return method::patch;
+    default: return method::unknown;
     }
 }
 
-warp::net::http::request to_request(const beast_request& req) {
-    warp::net::http::headers hdrs;
+net::http::request to_request(const beast_request& req) {
+    net::http::headers hdrs;
     for (const auto& field : req.base()) {
         hdrs.emplace(field.name_string(), field.value());
     }
@@ -100,13 +100,13 @@ warp::net::http::request to_request(const beast_request& req) {
         auto query_view = std::string_view(target).substr(pos + 1);
         query_params = parse_query(query_view);
     }
-    warp::net::http::request warp_req(map_method(req.method()), std::move(target), req.body(), std::move(hdrs));
+    net::http::request warp_req(map_method(req.method()), std::move(target), req.body(), std::move(hdrs));
     warp_req.set_path(std::move(path));
     warp_req.set_query_params(std::move(query_params));
     return warp_req;
 }
 
-std::shared_ptr<beast_response> to_beast_response(const warp::net::http::response& resp, const beast_request& req) {
+std::shared_ptr<beast_response> to_beast_response(const net::http::response& resp, const beast_request& req) {
     auto be_resp = std::make_shared<beast_response>();
     be_resp->version(req.version());
     be_resp->result(resp.status());
@@ -131,7 +131,7 @@ std::shared_ptr<beast_response> to_beast_response(const warp::net::http::respons
 server::impl::impl(std::string address,
                    std::uint16_t port,
                    std::size_t workers,
-                   warp::net::router::registry routes)
+                   net::router::registry routes)
     : address_(std::move(address))
     , port_(port)
     , pool_(workers)
@@ -196,7 +196,7 @@ void server::impl::do_accept() {
         });
 }
 
-server::impl::session::session(boost::asio::ip::tcp::socket socket, warp::net::router::registry& routes)
+server::impl::session::session(boost::asio::ip::tcp::socket socket, net::router::registry& routes)
     : stream_(std::move(socket))
     , routes_(routes) {}
 
@@ -222,18 +222,18 @@ void server::impl::session::on_read(boost::beast::error_code ec, std::size_t) {
     }
 
     auto warp_request = to_request(request_);
-    warp::net::http::response resp;
+    net::http::response resp;
     if (auto match = routes_.find(warp_request.path())) {
         warp_request.set_path_params(std::move(match->params));
         resp = match->handler(warp_request);
     } else {
-        resp = warp::net::http::response::not_found();
+        resp = net::http::response::not_found();
     }
 
     write_response(std::move(resp));
 }
 
-void server::impl::session::write_response(warp::net::http::response resp) {
+void server::impl::session::write_response(net::http::response resp) {
     auto be_resp = to_beast_response(resp, request_);
     const bool close = !be_resp->keep_alive();
     boost::beast::http::async_write(stream_, *be_resp,
