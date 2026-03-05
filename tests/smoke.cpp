@@ -1,8 +1,6 @@
 #include "warp/http/server.hpp"
 #include "../include/warp/net/router/router.hpp"
 
-#include <boost/json.hpp>
-
 #include <cassert>
 #include <string>
 

@@ -12,4 +12,6 @@ target_sources(warp_example_request
         request.cpp)
 target_link_libraries(warp_example_request
     PRIVATE
-        warp_http)
+        warp_http
+        Boost::headers)
+
