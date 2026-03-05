@@ -1,30 +1,19 @@
 #pragma once
 
+#include <exception>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 
-#include <boost/json/value.hpp>
-#include <boost/json/parse.hpp>
 #include <boost/json/error.hpp>
+#include <boost/json/parse.hpp>
+#include <boost/json/value.hpp>
 
-#include "warp/net/util/status.hpp"
+#include "warp/net/http/common.hpp"
 
 namespace warp::net::http {
-
-using headers = std::unordered_map<std::string, std::string>;
-
-enum class method {
-    get,
-    post,
-    put,
-    delete_,
-    head,
-    options,
-    patch,
-    unknown
-};
 
 class request {
 public:
@@ -56,36 +45,6 @@ private:
     std::unordered_map<std::string, std::string> path_params_;
     std::unordered_map<std::string, std::string> query_params_;
 };
-
-class response {
-public:
-    response() = default;
-
-    static response ok(std::string body);
-    static response not_found();
-    static response server_error(std::string message);
-
-    response& set_header(std::string key, std::string value);
-    [[nodiscard]] std::string_view body() const noexcept;
-    [[nodiscard]] const headers& header_map() const noexcept;
-    [[nodiscard]] unsigned status() const noexcept;
-
-private:
-    response(unsigned status, std::string body);
-
-    unsigned status_{200};
-    std::string body_;
-    headers headers_;
-};
-
-struct http_result {
-    response resp;
-    warp::net::util::error_info error{};
-};
-
-} // namespace warp::net::http
-
-namespace warp::net::http {
 
 inline request::request(method m, std::string target, std::string body, headers hdrs)
     : method_(m)
@@ -157,43 +116,6 @@ inline std::optional<boost::json::value> request::try_json_body() const noexcept
     } catch (const std::exception&) {
         return std::nullopt;
     }
-}
-
-inline response::response(unsigned status, std::string body)
-    : status_(status)
-    , body_(std::move(body)) {}
-
-inline response response::ok(std::string body) {
-    return response(200, std::move(body));
-}
-
-inline response response::not_found() {
-    response r(404, "Not Found");
-    r.set_header("Content-Type", "text/plain");
-    return r;
-}
-
-inline response response::server_error(std::string message) {
-    response r(500, std::move(message));
-    r.set_header("Content-Type", "text/plain");
-    return r;
-}
-
-inline response& response::set_header(std::string key, std::string value) {
-    headers_[std::move(key)] = std::move(value);
-    return *this;
-}
-
-inline std::string_view response::body() const noexcept {
-    return body_;
-}
-
-inline const headers& response::header_map() const noexcept {
-    return headers_;
-}
-
-inline unsigned response::status() const noexcept {
-    return status_;
 }
 
 } // namespace warp::net::http

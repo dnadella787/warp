@@ -1,20 +1,18 @@
 #pragma once
 
-#include <cstdint>
 #include <memory>
 #include <string>
 #include <thread>
 
-#include "warp/net/http.hpp"
-#include "warp/net/router.hpp"
+#include "warp/net/router/router.hpp"
 
 namespace warp::http {
 
-using request = warp::net::http::request;
-using response = warp::net::http::response;
-using headers = warp::net::http::headers;
-using method = warp::net::http::method;
-using handler = warp::net::router::handler;
+using request = net::http::request;
+using response = net::http::response;
+using headers = net::http::headers;
+using method = net::http::method;
+using handler = net::router::handler;
 
 class server;
 
@@ -33,7 +31,7 @@ private:
     std::string address_{"0.0.0.0"};
     std::uint16_t port_{8080};
     std::size_t workers_{std::max<std::size_t>(1, std::thread::hardware_concurrency())};
-    warp::net::router::registry routes_;
+    net::router::registry routes_;
 };
 
 class server {

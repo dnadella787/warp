@@ -1,68 +1,19 @@
-#pragma once
+#include "warp/net/router/router.hpp"
 
-#include <functional>
-#include <optional>
-#include <shared_mutex>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
-#include "warp/net/http.hpp"
-
 namespace warp::net::router {
 
-using handler = std::function<warp::net::http::response(const warp::net::http::request&)>;
-
-struct match_result {
-    handler handler;
-    std::unordered_map<std::string, std::string> params;
-};
-
-class registry {
-public:
-    registry() = default;
-    registry(const registry& other);
-    registry& operator=(const registry& other);
-    void add(std::string path, handler h);
-    [[nodiscard]] std::optional<match_result> find(std::string_view path) const;
-
-private:
-    struct segment {
-        enum class kind { literal, parameter };
-        kind type{};
-        std::string value;
-    };
-
-    struct route_entry {
-        std::string pattern;
-        std::vector<segment> segments;
-        handler handler;
-    };
-
-    static std::vector<segment> compile_pattern(const std::string& pattern);
-    static bool match_segments(
-        const std::vector<segment>& pattern_segments,
-        const std::vector<std::string_view>& path_segments,
-        std::unordered_map<std::string, std::string>& out_params);
-
-    [[nodiscard]] static std::vector<std::string_view> split_path(std::string_view path);
-
-    mutable std::shared_mutex mutex_;
-    std::vector<route_entry> routes_;
-};
-
-} // namespace warp::net::router
-
-namespace warp::net::router {
-
-inline registry::registry(const registry& other) {
+registry::registry(const registry& other) {
     std::shared_lock lock(other.mutex_);
     routes_ = other.routes_;
 }
 
-inline registry& registry::operator=(const registry& other) {
+registry& registry::operator=(const registry& other) {
     if (this == &other) {
         return *this;
     }
@@ -72,10 +23,10 @@ inline registry& registry::operator=(const registry& other) {
     return *this;
 }
 
-inline void registry::add(std::string path, handler h) {
+void registry::add(std::string path, handler h) {
     auto segments = compile_pattern(path);
     std::unique_lock lock(mutex_);
-    // Replace existing entry with same pattern if present
+    // Replace existing entry with same pattern if present.
     for (auto& route : routes_) {
         if (route.pattern == path) {
             route.handler = std::move(h);
@@ -89,7 +40,7 @@ inline void registry::add(std::string path, handler h) {
         .handler = std::move(h)});
 }
 
-inline std::optional<match_result> registry::find(std::string_view path) const {
+std::optional<match_result> registry::find(std::string_view path) const {
     auto clean_path = path.substr(0, path.find('?'));
     auto path_segments = split_path(clean_path);
     const bool invalid_path = path_segments.empty() && !(clean_path.empty() || clean_path == "/");
@@ -110,7 +61,7 @@ inline std::optional<match_result> registry::find(std::string_view path) const {
     return std::nullopt;
 }
 
-inline std::vector<registry::segment> registry::compile_pattern(const std::string& pattern) {
+std::vector<registry::segment> registry::compile_pattern(const std::string& pattern) {
     if (pattern.empty() || pattern.front() != '/') {
         throw std::invalid_argument("route pattern must start with '/'");
     }
@@ -143,7 +94,7 @@ inline std::vector<registry::segment> registry::compile_pattern(const std::strin
     return segments;
 }
 
-inline std::vector<std::string_view> registry::split_path(std::string_view path) {
+std::vector<std::string_view> registry::split_path(std::string_view path) {
     std::vector<std::string_view> segments;
     std::size_t pos = 0;
     if (!path.empty() && path.front() == '/') {
@@ -167,7 +118,7 @@ inline std::vector<std::string_view> registry::split_path(std::string_view path)
     return segments;
 }
 
-inline bool registry::match_segments(
+bool registry::match_segments(
     const std::vector<segment>& pattern_segments,
     const std::vector<std::string_view>& path_segments,
     std::unordered_map<std::string, std::string>& out_params) {
