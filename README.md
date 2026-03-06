@@ -1,31 +1,30 @@
-# Warp HTTP Framework
+## Warp HTTP Framework
 
-Warp is a high-performance HTTP framework that exposes a modern, Boost-free public API while leveraging Boost.Beast and Boost.Asio internally for low-level networking.
+Warp is a WIP lib that uses Boost's Beast, Asio, and JSON to provide a high throughput, low footprint HTTP web server. Lots of work to be done.... 
+- Boost (beast, asio, json) types left internal 
 
-## Highlights
-- Modern C++20 header-based façade (`warp/http/server.hpp`) that keeps Boost types internal.
-- Coroutine-friendly request handlers with value-oriented `request` and `response` wrappers.
-- Internal use of Boost.Asio for I/O multiplexing and Boost.Beast for HTTP parsing and serialization.
-- Route registry with thread-safe updates and zero-copy response paths where possible.
-- Pattern-based routing with `{param}` segments surfaced through `request::path_param()`.
-- Query helpers (`request::query_param`) and JSON parsing utilities (`request::json_body`) built on Boost.JSON.
-
-> **Prerequisites:** CMake 3.20+, a C++20-capable compiler (Clang 15+, GCC 11+, or MSVC 17.7+), and Boost headers (Asio + Beast) available on the include path.
-
-## Getting Started
+### Build
 ```bash
 cmake -S . -B build
 cmake --build build --config Release
+```
+### Run example server:
+```bash
 ./build/examples/warp_example_server
 ```
-
-The server example blocks inside `server.run()`; press `Ctrl+C` in the terminal to stop it. With the server running, you can ping it from another terminal using the request helper:
-
+### Run example request:
 ```bash
-./build/examples/warp_example_request
+./build/examples/warp_example_request Bob
 ```
 
-## Next Steps
-- Flesh out middleware, metrics, and TLS support.
+### TODO 
+- robust Router
+- metrics 
+- (m)TLS support
+- Request/response interceptors
+- Return output as JSON
+- Tag with request-id in header
+- Lots of unit tests (with GoogleTest)
+- Revisit json_value
+- Code generation from YAML (using Jinja?) and allow registration of classes
 - Add benchmark suite (Google Benchmark) and fuzz targets for parser hardening.
-- Document threading model and lifecycle hooks in depth.

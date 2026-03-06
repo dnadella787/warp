@@ -5,7 +5,7 @@
 #include <iostream>
 #include <string>
 
-int main() {
+int main(int argc, char* argv[]) {
     try {
         namespace asio = boost::asio;
         namespace http = boost::beast::http;
@@ -16,7 +16,7 @@ int main() {
 
         auto const host = "127.0.0.1";
         auto const port = "8080";
-        auto const target = "/hello?name=Client";
+        auto const target = std::format("/hello?name={}", argc ? argv[1] : "Client");
 
         auto results = resolver.resolve(host, port);
         asio::connect(socket, results);

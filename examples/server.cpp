@@ -15,6 +15,7 @@ int main() {
                        })
                        .route("/hello", [](const warp::http::request& req) -> warp::http::response {
                            auto name = req.query_param("name").value_or(std::string_view("World"));
+                           std::cout << "Received a hello world request with query parameter name with value: " << name << std::endl;
                            return warp::http::response::ok("Hello, " + std::string(name) + "!");
                        })
                        .build();
