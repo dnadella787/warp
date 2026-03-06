@@ -10,13 +10,15 @@ int main() {
                        .worker_threads(4)
                        .port(8080)
                        .route("/hello/{name}", [](const warp::http::request& req) -> warp::http::response {
-                           auto name = req.path_param("name").value_or(std::string_view("world"));
+                           auto name = req.path_param("name").value_or("world");
                            return warp::http::response::ok("Hello, " + std::string(name) + "!");
                        })
                        .route("/hello", [](const warp::http::request& req) -> warp::http::response {
-                           auto name = req.query_param("name").value_or(std::string_view("World"));
+                           auto name = req.query_param("name").value_or("World");
                            std::cout << "Received a hello world request with query parameter name with value: " << name << std::endl;
-                           return warp::http::response::ok("Hello, " + std::string(name) + "!");
+                           auto json = warp::net::http::json_value::object();
+                           json.set("name", std::string(name));
+                           return warp::http::response::ok(json.dump());
                        })
                        .build();
 
