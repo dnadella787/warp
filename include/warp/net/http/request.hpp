@@ -1,15 +1,17 @@
 #pragma once
 
 #include <cstddef>
-#include <cstdint>
+#include <exception>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
 #include <utility>
 
+#include <boost/json/parse.hpp>
+#include <boost/json/value.hpp>
+
 #include "warp/net/http/common.hpp"
-#include "warp/net/http/json_value.hpp"
 
 namespace warp::net::http {
 
@@ -31,8 +33,8 @@ public:
     void set_path_params(std::unordered_map<std::string, std::string> params);
     [[nodiscard]] const std::unordered_map<std::string, std::string>& path_params() const noexcept;
     [[nodiscard]] std::optional<std::string_view> path_param(std::string_view key) const;
-    [[nodiscard]] json_value json_body() const;
-    [[nodiscard]] std::optional<json_value> try_json_body() const noexcept;
+    [[nodiscard]] boost::json::value json_body() const;
+    [[nodiscard]] std::optional<boost::json::value> try_json_body() const noexcept;
 
 private:
     method method_{method::unknown};
@@ -102,6 +104,18 @@ inline std::optional<std::string_view> request::path_param(std::string_view key)
         return it->second;
     }
     return std::nullopt;
+}
+
+inline boost::json::value request::json_body() const {
+    return boost::json::parse(body_);
+}
+
+inline std::optional<boost::json::value> request::try_json_body() const noexcept {
+    try {
+        return boost::json::parse(body_);
+    } catch (const std::exception&) {
+        return std::nullopt;
+    }
 }
 
 } // namespace warp::net::http

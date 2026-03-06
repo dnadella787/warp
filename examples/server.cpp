@@ -1,5 +1,7 @@
 #include "warp/http/server.hpp"
 
+#include <boost/json/object.hpp>
+#include <boost/json/serialize.hpp>
 #include <iostream>
 #include <string>
 #include <string_view>
@@ -16,9 +18,9 @@ int main() {
                        .route("/hello", [](const warp::http::request& req) -> warp::http::response {
                            auto name = req.query_param("name").value_or("World");
                            std::cout << "Received a hello world request with query parameter name with value: " << name << std::endl;
-                           auto json = warp::net::http::json_value::object();
-                           json.set("name", std::string(name));
-                           return warp::http::response::ok(json.dump());
+                           boost::json::object json;
+                           json["name"] = name;
+                           return warp::http::response::ok(boost::json::serialize(json));
                        })
                        .build();
 

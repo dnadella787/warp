@@ -31,7 +31,7 @@ int main(int argc, char* argv[]) {
         http::response<http::string_body> res;
         http::read(socket, buffer, res);
 
-        std::cout << res << std::endl;
+        std::cout << res.body() << std::endl;
 
         boost::system::error_code ec;
         socket.shutdown(asio::ip::tcp::socket::shutdown_both, ec);

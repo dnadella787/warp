@@ -27,7 +27,7 @@ if (warp_FETCH_BOOST)
     FetchContent_MakeAvailable(boost)
 endif ()
 
-find_package(Boost 1.80 REQUIRED COMPONENTS json)
+find_package(Boost 1.90 REQUIRED COMPONENTS json)
 find_package(Threads REQUIRED)
 
 add_library(
@@ -36,9 +36,8 @@ add_library(
         src/http/detail/server_impl.cpp
         src/http/detail/session.cpp
         src/net/core/io_context_pool.cpp
-        src/net/http/request.cpp
-        src/net/router/router.cpp
-        src/net/http/json_value.cpp)
+        src/net/http/json_support.cpp
+        src/net/router/router.cpp)
 
 target_include_directories(
     warp_http
@@ -48,8 +47,9 @@ target_include_directories(
 
 target_link_libraries(
     warp_http
-    PRIVATE
+    PUBLIC
         Boost::json
+    PRIVATE
         Boost::headers
         Threads::Threads)
 

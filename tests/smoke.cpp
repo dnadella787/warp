@@ -1,6 +1,9 @@
 #include "warp/http/server.hpp"
 #include "../include/warp/net/router/router.hpp"
-#include "../include/warp/net/http/json_value.hpp"
+
+#include <boost/json/object.hpp>
+#include <boost/json/array.hpp>
+#include <boost/json/value.hpp>
 
 #include <cassert>
 #include <string>
@@ -40,15 +43,18 @@ int main() {
     assert(json_value.at("value").as_int64() == 42);
     auto try_json = req.try_json_body();
     assert(try_json);
-    auto builder = warp::net::http::json_value::object();
-    builder.set("name", std::string("warp"));
-    builder.set("answer", std::int64_t{42});
-    auto numbers = warp::net::http::json_value::array();
-    numbers.push(std::int64_t{1});
-    numbers.push(std::uint64_t{2});
-    builder.set("numbers", numbers);
-    assert(builder.at("numbers").size() == 2);
-    assert(builder.at("numbers").get(0).as_int64() == 1);
+    boost::json::object builder;
+    builder["name"] = "warp";
+    builder["answer"] = 42;
+    boost::json::array numbers;
+    numbers.push_back(1);
+    numbers.push_back(2);
+    builder["numbers"] = numbers;
+    auto it = builder.find("numbers");
+    assert(it != builder.end());
+    const auto& numbers_array = it->value().as_array();
+    assert(numbers_array.size() == 2);
+    assert(numbers_array[0].as_int64() == 1);
 
     warp::net::http::request bad_json{warp::net::http::method::get, "/bad", "not json"};
     assert(!bad_json.try_json_body());
