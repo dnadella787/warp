@@ -6,7 +6,7 @@
 
 #include "session.hpp"
 #include "warp/http/server.hpp"
-#include "../../net/core/io_context_pool_access.hpp"
+#include "../../net/core/io_context_pool.hpp"
 
 namespace warp::http {
 
@@ -68,10 +68,8 @@ void server::impl::do_accept() {
     if (!running_) {
         return;
     }
-    auto executor = pool_.next_executor();
-    auto& context = net::core::detail::executor_access::context(executor);
     acceptor_->async_accept(
-        boost::asio::make_strand(context),
+        boost::asio::make_strand(pool_.next()),
         [self = shared_from_this()](boost::system::error_code ec, boost::asio::ip::tcp::socket socket) {
             if (!ec) {
                 std::make_shared<detail::session>(std::move(socket), self->routes_)->start();

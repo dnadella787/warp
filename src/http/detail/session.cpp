@@ -9,8 +9,6 @@
 
 namespace warp::http::detail {
 
-namespace {
-
 using beast_request = boost::beast::http::request<boost::beast::http::string_body>;
 using beast_response = boost::beast::http::response<boost::beast::http::string_body>;
 
@@ -124,8 +122,6 @@ std::shared_ptr<beast_response> to_beast_response(const net::http::response& res
     return be_resp;
 }
 
-} // namespace
-
 session::session(boost::asio::ip::tcp::socket socket, net::router::registry& routes)
     : stream_(std::move(socket))
     , routes_(routes) {}
@@ -186,6 +182,9 @@ void session::on_write(boost::beast::error_code ec, std::size_t, bool close) {
 void session::shutdown() {
     boost::system::error_code ec;
     stream_.socket().shutdown(boost::asio::ip::tcp::socket::shutdown_send, ec);
+    if (ec) {
+
+    }
 }
 
 } // namespace warp::http::detail
