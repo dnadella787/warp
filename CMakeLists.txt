@@ -31,7 +31,7 @@ find_package(Boost 1.80 REQUIRED COMPONENTS json)
 find_package(Threads REQUIRED)
 
 add_library(
-    warp_http
+    warp_http SHARED
         src/http/server.cpp
         src/http/detail/server_impl.cpp
         src/http/detail/session.cpp
