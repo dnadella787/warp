@@ -24,13 +24,13 @@ server::impl::impl(std::string address, std::uint16_t port, std::size_t workers,
 }
 
 /*
- std::atomic<bool> running_ checked via exchange using std::memory_order_acq_rel guarantees
- that run()/stop() check the value and update the server resources (like thread pool/acceptor)
- accordingly before propagating the change downstream to another acquire (like another thread's
- run()/stop() or do_accept() which only acquires).
+ std::atomic<bool> running_ checked via std::atomic::exchange(true/false, std::memory_order_acq_rel)
+ guarantees that run()/stop() check the value and update the server resources (like thread pool/acceptor)
+ accordingly before propagating the change downstream to an acquire on another thread (e.g. run()/stop()
+ or do_accept()).
 
  If thread A calls stop() w/ acq_rel and thread B calls do_accept with acquire. The compiler
- is forbidden from moving something acceptor->close() to after running is set to false b/c
+ is forbidden from moving something like acceptor->close() to after running is set to false b/c
  the compiler will enforce a happens-before relationship between stop and do_accept across
  the threads
 

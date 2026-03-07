@@ -26,6 +26,7 @@ Received a hello world request with query parameter name with value: Bob
 clang-format -i $(git ls-files '*.cpp' '*.hpp')
 ```
 ### TODO 
+- AuthN/Z 
 - robust Router
 - metrics 
 - (m)TLS support
