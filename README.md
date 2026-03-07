@@ -21,13 +21,10 @@ Received a hello world request with query parameter name with value: Bob
   "name": "Bob"
 }
 ```
-
-### Format code
+### Run clang-format
 ```bash
 clang-format -i $(git ls-files '*.cpp' '*.hpp')
 ```
-Requires a recent `clang-format` (15 or newer recommended). The command rewrites all tracked C++ sources in place using the repository’s `.clang-format` configuration (tab-indented, multi-line enum entries).
-
 ### TODO 
 - robust Router
 - metrics 
