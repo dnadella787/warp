@@ -25,13 +25,13 @@ public:
     void set_path(std::string path);
     [[nodiscard]] std::string_view path() const noexcept;
     void set_query_params(std::unordered_map<std::string, std::string> params);
-    [[nodiscard]] const std::unordered_map<std::string, std::string>& query_params() const noexcept;
+    [[nodiscard]] const std::unordered_map<std::string, std::string> &query_params() const noexcept;
     [[nodiscard]] std::optional<std::string_view> query_param(std::string_view key) const;
     [[nodiscard]] std::string_view body() const noexcept;
-    [[nodiscard]] const headers& header_map() const noexcept;
+    [[nodiscard]] const headers &header_map() const noexcept;
 
     void set_path_params(std::unordered_map<std::string, std::string> params);
-    [[nodiscard]] const std::unordered_map<std::string, std::string>& path_params() const noexcept;
+    [[nodiscard]] const std::unordered_map<std::string, std::string> &path_params() const noexcept;
     [[nodiscard]] std::optional<std::string_view> path_param(std::string_view key) const;
     [[nodiscard]] boost::json::value json_body() const;
     [[nodiscard]] std::optional<boost::json::value> try_json_body() const noexcept;
@@ -47,10 +47,7 @@ private:
 };
 
 inline request::request(method m, std::string target, std::string body, headers hdrs)
-    : method_(m)
-    , target_(std::move(target))
-    , body_(std::move(body))
-    , headers_(std::move(hdrs)) {}
+    : method_(m), target_(std::move(target)), body_(std::move(body)), headers_(std::move(hdrs)) {}
 
 inline method request::verb() const noexcept {
     return method_;
@@ -72,13 +69,13 @@ inline void request::set_query_params(std::unordered_map<std::string, std::strin
     query_params_ = std::move(params);
 }
 
-inline const std::unordered_map<std::string, std::string>& request::query_params() const noexcept {
+inline const std::unordered_map<std::string, std::string> &request::query_params() const noexcept {
     return query_params_;
 }
 
 inline std::optional<std::string_view> request::query_param(std::string_view key) const {
     if (auto it = query_params_.find(std::string(key)); it != query_params_.end()) {
-        return it->second;
+	return it->second;
     }
     return std::nullopt;
 }
@@ -87,7 +84,7 @@ inline std::string_view request::body() const noexcept {
     return body_;
 }
 
-inline const headers& request::header_map() const noexcept {
+inline const headers &request::header_map() const noexcept {
     return headers_;
 }
 
@@ -95,13 +92,13 @@ inline void request::set_path_params(std::unordered_map<std::string, std::string
     path_params_ = std::move(params);
 }
 
-inline const std::unordered_map<std::string, std::string>& request::path_params() const noexcept {
+inline const std::unordered_map<std::string, std::string> &request::path_params() const noexcept {
     return path_params_;
 }
 
 inline std::optional<std::string_view> request::path_param(std::string_view key) const {
     if (auto it = path_params_.find(std::string(key)); it != path_params_.end()) {
-        return it->second;
+	return it->second;
     }
     return std::nullopt;
 }
@@ -112,9 +109,9 @@ inline boost::json::value request::json_body() const {
 
 inline std::optional<boost::json::value> request::try_json_body() const noexcept {
     try {
-        return boost::json::parse(body_);
-    } catch (const std::exception&) {
-        return std::nullopt;
+	return boost::json::parse(body_);
+    } catch (const std::exception &) {
+	return std::nullopt;
     }
 }
 

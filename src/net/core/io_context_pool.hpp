@@ -12,13 +12,13 @@ namespace warp::net::core {
 class io_context_pool {
 public:
     explicit io_context_pool(std::size_t pool_size = std::thread::hardware_concurrency());
-    io_context_pool(const io_context_pool&) = delete;
-    io_context_pool& operator=(const io_context_pool&) = delete;
-    io_context_pool(io_context_pool&&) = delete;
-    io_context_pool& operator=(io_context_pool&&) = delete;
+    io_context_pool(const io_context_pool &) = delete;
+    io_context_pool &operator=(const io_context_pool &) = delete;
+    io_context_pool(io_context_pool &&) = delete;
+    io_context_pool &operator=(io_context_pool &&) = delete;
     ~io_context_pool();
 
-    [[nodiscard]] boost::asio::io_context& next();
+    [[nodiscard]] boost::asio::io_context &next();
     void run();
     void stop();
 
@@ -33,4 +33,3 @@ private:
 };
 
 } // namespace warp::net::core
-

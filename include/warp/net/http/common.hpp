@@ -19,4 +19,3 @@ enum class method {
 };
 
 } // namespace warp::net::http
-

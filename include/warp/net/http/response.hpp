@@ -17,9 +17,9 @@ public:
     static response not_found();
     static response server_error(std::string message);
 
-    response& set_header(std::string key, std::string value);
+    response &set_header(std::string key, std::string value);
     [[nodiscard]] std::string_view body() const noexcept;
-    [[nodiscard]] const headers& header_map() const noexcept;
+    [[nodiscard]] const headers &header_map() const noexcept;
     [[nodiscard]] unsigned status() const noexcept;
 
 private:
@@ -31,8 +31,7 @@ private:
 };
 
 inline response::response(unsigned status, std::string body)
-    : status_(status)
-    , body_(std::move(body)) {}
+    : status_(status), body_(std::move(body)) {}
 
 inline response response::ok(std::string body) {
     return {200, std::move(body)};
@@ -50,7 +49,7 @@ inline response response::server_error(std::string message) {
     return r;
 }
 
-inline response& response::set_header(std::string key, std::string value) {
+inline response &response::set_header(std::string key, std::string value) {
     headers_[std::move(key)] = std::move(value);
     return *this;
 }
@@ -59,7 +58,7 @@ inline std::string_view response::body() const noexcept {
     return body_;
 }
 
-inline const headers& response::header_map() const noexcept {
+inline const headers &response::header_map() const noexcept {
     return headers_;
 }
 

@@ -13,7 +13,7 @@ namespace warp::http::detail {
 
 class session : public std::enable_shared_from_this<session> {
 public:
-    session(boost::asio::ip::tcp::socket socket, net::router::registry& routes);
+    session(boost::asio::ip::tcp::socket socket, net::router::registry &routes);
 
     void start();
 
@@ -26,7 +26,7 @@ private:
 
     boost::beast::tcp_stream stream_;
     boost::beast::flat_buffer buffer_;
-    net::router::registry& routes_;
+    net::router::registry &routes_;
     boost::beast::http::request<boost::beast::http::string_body> request_;
 };
 
