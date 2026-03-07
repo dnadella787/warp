@@ -23,8 +23,25 @@ server::impl::impl(std::string address, std::uint16_t port, std::size_t workers,
 	acceptor_->listen();
 }
 
+/*
+ std::atomic<bool> running_ checked via exchange using std::memory_order_acq_rel guarantees
+ that run()/stop() check the value and update the server resources (like thread pool/acceptor)
+ accordingly before propagating the change downstream to another acquire (like another thread's
+ run()/stop() or do_accept() which only acquires).
+
+ If thread A calls stop() w/ acq_rel and thread B calls do_accept with acquire. The compiler
+ is forbidden from moving something acceptor->close() to after running is set to false b/c
+ the compiler will enforce a happens-before relationship between stop and do_accept across
+ the threads
+
+ TLDR: run/stop are r/w, do_accept is r only
+ */
+
 void server::impl::run() {
-	if (running_.exchange(true)) {
+	// try to start, if its already running just return early, use acq_rel
+	// b/c we want to acquire the current state and check if it in a non-running
+	// state, and then release it to consumers like do_accept()/stop()
+	if (running_.exchange(true, std::memory_order_acq_rel)) {
 		return;
 	}
 	do_accept();
@@ -34,7 +51,11 @@ void server::impl::run() {
 }
 
 void server::impl::stop() {
-	if (!running_.exchange(false)) {
+	// try to stop, if its already stopped just return early, use acq_rel
+	// b/c we want to ensure that all previous activity on running_ is
+	// published (i.e. from run() or other stop() threads) before we cancel
+	// the thread pool and acceptor
+	if (!running_.exchange(false, std::memory_order_acq_rel)) {
 		return;
 	}
 	boost::asio::dispatch(*accept_ctx_, [acceptor = acceptor_.get()]() {
@@ -49,17 +70,12 @@ void server::impl::stop() {
 	pool_.stop();
 }
 
-std::uint16_t server::impl::port() const {
-	boost::system::error_code ec;
-	auto ep = acceptor_ ? acceptor_->local_endpoint(ec) : boost::asio::ip::tcp::endpoint {};
-	if (ec) {
-		return 0;
-	}
-	return ep.port();
-}
-
 void server::impl::do_accept() {
-	if (!running_) {
+	// check if server is running, if it is, then ...
+	// do_accept() is read only on the running_ flag which is why it
+	// only needs to acquire the value from producers that r/w like
+	// run() and stop()
+	if (!running_.load(std::memory_order_acquire)) {
 		return;
 	}
 	acceptor_->async_accept(
@@ -70,6 +86,15 @@ void server::impl::do_accept() {
 		    }
 		    self->do_accept();
 	    });
+}
+
+std::uint16_t server::impl::port() const {
+	boost::system::error_code ec;
+	auto ep = acceptor_ ? acceptor_->local_endpoint(ec) : boost::asio::ip::tcp::endpoint {};
+	if (ec) {
+		return 0;
+	}
+	return ep.port();
 }
 
 } // namespace warp::http
