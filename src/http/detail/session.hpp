@@ -7,7 +7,7 @@
 #include <boost/beast/http.hpp>
 
 #include "warp/net/http/response.hpp"
-#include "warp/net/router/router.hpp"
+#include "../../net/router/registry.hpp"
 
 namespace warp::http::detail {
 

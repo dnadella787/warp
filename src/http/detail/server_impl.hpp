@@ -8,7 +8,7 @@
 
 #include "warp/http/server.hpp"
 #include "../../net/core/io_context_pool.hpp"
-#include "warp/net/router/router.hpp"
+#include "../../net/router/registry.hpp"
 
 namespace warp::http {
 

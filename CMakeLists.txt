@@ -37,7 +37,7 @@ add_library(
         src/http/detail/session.cpp
         src/net/core/io_context_pool.cpp
         src/net/http/json_support.cpp
-        src/net/router/router.cpp)
+        src/net/router/registry.cpp)
 
 target_include_directories(
     warp_http

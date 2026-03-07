@@ -1,10 +1,14 @@
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <string>
 #include <thread>
+#include <vector>
+#include <utility>
 
-#include "warp/net/router/router.hpp"
+#include "warp/net/http/request.hpp"
+#include "warp/net/http/response.hpp"
 
 namespace warp::http {
 
@@ -12,7 +16,7 @@ using request = net::http::request;
 using response = net::http::response;
 using headers = net::http::headers;
 using method = net::http::method;
-using handler = net::router::handler;
+using handler = std::function<response(const request&)>;
 
 class server;
 
@@ -31,7 +35,7 @@ private:
     std::string address_{"0.0.0.0"};
     std::uint16_t port_{8080};
     std::size_t workers_{std::max<std::size_t>(1, std::thread::hardware_concurrency())};
-    net::router::registry routes_;
+    std::vector<std::pair<std::string, handler>> routes_;
 };
 
 class server {

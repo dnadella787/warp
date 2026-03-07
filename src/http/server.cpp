@@ -5,6 +5,7 @@
 #include <utility>
 
 #include "detail/server_impl.hpp"
+#include "../net/router/registry.hpp"
 
 namespace warp::http {
 
@@ -24,12 +25,16 @@ server_builder& server_builder::worker_threads(std::size_t count) {
 }
 
 server_builder& server_builder::route(std::string path, handler handler) {
-    routes_.add(std::move(path), std::move(handler));
+    routes_.emplace_back(std::move(path), std::move(handler));
     return *this;
 }
 
 server server_builder::build() const {
-    auto impl = std::make_shared<server::impl>(address_, port_, workers_, routes_);
+    net::router::registry registry;
+    for (const auto& [path, handler] : routes_) {
+        registry.add(path, handler);
+    }
+    auto impl = std::make_shared<server::impl>(address_, port_, workers_, std::move(registry));
     return server{std::move(impl)};
 }
 
