@@ -1,7 +1,5 @@
 #include "io_context_pool.hpp"
 
-#include <boost/asio/strand.hpp>
-
 namespace warp::net::core {
 
 io_context_pool::io_context_pool(std::size_t pool_size) {
