@@ -54,7 +54,7 @@ void server::impl::stop() {
 	// try to stop, if its already stopped just return early, use acq_rel
 	// b/c we want to ensure that all previous activity on running_ is
 	// published (i.e. from run() or other stop() threads) before we cancel
-	// the thread pool and acceptor
+	// the io_context pool and acceptor
 	if (!running_.exchange(false, std::memory_order_acq_rel)) {
 		return;
 	}

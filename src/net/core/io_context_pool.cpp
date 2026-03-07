@@ -22,12 +22,28 @@ io_context_pool::~io_context_pool() {
 }
 
 boost::asio::io_context &io_context_pool::next() {
+	// use std::memory_order_relaxed bc we dont need acquire/release since next_ does
+	// not indicate the state of any other variable to calling threads, it just returns
+	// the next boost::asio::io_context in a round robin manner. All we need is an
+	// increment of next_ in a single indivisible step.
+	//
+	// std::size_t guarantees wrap around overflow behavior so we don't have to worry
+	// about the size_t max value. Plus the max is like 2^64 so we need billions of
+	// requests to reach the wrap around... although a wrap around may cause next() to
+	// repeat ctx w/o a full loop if 2^64 - 1 % contexts_.size() != contexts_.size() - 1
+	//
+	// Also note that we do not check whether is pool has started up or not since it is
+	// possible to create tasks on the io_contexts without starting them. The tasks would
+	// just execute after they are started.
 	auto idx = next_.fetch_add(1, std::memory_order_relaxed);
 	return *contexts_[idx % contexts_.size()];
 }
 
 void io_context_pool::run() {
-	if (running_.exchange(true)) {
+	// try to start, if its already running just return early, use acq_rel
+	// b/c we want to acquire the current state and check if it in a non-running
+	// state, and then release it to consumers like run()/stop() on other threads
+	if (running_.exchange(true, std::memory_order_acq_rel)) {
 		return;
 	}
 	threads_.reserve(contexts_.size());
@@ -37,7 +53,11 @@ void io_context_pool::run() {
 }
 
 void io_context_pool::stop() {
-	if (!running_.exchange(false)) {
+	// try to stop, if its already stopped just return early, use acq_rel
+	// b/c we want to ensure that all previous activity on running_ is
+	// published (i.e. from run() or other stop() threads) before we cancel
+	// the contexts and threads
+	if (!running_.exchange(true, std::memory_order_acq_rel)) {
 		return;
 	}
 	for (auto &guard : guards_) {
