@@ -8,6 +8,8 @@
 #include <cassert>
 #include <string>
 
+#include "warp/db/postgres/connection_config.hpp"
+
 int main() {
 	auto res = warp::http::response::ok("ping");
 	assert(res.body() == "ping");
@@ -61,6 +63,19 @@ int main() {
 
 	auto miss = routes.find("/goodbye/42");
 	assert(!miss);
+
+	warp::db::postgres::connection_config db_config;
+	db_config.host = "db.internal";
+	db_config.port = 5544;
+	db_config.user = "user";
+	db_config.password = "secret";
+	db_config.database = "warp";
+	db_config.extra_parameters = "application_name=warp";
+	auto conninfo = db_config.to_connection_string();
+	assert(conninfo.find("host=db.internal") != std::string::npos);
+	assert(conninfo.find("port=5544") != std::string::npos);
+	assert(conninfo.find("user=user") != std::string::npos);
+	assert(conninfo.find("dbname=warp") != std::string::npos);
 
 	return 0;
 }

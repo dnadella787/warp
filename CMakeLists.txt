@@ -27,7 +27,19 @@ if (warp_FETCH_BOOST)
     FetchContent_MakeAvailable(boost)
 endif ()
 
+set(LIBPQXX_BUILD_TEST OFF CACHE BOOL "" FORCE)
+set(LIBPQXX_TEST OFF CACHE BOOL "" FORCE)
+set(SKIP_BUILD_TEST ON CACHE BOOL "" FORCE)
+set(BUILD_TEST OFF CACHE BOOL "" FORCE)
+
+FetchContent_Declare(libpqxx
+    GIT_REPOSITORY https://github.com/jtv/libpqxx.git
+    GIT_TAG 8.0.0
+    UPDATE_DISCONNECTED ON)
+FetchContent_MakeAvailable(libpqxx)
+
 find_package(Boost 1.90 REQUIRED COMPONENTS json)
+find_package(PostgreSQL REQUIRED)
 find_package(Threads REQUIRED)
 
 add_library(
@@ -37,7 +49,10 @@ add_library(
         src/http/detail/session.cpp
         src/net/core/io_context_pool.cpp
         src/net/http/json_support.cpp
-        src/net/router/registry.cpp)
+        src/net/router/registry.cpp
+        src/db/postgres/connection_config.cpp
+        src/db/postgres/connection_pool.cpp
+        src/db/postgres/result.cpp)
 
 target_include_directories(
     warp_http
@@ -51,7 +66,8 @@ target_link_libraries(
         Boost::json
     PRIVATE
         Boost::headers
-        Threads::Threads)
+        Threads::Threads
+        libpqxx::pqxx)
 
 install(TARGETS warp_http
     EXPORT warpTargets
