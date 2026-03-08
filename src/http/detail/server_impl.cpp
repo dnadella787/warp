@@ -66,6 +66,8 @@ void server::impl::stop() {
 		acceptor->cancel(ec);
 		acceptor->close(ec);
 	});
+	// Stop accepting new requests so that we can gracefully complete all existing
+	// requests queued into io_context_pool
 	accept_ctx_->stop();
 	pool_.stop();
 }

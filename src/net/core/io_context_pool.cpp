@@ -10,6 +10,7 @@ io_context_pool::io_context_pool(std::size_t pool_size) {
 	guards_.reserve(pool_size);
 	for (std::size_t i = 0; i < pool_size; ++i) {
 		auto ctx = std::make_unique<boost::asio::io_context>();
+		// use work guards so that ctx.run() doesn't exit when there are no handlers queued up
 		guards_.push_back(std::make_unique<work_guard>(boost::asio::make_work_guard(*ctx)));
 		contexts_.push_back(std::move(ctx));
 	}
@@ -55,9 +56,17 @@ void io_context_pool::stop() {
 	// b/c we want to ensure that all previous activity on running_ is
 	// published (i.e. from run() or other stop() threads) before we cancel
 	// the contexts and threads
-	if (!running_.exchange(true, std::memory_order_acq_rel)) {
+	if (!running_.exchange(false, std::memory_order_acq_rel)) {
 		return;
 	}
+	// Remove work guards even though technically io_context::stop() kills the ctx
+	// immediately and forces it to exit once the current handler is completed
+	//
+	// TODO: Maybe skip ctx->stop() and just just do guard->reset() and t.join() since
+	// removing the guard will make the ctx.run() exit once all queued up tasks are
+	// completed and the acceptor is closed first in the server_impl class (so no more
+	// request handlers can be queued up). It will increase server shutdown time and may
+	// cause deadlock if a request queues up more async_accept's but provides a better
 	for (auto &guard : guards_) {
 		guard->reset();
 	}
