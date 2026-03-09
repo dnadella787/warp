@@ -32,7 +32,7 @@ public:
 	[[nodiscard]] std::size_t capacity() const noexcept;
 
 private:
-	struct impl;
+	class impl;
 	std::shared_ptr<impl> impl_ {};
 };
 

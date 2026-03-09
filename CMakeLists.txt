@@ -52,6 +52,7 @@ add_library(
         src/net/router/registry.cpp
         src/db/postgres/connection_config.cpp
         src/db/postgres/connection_pool.cpp
+        src/db/postgres/detail/connection_pool_impl.cpp
         src/db/postgres/result.cpp)
 
 target_include_directories(
