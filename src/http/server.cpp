@@ -64,8 +64,7 @@ server::controller server::get_controller() const {
 	return controller {impl_};
 }
 
-server::controller::controller(std::shared_ptr<impl> impl) : impl_(std::move(impl)) {
-}
+server::controller::controller(const std::shared_ptr<impl>& impl) : impl_(impl) {}
 
 void server::controller::stop() {
 	if (auto locked = impl_.lock()) {

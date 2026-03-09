@@ -19,7 +19,8 @@
 
 namespace warp::db::postgres {
 
-struct connection_pool::impl : public std::enable_shared_from_this<connection_pool::impl> {
+class connection_pool::impl : public std::enable_shared_from_this<connection_pool::impl> {
+public:
 	using executor_type = connection_pool::executor_type;
 
 	impl(executor_type completion_executor, connection_config cfg, std::size_t max_connections,

@@ -27,7 +27,6 @@ int main() {
 		                         return warp::http::response::ok(boost::json::serialize(json));
 	                         })
 	                  .build();
-
 	std::cout << "Warp example server running on http://127.0.0.1:8080" << std::endl;
 	server.run();
 	return 0;

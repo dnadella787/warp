@@ -50,13 +50,17 @@ public:
 	void run();
 	void stop();
 
+	// note that controller keeps a reference to the impl and not the server
+	// object itself since server is a stack allocated obj, we do not keep any shared_ptr
+	// references to it anywhere. This way we can entirely decouple the lifetimes of the
+	// server and controller objects
 	class controller {
 	public:
 		void stop();
 
 	private:
 		friend class server;
-		explicit controller(std::shared_ptr<impl> impl);
+		explicit controller(const std::shared_ptr<impl>& impl);
 		std::weak_ptr<impl> impl_;
 	};
 
@@ -67,6 +71,7 @@ private:
 	friend class server_builder;
 	explicit server(std::shared_ptr<impl> impl);
 
+	// we use std::shared_ptr instead of std::unique_ptr so controller can get a std::weak_ptr to impl
 	std::shared_ptr<impl> impl_;
 };
 
