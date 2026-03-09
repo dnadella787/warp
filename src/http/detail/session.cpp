@@ -134,8 +134,8 @@ std::shared_ptr<beast_response> to_beast_response(const net::http::response &res
 }
 
 session::session(boost::asio::ip::tcp::socket socket, net::router::registry &routes)
-    : stream_(boost::asio::make_strand(socket.get_executor())), // the tcp_stream executor = strand_executor()
-      routes_(routes) {
+    : stream_(boost::asio::make_strand(socket.get_executor())), routes_(routes) {
+	// tcp_stream executor = strand_executor, set its socket
 	stream_.socket() = std::move(socket);
 }
 
