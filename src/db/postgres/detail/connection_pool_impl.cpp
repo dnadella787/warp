@@ -9,11 +9,10 @@
 namespace warp::db::postgres {
 
 connection_pool::impl::impl(executor_type completion_executor, connection_config cfg, std::size_t max_connections,
-    std::size_t worker_threads)
-    : completion_executor_(std::move(completion_executor))
-    , config_(std::move(cfg))
-    , capacity_(std::max<std::size_t>(1, max_connections))
-    , workers_(std::max<std::size_t>(1, worker_threads)) {}
+                            std::size_t worker_threads)
+    : completion_executor_(std::move(completion_executor)), config_(std::move(cfg)),
+      capacity_(std::max<std::size_t>(1, max_connections)), workers_(std::max<std::size_t>(1, worker_threads)) {
+}
 
 connection_pool::impl::~impl() {
 	close();
@@ -53,9 +52,7 @@ std::size_t connection_pool::impl::capacity() const noexcept {
 
 result connection_pool::impl::sync_query(std::string sql) {
 	auto task = std::make_shared<std::packaged_task<result()>>(
-	    [self = shared_from_this(), sql = std::move(sql)]() mutable {
-		    return self->execute_query(std::move(sql));
-	    });
+	    [self = shared_from_this(), sql = std::move(sql)]() mutable { return self->execute_query(std::move(sql)); });
 	auto future = task->get_future();
 	boost::asio::post(workers_, [task]() mutable { (*task)(); });
 	return future.get();
@@ -66,7 +63,7 @@ std::unique_ptr<pqxx::connection> connection_pool::impl::acquire() {
 	cond_.wait(lock, [this]() { return closed_ || !idle_.empty() || total_ < capacity_; });
 	if (closed_) {
 		throw std::runtime_error("connection pool is closed");
-}
+	}
 	if (!idle_.empty()) {
 		auto conn = std::move(idle_.back());
 		idle_.pop_back();

@@ -134,7 +134,9 @@ std::shared_ptr<beast_response> to_beast_response(const net::http::response &res
 }
 
 session::session(boost::asio::ip::tcp::socket socket, net::router::registry &routes)
-    : stream_(std::move(socket)), routes_(routes) {
+    : stream_(boost::asio::make_strand(socket.get_executor())), // the tcp_stream executor = strand_executor()
+      routes_(routes) {
+	stream_.socket() = std::move(socket);
 }
 
 void session::start() {
@@ -150,7 +152,7 @@ void session::read() {
 	    });
 }
 
-void session::on_read(boost::beast::error_code ec, std::size_t) {
+void session::on_read(const boost::beast::error_code &ec, std::size_t) {
 	if (ec == boost::beast::http::error::end_of_stream) {
 		shutdown();
 		return;
@@ -171,7 +173,7 @@ void session::on_read(boost::beast::error_code ec, std::size_t) {
 	write_response(std::move(resp));
 }
 
-void session::write_response(net::http::response resp) {
+void session::write_response(const net::http::response &resp) {
 	auto be_resp = to_beast_response(resp, request_);
 	const bool close = !be_resp->keep_alive();
 	boost::beast::http::async_write(

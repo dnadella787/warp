@@ -18,7 +18,6 @@
 
 #include "warp/db/postgres/connection_pool.hpp"
 
-
 namespace warp::db::postgres {
 
 class connection_pool::impl : public std::enable_shared_from_this<impl> {
@@ -42,8 +41,7 @@ public:
 			    auto allocator = boost::asio::get_associated_allocator(*handler_ptr);
 			    auto executor = boost::asio::get_associated_executor(*handler_ptr, self->completion_executor_);
 			    boost::asio::post(
-			        self->workers_,
-			        [self, sql = std::move(sql), handler_ptr, executor, allocator]() mutable {
+			        self->workers_, [self, sql = std::move(sql), handler_ptr, executor, allocator]() mutable {
 				        std::exception_ptr eptr;
 				        result res;
 				        try {
@@ -53,14 +51,12 @@ public:
 				        }
 				        boost::asio::dispatch(boost::asio::bind_allocator(
 				            allocator,
-				            boost::asio::bind_executor(
-				                executor,
-				                [handler_ptr, eptr, res = std::move(res)]() mutable {
-					                if (eptr) {
-						                std::rethrow_exception(eptr);
-					                }
-					                (*handler_ptr)(std::move(res));
-				                })));
+				            boost::asio::bind_executor(executor, [handler_ptr, eptr, res = std::move(res)]() mutable {
+					            if (eptr) {
+						            std::rethrow_exception(eptr);
+					            }
+					            (*handler_ptr)(std::move(res));
+				            })));
 			        });
 		    },
 		    std::forward<CompletionToken>(token));

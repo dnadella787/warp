@@ -60,7 +60,7 @@ public:
 
 	private:
 		friend class server;
-		explicit controller(const std::shared_ptr<impl>& impl);
+		explicit controller(const std::shared_ptr<impl> &impl);
 		std::weak_ptr<impl> impl_;
 	};
 

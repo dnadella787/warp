@@ -6,36 +6,20 @@ io_context_pool::io_context_pool(std::size_t pool_size) {
 	if (pool_size == 0) {
 		pool_size = 1;
 	}
-	contexts_.reserve(pool_size);
-	guards_.reserve(pool_size);
-	for (std::size_t i = 0; i < pool_size; ++i) {
-		auto ctx = std::make_unique<boost::asio::io_context>();
-		// use work guards so that ctx.run() doesn't exit when there are no handlers queued up
-		guards_.push_back(std::make_unique<work_guard>(boost::asio::make_work_guard(*ctx)));
-		contexts_.push_back(std::move(ctx));
-	}
+	// provide concurrency hint so io_context is aware of the underlying set of threads
+	// instead of having to wrangle with multiple io_context objects ourselves
+	pool_size_ = pool_size;
+	ioctx_ = std::make_unique<io_context>(pool_size);
+	guard_ = std::make_unique<executor_work_guard<io_context::executor_type>>(make_work_guard(*ioctx_));
+	threads_.reserve(pool_size);
 }
 
 io_context_pool::~io_context_pool() {
 	stop();
 }
 
-boost::asio::io_context &io_context_pool::next() {
-	// use std::memory_order_relaxed bc we dont need acquire/release since next_ does
-	// not indicate the state of any other variable to calling threads, it just returns
-	// the next boost::asio::io_context in a round robin manner. All we need is an
-	// increment of next_ in a single indivisible step.
-	//
-	// std::size_t guarantees wrap around overflow behavior so we don't have to worry
-	// about the size_t max value. Plus the max is like 2^64 so we need billions of
-	// requests to reach the wrap around... although a wrap around may cause next() to
-	// repeat ctx w/o a full loop if 2^64 - 1 % contexts_.size() != contexts_.size() - 1
-	//
-	// Also note that we do not check whether is pool has started up or not since it is
-	// possible to create tasks on the io_contexts without starting them. The tasks would
-	// just execute after they are started.
-	auto idx = next_.fetch_add(1, std::memory_order_relaxed);
-	return *contexts_[idx % contexts_.size()];
+io_context &io_context_pool::get() const noexcept {
+	return *ioctx_;
 }
 
 void io_context_pool::run() {
@@ -45,9 +29,8 @@ void io_context_pool::run() {
 	if (running_.exchange(true, std::memory_order_acq_rel)) {
 		return;
 	}
-	threads_.reserve(contexts_.size());
-	for (auto &ctx : contexts_) {
-		threads_.emplace_back([&ctx = *ctx]() { ctx.run(); });
+	for (std::size_t i = 0; i < pool_size_; i++) {
+		threads_.emplace_back([&ctx = *ioctx_]() { ctx.run(); });
 	}
 }
 
@@ -64,15 +47,12 @@ void io_context_pool::stop() {
 	//
 	// TODO: Maybe skip ctx->stop() and just just do guard->reset() and t.join() since
 	// removing the guard will make the ctx.run() exit once all queued up tasks are
-	// completed and the acceptor is closed first in the server_impl class (so no more
+	// completed since the acceptor is closed first in the server_impl class (so no more
 	// request handlers can be queued up). It will increase server shutdown time and may
-	// cause deadlock if a request queues up more async_accept's but provides a better
-	for (auto &guard : guards_) {
-		guard->reset();
-	}
-	for (auto &ctx : contexts_) {
-		ctx->stop();
-	}
+	// cause deadlock if a request queues up more async_accept's but provides a graceful
+	// shutdown experience
+	guard_->reset();
+	ioctx_->stop();
 	for (auto &t : threads_) {
 		if (t.joinable()) {
 			t.join();

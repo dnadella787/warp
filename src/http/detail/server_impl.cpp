@@ -73,7 +73,15 @@ void server::impl::stop() {
 }
 
 void server::impl::do_accept() {
-	// check if server is running, if it is, then ...
+	// check if server is running, if it is, then:
+	// 1. start the event loop and asynchronously wait for new TCP connection
+	// 2. create a session that consumes the socket and path/handler registry
+	// 3. start the session (which parses the buffer from the socket, maps it to a
+	//    handler, executes the handler, and ultimately returns a response back on
+	//    the same socket (the strand is created at the session level and the tcp_stream
+	//    is directly bound to it so the events for a request execute serially)
+	// 4. accept the next connection
+	//
 	// do_accept() is read only on the running_ flag which is why it
 	// only needs to acquire the value from producers that r/w like
 	// run() and stop()
@@ -81,7 +89,6 @@ void server::impl::do_accept() {
 		return;
 	}
 	acceptor_->async_accept(
-	    boost::asio::make_strand(pool_.next()),
 	    [self = shared_from_this()](boost::system::error_code ec, boost::asio::ip::tcp::socket socket) {
 		    if (!ec) {
 			    std::make_shared<detail::session>(std::move(socket), self->routes_)->start();

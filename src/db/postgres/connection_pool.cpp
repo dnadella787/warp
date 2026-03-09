@@ -9,9 +9,11 @@
 
 namespace warp::db::postgres {
 
-connection_pool::connection_pool(executor_type completion_executor, connection_config config, std::size_t max_connections,
-    std::size_t worker_threads)
-    : impl_(std::make_shared<impl>(std::move(completion_executor), std::move(config), max_connections, worker_threads)) {}
+connection_pool::connection_pool(executor_type completion_executor, connection_config config,
+                                 std::size_t max_connections, std::size_t worker_threads)
+    : impl_(
+          std::make_shared<impl>(std::move(completion_executor), std::move(config), max_connections, worker_threads)) {
+}
 
 connection_pool::connection_pool(connection_pool &&) noexcept = default;
 connection_pool &connection_pool::operator=(connection_pool &&) noexcept = default;
@@ -49,4 +51,3 @@ std::size_t connection_pool::capacity() const noexcept {
 }
 
 } // namespace warp::db::postgres
-

@@ -6,6 +6,7 @@
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
 
+#include "../../../../../../../opt/homebrew/Cellar/boost/1.90.0_1/include/boost/asio/strand.hpp"
 #include "warp/net/http/response.hpp"
 #include "../../net/router/registry.hpp"
 
@@ -19,8 +20,8 @@ public:
 
 private:
 	void read();
-	void on_read(boost::beast::error_code ec, std::size_t bytes_transferred);
-	void write_response(warp::net::http::response resp);
+	void on_read(const boost::beast::error_code &ec, std::size_t bytes_transferred);
+	void write_response(const net::http::response &resp);
 	void on_write(boost::beast::error_code ec, std::size_t bytes_transferred, bool close);
 	void shutdown();
 
