@@ -53,15 +53,7 @@ void server::impl::stop() {
 		return;
 	}
 
-	guard_.reset();
-	io_ctx_.stop();
-	for (auto &t : threads_) {
-		if (t.joinable()) {
-			t.join();
-		}
-	}
-	threads_.clear();
-	running_.store(false);
+	stop_io_ctx();
 }
 
 void server::impl::do_accept() {
@@ -104,7 +96,15 @@ void server::impl::start_runner_threads() {
 	}
 }
 
-void server::impl::stop_runner_threads() {
+void server::impl::stop_io_ctx() {
+	guard_.reset();
+	io_ctx_.stop();
+	for (auto &t : threads_) {
+		if (t.joinable()) {
+			t.join();
+		}
+	}
+	threads_.clear();
 }
 
 } // namespace warp::http

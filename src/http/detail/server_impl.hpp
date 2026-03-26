@@ -22,7 +22,7 @@ public:
 private:
 	void do_accept();
 	void start_runner_threads();
-	void stop_runner_threads();
+	void stop_io_ctx();
 
 	boost::asio::io_context io_ctx_;
 	detail::listener listener_;

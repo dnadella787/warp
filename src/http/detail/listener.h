@@ -1,11 +1,13 @@
 # pragma once
 #include <boost/beast/core.hpp>
 
+#include "../../net/router/registry.hpp"
+
 namespace warp::http::detail {
 
 class listener : public std::enable_shared_from_this<listener> {
 public:
-    listener::listener(boost::asio::io_context& ioc, const std::string& address, unsigned short port);
+    listener::listener(boost::asio::io_context& ioc, net::router::registry &registry, const std::string& address, unsigned short port);
 
     void run();
 private:
@@ -15,6 +17,7 @@ private:
 
     boost::asio::io_context& ioc_;
     boost::asio::ip::tcp::acceptor acceptor_;
+    net::router::registry registry_;
 };
 
 }

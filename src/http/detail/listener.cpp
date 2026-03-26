@@ -12,8 +12,8 @@
 
 namespace warp::http::detail {
 
-listener::listener(boost::asio::io_context &ioc, const std::string& address, const unsigned short port)
-    : ioc_(ioc), acceptor_(boost::asio::make_strand(ioc)) {
+listener::listener(boost::asio::io_context &ioc,  net::router::registry &registry, const std::string& address, const unsigned short port)
+    : ioc_(ioc), registry_(registry), acceptor_(boost::asio::make_strand(ioc)) {
 	auto const addr = boost::asio::ip::make_address(address);
 	auto const endpoint = boost::asio::ip::tcp::endpoint{addr, port};
 	boost::beast::error_code ec;
@@ -69,13 +69,12 @@ void listener::on_accept(boost::beast::error_code ec, boost::asio::ip::tcp::sock
 	}
 	else
 	{
-		// Create the http session and run it
-		std::make_shared<detail::session>(
-			std::move(socket),
-			doc_root_)->run();
+		// Create the http session and start it
+		std::make_shared<session>(std::move(socket), registry_)->start();
 	}
 
 	// Accept another connection
 	do_accept();
 }
-} // namespace warp::http
+
+} // namespace warp::http::detail
