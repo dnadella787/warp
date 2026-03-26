@@ -45,20 +45,13 @@ listener::listener(boost::asio::io_context &ioc,  net::router::registry &registr
 
 void listener::run() {
 	// We need to be executing within a strand to perform async operations
-	// on the I/O objects in this session. Although not strictly necessary
-	// for single-threaded contexts, this example code is written to be
-	// thread-safe by default.
+	// on the I/O objects in this session.
 	boost::asio::dispatch(acceptor_.get_executor(), boost::beast::bind_front_handler(&listener::do_accept, this->shared_from_this()));
-}
-
-void listener::fail(boost::beast::error_code &ec) {
-	std::cerr << ec.message() << std::endl;
-	throw std::runtime_error("Error in TCP listener: " + ec.message());
 }
 
 void listener::do_accept() {
 	// The new connection gets its own strand
-	acceptor_.async_accept(net::make_strand(ioc_), boost::beast::bind_front_handler(&listener::on_accept, shared_from_this()));
+	acceptor_.async_accept(boost::asio::make_strand(ioc_), boost::beast::bind_front_handler(&listener::on_accept, shared_from_this()));
 }
 
 void listener::on_accept(boost::beast::error_code ec, boost::asio::ip::tcp::socket socket)
@@ -77,4 +70,8 @@ void listener::on_accept(boost::beast::error_code ec, boost::asio::ip::tcp::sock
 	do_accept();
 }
 
+void listener::fail(boost::beast::error_code &ec) {
+	std::cerr << ec.message() << std::endl;
+	throw std::runtime_error("Error in TCP listener: " + ec.message());
+}
 } // namespace warp::http::detail

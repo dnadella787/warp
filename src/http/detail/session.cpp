@@ -133,23 +133,39 @@ std::shared_ptr<beast_response> to_beast_response(const net::http::response &res
 	return be_resp;
 }
 
-session::session(boost::asio::ip::tcp::socket socket, net::router::registry &routes)
-    : stream_(boost::asio::make_strand(socket.get_executor())), routes_(routes) {
-	// tcp_stream executor = strand_executor, set its socket
-	stream_.socket() = std::move(socket);
-}
+// The socket executor is already a strand from the listener::do_accept method
+session::session(boost::asio::ip::tcp::socket&& socket, net::router::registry &routes)
+    : stream_(std::move(socket)), routes_(routes) {}
 
 void session::start() {
-	read();
+	// We need to be executing within a strand to perform async operations
+	// on the I/O objects in this session
+	boost::asio::dispatch(
+		stream_.get_executor(),
+		boost::beast::bind_front_handler(
+			&session::do_read,
+			this->shared_from_this()));
 }
 
-void session::read() {
-	request_ = {};
+void session::do_read() {
+	// Construct a new parser for each message
+	parser_.emplace();
+
+	// Apply a reasonable limit to the allowed size
+	// of the body in bytes to prevent abuse.
+	parser_->body_limit(10000);
+
+	// Set the timeout.
+	stream_.expires_after(std::chrono::seconds(30));
+
+	// Read a request using the parser-oriented interface
 	boost::beast::http::async_read(
-	    stream_, buffer_, request_,
-	    [self = shared_from_this()](boost::beast::error_code ec, std::size_t bytes_transferred) {
-		    self->on_read(ec, bytes_transferred);
-	    });
+		stream_,
+		buffer_,
+		*parser_,
+		boost::beast::bind_front_handler(
+			&session::on_read,
+			shared_from_this()));
 }
 
 void session::on_read(const boost::beast::error_code &ec, std::size_t) {
@@ -171,6 +187,35 @@ void session::on_read(const boost::beast::error_code &ec, std::size_t) {
 	}
 
 	write_response(std::move(resp));
+}
+
+void on_read(boost::beast::error_code ec, std::size_t bytes_transferred)
+{
+	boost::ignore_unused(bytes_transferred);
+
+	// This means they closed the connection
+	if(ec == http::error::end_of_stream)
+		return do_close();
+
+	if(ec)
+		return fail(ec, "read");
+
+	// See if it is a WebSocket Upgrade
+	if(websocket::is_upgrade(parser_->get()))
+	{
+		// Create a websocket session, transferring ownership
+		// of both the socket and the HTTP request.
+		std::make_shared<websocket_session>(
+			stream_.release_socket())->do_accept(parser_->release());
+		return;
+	}
+
+	// Send the response
+	queue_write(handle_request(*doc_root_, parser_->release()));
+
+	// If we aren't at the queue limit, try to pipeline another request
+	if (response_queue_.size() < queue_limit)
+		do_read();
 }
 
 void session::write_response(const net::http::response &resp) {
