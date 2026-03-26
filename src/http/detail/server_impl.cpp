@@ -1,26 +1,20 @@
 #include "server_impl.hpp"
 
+#include <iostream>
 #include <boost/asio/dispatch.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/strand.hpp>
 
 #include "session.hpp"
 #include "warp/http/server.hpp"
-#include "../../net/core/io_context_pool.hpp"
 
 namespace warp::http {
 
-server::impl::impl(std::string address, std::uint16_t port, std::size_t workers, net::router::registry routes)
-    : address_(std::move(address)), port_(port), pool_(workers),
-      accept_ctx_(std::make_shared<boost::asio::io_context>()), routes_(routes) {
-	boost::asio::ip::tcp::resolver resolver(*accept_ctx_);
-	auto endpoints = resolver.resolve(address_, std::to_string(port_));
-	acceptor_ = std::make_unique<boost::asio::ip::tcp::acceptor>(*accept_ctx_);
-	boost::asio::ip::tcp::endpoint endpoint = *endpoints.begin();
-	acceptor_->open(endpoint.protocol());
-	acceptor_->set_option(boost::asio::socket_base::reuse_address(true));
-	acceptor_->bind(endpoint);
-	acceptor_->listen();
+server::impl::impl(const std::string& address, unsigned short port, std::size_t workers, const net::router::registry& routes)
+	: io_ctx_(static_cast<int>(pool_size_)), listener_(io_ctx_, address, port),
+      guard_(boost::asio::make_work_guard(io_ctx_)), pool_size_(workers ? workers : 1),
+	   routes_(routes) {
+	threads_.reserve(pool_size_);
 }
 
 /*
@@ -44,10 +38,10 @@ void server::impl::run() {
 	if (running_.exchange(true, std::memory_order_acq_rel)) {
 		return;
 	}
+	io_ctx_.run();
+	start_runner_threads();
 	do_accept();
-	pool_.run();
-	accept_ctx_->run();
-	running_.store(false);
+	running_.store(true);
 }
 
 void server::impl::stop() {
@@ -58,18 +52,16 @@ void server::impl::stop() {
 	if (!running_.exchange(false, std::memory_order_acq_rel)) {
 		return;
 	}
-	boost::asio::dispatch(*accept_ctx_, [acceptor = acceptor_.get()]() {
-		if (!acceptor) {
-			return;
+
+	guard_.reset();
+	io_ctx_.stop();
+	for (auto &t : threads_) {
+		if (t.joinable()) {
+			t.join();
 		}
-		boost::system::error_code ec;
-		acceptor->cancel(ec);
-		acceptor->close(ec);
-	});
-	// Stop accepting new requests so that we can gracefully complete all existing
-	// requests queued into io_context_pool
-	accept_ctx_->stop();
-	pool_.stop();
+	}
+	threads_.clear();
+	running_.store(false);
 }
 
 void server::impl::do_accept() {
@@ -97,13 +89,22 @@ void server::impl::do_accept() {
 	    });
 }
 
-std::uint16_t server::impl::port() const {
-	boost::system::error_code ec;
-	auto ep = acceptor_ ? acceptor_->local_endpoint(ec) : boost::asio::ip::tcp::endpoint {};
-	if (ec) {
-		return 0;
+void server::impl::start_runner_threads() {
+	for (std::size_t i = 0; i < pool_size_; i++) {
+		threads_.emplace_back([&ctx = io_ctx_]() {
+			for (;;) {
+				try {
+					ctx.run();
+					break;
+				} catch (const std::exception &ex) {
+					std::cerr << "worker error: " << ex.what() << std::endl;
+				}
+			}
+		});
 	}
-	return ep.port();
+}
+
+void server::impl::stop_runner_threads() {
 }
 
 } // namespace warp::http

@@ -11,14 +11,14 @@ namespace warp::net::core {
 
 using namespace boost::asio;
 
-class io_context_pool {
+class io_ctx_runners {
 public:
-	explicit io_context_pool(std::size_t pool_size = std::thread::hardware_concurrency());
-	io_context_pool(const io_context_pool &) = delete;
-	io_context_pool &operator=(const io_context_pool &) = delete;
-	io_context_pool(io_context_pool &&) = delete;
-	io_context_pool &operator=(io_context_pool &&) = delete;
-	~io_context_pool();
+	explicit io_ctx_runners(std::shared_ptr<io_context> io_context, std::size_t pool_size);
+	io_ctx_runners(const io_ctx_runners &) = delete;
+	io_ctx_runners &operator=(const io_ctx_runners &) = delete;
+	io_ctx_runners(io_ctx_runners &&) = delete;
+	io_ctx_runners &operator=(io_ctx_runners &&) = delete;
+	~io_ctx_runners();
 
 	[[nodiscard]] io_context &get() const noexcept;
 	void run();
@@ -26,7 +26,7 @@ public:
 
 private:
 	std::size_t pool_size_;
-	std::unique_ptr<io_context> ioctx_;
+	std::shared_ptr<io_context> io_ctx_;
 	std::unique_ptr<executor_work_guard<io_context::executor_type>> guard_;
 	std::vector<std::thread> threads_;
 	std::atomic<bool> running_ {false};
