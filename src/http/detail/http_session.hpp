@@ -31,6 +31,8 @@ private:
 	// The parser is stored in an optional container so we can
 	// construct it from scratch it at the beginning of each new message.
 	std::optional<boost::beast::http::request_parser<boost::beast::http::string_body>> parser_;
+
+	constexpr std::string component{"http_session"};
 };
 
 } // namespace warp::http::detail

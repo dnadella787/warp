@@ -17,6 +17,8 @@ private:
     boost::asio::io_context& ioc_;
     boost::asio::ip::tcp::acceptor acceptor_;
     net::router::registry& registry_;
+
+    constexpr std::string COMPONENT{"listener"};
 };
 
 }

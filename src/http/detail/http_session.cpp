@@ -6,6 +6,7 @@
 #include <boost/beast/http.hpp>
 #include <boost/beast/websocket.hpp>
 
+#include "../../util/fail.h"
 #include "warp/net/http/request.hpp"
 
 namespace beast = boost::beast;                 // from <boost/beast.hpp>
@@ -204,7 +205,7 @@ void http_session::on_read(beast::error_code ec, std::size_t bytes_transferred)
 		return shutdown();
 
 	if(ec)
-		fail(ec);
+		util::fail(ec, component, );
 
 	// See if it is a WebSocket Upgrade
 	if(websocket::is_upgrade(parser_->get()))

@@ -4,11 +4,10 @@
 
 #include "listener.h"
 
-#include <iostream>
-
 #include <boost/asio/strand.hpp>
 
 #include "http_session.hpp"
+#include "../../util/fail.h"
 
 namespace warp::http::detail {
 
@@ -21,25 +20,25 @@ listener::listener(boost::asio::io_context &ioc,  net::router::registry &registr
 	// Open the acceptor
 	acceptor_.open(endpoint.protocol(), ec);
 	if (ec) {
-		util::fail_except(ec, "open");
+		util::fail_except(ec, COMPONENT, "open");
 	}
 
 	// Allow address reuse
 	acceptor_.set_option(boost::asio::socket_base::reuse_address(true), ec);
 	if (ec) {
-		fail_except(ec, "set_option{reuse_address=true}");
+		util::fail_except(ec, COMPONENT,  "set_option{reuse_address=true}");
 	}
 
 	// Bind to the server address
 	acceptor_.bind(endpoint, ec);
 	if (ec) {
-		fail_except(ec, "bind");
+		util::fail_except(ec, COMPONENT, "bind");
 	}
 
 	// Start listening for connections
 	acceptor_.listen(boost::asio::socket_base::max_listen_connections, ec);
 	if (ec)
-		fail_except(ec, "listen");
+		util::fail_except(ec, COMPONENT, "listen");
 }
 
 void listener::run() {
@@ -55,7 +54,7 @@ void listener::do_accept() {
 
 void listener::on_accept(boost::beast::error_code ec, boost::asio::ip::tcp::socket socket){
 	if(ec)
-		fail(ec, "on_accept");
+		util::fail(ec, COMPONENT, "on_accept");
 	else
 		std::make_shared<http_session>(std::move(socket), registry_)->start();
 
