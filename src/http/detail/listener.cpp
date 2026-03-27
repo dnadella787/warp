@@ -11,10 +11,11 @@
 
 namespace warp::http::detail {
 
-listener::listener(boost::asio::io_context &ioc,  net::router::registry &registry, const std::string& address, const unsigned short port)
+listener::listener(boost::asio::io_context &ioc, net::router::registry &registry, const std::string &address,
+                   const unsigned short port)
     : ioc_(ioc), registry_(registry), acceptor_(boost::asio::make_strand(ioc)) {
 	auto const addr = boost::asio::ip::make_address(address);
-	auto const endpoint = boost::asio::ip::tcp::endpoint{addr, port};
+	auto const endpoint = boost::asio::ip::tcp::endpoint {addr, port};
 	boost::beast::error_code ec;
 
 	// Open the acceptor
@@ -26,7 +27,7 @@ listener::listener(boost::asio::io_context &ioc,  net::router::registry &registr
 	// Allow address reuse
 	acceptor_.set_option(boost::asio::socket_base::reuse_address(true), ec);
 	if (ec) {
-		util::fail_except(ec, COMPONENT,  "set_option{reuse_address=true}");
+		util::fail_except(ec, COMPONENT, "set_option{reuse_address=true}");
 	}
 
 	// Bind to the server address
@@ -44,16 +45,18 @@ listener::listener(boost::asio::io_context &ioc,  net::router::registry &registr
 void listener::run() {
 	// We need to be executing within a strand to perform async operations
 	// on the I/O objects in this session.
-	boost::asio::dispatch(acceptor_.get_executor(), boost::beast::bind_front_handler(&listener::do_accept, this->shared_from_this()));
+	boost::asio::dispatch(acceptor_.get_executor(),
+	                      boost::beast::bind_front_handler(&listener::do_accept, this->shared_from_this()));
 }
 
 void listener::do_accept() {
 	// The new connection gets its own strand
-	acceptor_.async_accept(boost::asio::make_strand(ioc_), boost::beast::bind_front_handler(&listener::on_accept, shared_from_this()));
+	acceptor_.async_accept(boost::asio::make_strand(ioc_),
+	                       boost::beast::bind_front_handler(&listener::on_accept, shared_from_this()));
 }
 
-void listener::on_accept(boost::beast::error_code ec, boost::asio::ip::tcp::socket socket){
-	if(ec)
+void listener::on_accept(boost::beast::error_code ec, boost::asio::ip::tcp::socket socket) {
+	if (ec)
 		util::fail(ec, COMPONENT, "on_accept");
 	else
 		std::make_shared<http_session>(std::move(socket), registry_)->start();

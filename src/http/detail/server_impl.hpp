@@ -8,17 +8,17 @@
 
 #include "listener.h"
 #include "warp/http/server.hpp"
-#include "../../net/core/io_ctx_runners.hpp"
 #include "../../net/router/registry.hpp"
 
 namespace warp::http {
 
 class server::impl : public std::enable_shared_from_this<impl> {
 public:
-	impl(const std::string& address, std::uint16_t port, std::size_t workers, const net::router::registry& routes);
+	impl(const std::string &address, std::uint16_t port, std::size_t workers, const net::router::registry &routes);
 
 	void run();
 	void stop();
+
 private:
 	void start_runner_threads();
 	void stop_io_ctx();

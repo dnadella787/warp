@@ -9,10 +9,10 @@
 #include "../../util/fail.h"
 #include "warp/net/http/request.hpp"
 
-namespace beast = boost::beast;                 // from <boost/beast.hpp>
-namespace websocket = beast::websocket;         // from <boost/beast/websocket.hpp>
-namespace net = boost::asio;                    // from <boost/asio.hpp>
-using tcp = boost::asio::ip::tcp;               // from <boost/asio/ip/tcp.hpp>
+namespace beast = boost::beast;         // from <boost/beast.hpp>
+namespace websocket = beast::websocket; // from <boost/beast/websocket.hpp>
+namespace net = boost::asio;            // from <boost/asio.hpp>
+using tcp = boost::asio::ip::tcp;       // from <boost/asio/ip/tcp.hpp>
 
 namespace warp::http::detail {
 
@@ -141,17 +141,15 @@ std::shared_ptr<beast_response> to_beast_response(const net::http::response &res
 }
 
 // The socket executor is already a strand from the listener::do_accept method
-http_session::http_session(boost::asio::ip::tcp::socket&& socket, net::router::registry &routes)
-    : stream_(std::move(socket)), routes_(routes) {}
+http_session::http_session(boost::asio::ip::tcp::socket &&socket, net::router::registry &routes)
+    : stream_(std::move(socket)), routes_(routes) {
+}
 
 void http_session::start() {
 	// We need to be executing within a strand to perform async operations
 	// on the I/O objects in this session
-	boost::asio::dispatch(
-		stream_.get_executor(),
-		beast::bind_front_handler(
-			&http_session::do_read,
-			this->shared_from_this()));
+	boost::asio::dispatch(stream_.get_executor(),
+	                      beast::bind_front_handler(&http_session::do_read, this->shared_from_this()));
 }
 
 void http_session::do_read() {
@@ -166,13 +164,8 @@ void http_session::do_read() {
 	stream_.expires_after(std::chrono::seconds(30));
 
 	// Read a request using the parser-oriented interface
-	beast::http::async_read(
-		stream_,
-		buffer_,
-		*parser_,
-		beast::bind_front_handler(
-			&http_session::on_read,
-			shared_from_this()));
+	beast::http::async_read(stream_, buffer_, *parser_,
+	                        beast::bind_front_handler(&http_session::on_read, shared_from_this()));
 }
 
 void http_session::on_read(const beast::error_code &ec, std::size_t) {
@@ -196,24 +189,21 @@ void http_session::on_read(const beast::error_code &ec, std::size_t) {
 	write_response(std::move(resp));
 }
 
-void http_session::on_read(beast::error_code ec, std::size_t bytes_transferred)
-{
+void http_session::on_read(beast::error_code ec, std::size_t bytes_transferred) {
 	boost::ignore_unused(bytes_transferred);
 
 	// This means they closed the connection
-	if(ec == beast::http::error::end_of_stream)
+	if (ec == beast::http::error::end_of_stream)
 		return shutdown();
 
-	if(ec)
+	if (ec)
 		util::fail(ec, component, );
 
 	// See if it is a WebSocket Upgrade
-	if(websocket::is_upgrade(parser_->get()))
-	{
+	if (websocket::is_upgrade(parser_->get())) {
 		// Create a websocket session, transferring ownership
 		// of both the socket and the HTTP request.
-		std::make_shared<websocket_session>(
-			stream_.release_socket())->do_accept(parser_->release());
+		std::make_shared<websocket_session>(stream_.release_socket())->do_accept(parser_->release());
 		return;
 	}
 

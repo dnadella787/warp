@@ -6,7 +6,6 @@
 #include <string>
 #include <string_view>
 
-
 int main() {
 	auto server = warp::http::server_builder()
 	                  .address("127.0.0.1")

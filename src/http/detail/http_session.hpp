@@ -13,9 +13,10 @@ namespace warp::http::detail {
 
 class http_session : public std::enable_shared_from_this<http_session> {
 public:
-	http_session(boost::asio::ip::tcp::socket&& socket, net::router::registry &routes);
+	http_session(boost::asio::ip::tcp::socket &&socket, net::router::registry &routes);
 
 	void start();
+
 private:
 	void do_read();
 	void on_read(const boost::beast::error_code &ec, std::size_t bytes_transferred);
@@ -32,7 +33,7 @@ private:
 	// construct it from scratch it at the beginning of each new message.
 	std::optional<boost::beast::http::request_parser<boost::beast::http::string_body>> parser_;
 
-	constexpr std::string component{"http_session"};
+	constexpr std::string component {"http_session"};
 };
 
 } // namespace warp::http::detail
