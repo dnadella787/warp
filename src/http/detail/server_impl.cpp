@@ -5,13 +5,13 @@
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/strand.hpp>
 
-#include "session.hpp"
+#include "http_session.hpp"
 #include "warp/http/server.hpp"
 
 namespace warp::http {
 
 server::impl::impl(const std::string& address, unsigned short port, std::size_t workers, const net::router::registry& routes)
-	: io_ctx_(static_cast<int>(pool_size_)), listener_(io_ctx_, address, port),
+	: io_ctx_(static_cast<int>(pool_size_)), listener_(io_ctx_, routes_, address, port),
       guard_(boost::asio::make_work_guard(io_ctx_)), pool_size_(workers ? workers : 1),
 	   routes_(routes) {
 	threads_.reserve(pool_size_);
@@ -19,29 +19,22 @@ server::impl::impl(const std::string& address, unsigned short port, std::size_t 
 
 /*
  std::atomic<bool> running_ checked via std::atomic::exchange(true/false, std::memory_order_acq_rel)
- guarantees that run()/stop() check the value and update the server resources (like thread pool/acceptor)
- accordingly before propagating the change downstream to an acquire on another thread (e.g. run()/stop()
- or do_accept()).
+ guarantees that run()/stop() check the value and update the server resources (like thread pool/listener)
+ accordingly before propagating the change downstream to an acquire on another thread (e.g. run()/stop()).
 
- If thread A calls stop() w/ acq_rel and thread B calls do_accept with acquire. The compiler
- is forbidden from moving something like acceptor->close() to after running is set to false b/c
- the compiler will enforce a happens-before relationship between stop and do_accept across
- the threads
-
- TLDR: run/stop are r/w, do_accept is r only
+ TLDR: run/stop are r/w
  */
 
 void server::impl::run() {
 	// try to start, if its already running just return early, use acq_rel
 	// b/c we want to acquire the current state and check if it in a non-running
-	// state, and then release it to consumers like do_accept()/stop()
+	// state, and then release it to consumers like listener::run()/stop()
 	if (running_.exchange(true, std::memory_order_acq_rel)) {
 		return;
 	}
 	io_ctx_.run();
 	start_runner_threads();
-	do_accept();
-	running_.store(true);
+	listener_.run();
 }
 
 void server::impl::stop() {
@@ -54,31 +47,6 @@ void server::impl::stop() {
 	}
 
 	stop_io_ctx();
-}
-
-void server::impl::do_accept() {
-	// check if server is running, if it is, then:
-	// 1. start the event loop and asynchronously wait for new TCP connection
-	// 2. create a session that consumes the socket and path/handler registry
-	// 3. start the session (which parses the buffer from the socket, maps it to a
-	//    handler, executes the handler, and ultimately returns a response back on
-	//    the same socket (the strand is created at the session level and the tcp_stream
-	//    is directly bound to it so the events for a request execute serially)
-	// 4. accept the next connection
-	//
-	// do_accept() is read only on the running_ flag which is why it
-	// only needs to acquire the value from producers that r/w like
-	// run() and stop()
-	if (!running_.load(std::memory_order_acquire)) {
-		return;
-	}
-	acceptor_->async_accept(
-	    [self = shared_from_this()](boost::system::error_code ec, boost::asio::ip::tcp::socket socket) {
-		    if (!ec) {
-			    std::make_shared<detail::session>(std::move(socket), self->routes_)->start();
-		    }
-		    self->do_accept();
-	    });
 }
 
 void server::impl::start_runner_threads() {

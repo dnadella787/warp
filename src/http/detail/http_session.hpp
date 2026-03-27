@@ -11,15 +11,15 @@
 
 namespace warp::http::detail {
 
-class session : public std::enable_shared_from_this<session> {
+class http_session : public std::enable_shared_from_this<http_session> {
 public:
-	session(boost::asio::ip::tcp::socket&& socket, net::router::registry &routes);
+	http_session(boost::asio::ip::tcp::socket&& socket, net::router::registry &routes);
 
 	void start();
-
 private:
 	void do_read();
 	void on_read(const boost::beast::error_code &ec, std::size_t bytes_transferred);
+	void on_read(boost::beast::error_code ec, std::size_t bytes_transferred);
 	void write_response(const net::http::response &resp);
 	void on_write(boost::beast::error_code ec, std::size_t bytes_transferred, bool close);
 	void shutdown();

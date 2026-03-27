@@ -20,7 +20,6 @@ public:
 	void run();
 	void stop();
 private:
-	void do_accept();
 	void start_runner_threads();
 	void stop_io_ctx();
 

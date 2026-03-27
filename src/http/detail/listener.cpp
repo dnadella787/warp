@@ -8,7 +8,7 @@
 
 #include <boost/asio/strand.hpp>
 
-#include "session.hpp"
+#include "http_session.hpp"
 
 namespace warp::http::detail {
 
@@ -21,26 +21,25 @@ listener::listener(boost::asio::io_context &ioc,  net::router::registry &registr
 	// Open the acceptor
 	acceptor_.open(endpoint.protocol(), ec);
 	if (ec) {
-		fail(ec);
+		fail_except(ec, "open");
 	}
 
 	// Allow address reuse
 	acceptor_.set_option(boost::asio::socket_base::reuse_address(true), ec);
 	if (ec) {
-		fail(ec);
+		fail_except(ec, "set_option{reuse_address=true}");
 	}
 
 	// Bind to the server address
 	acceptor_.bind(endpoint, ec);
 	if (ec) {
-		fail(ec);
+		fail_except(ec, "bind");
 	}
 
 	// Start listening for connections
 	acceptor_.listen(boost::asio::socket_base::max_listen_connections, ec);
-	if (ec) {
-		fail(ec);
-	}
+	if (ec)
+		fail_except(ec, "listen");
 }
 
 void listener::run() {
@@ -54,24 +53,21 @@ void listener::do_accept() {
 	acceptor_.async_accept(boost::asio::make_strand(ioc_), boost::beast::bind_front_handler(&listener::on_accept, shared_from_this()));
 }
 
-void listener::on_accept(boost::beast::error_code ec, boost::asio::ip::tcp::socket socket)
-{
+void listener::on_accept(boost::beast::error_code ec, boost::asio::ip::tcp::socket socket){
 	if(ec)
-	{
-		fail(ec);
-	}
+		fail(ec, "on_accept");
 	else
-	{
-		// Create the http session and start it
-		std::make_shared<session>(std::move(socket), registry_)->start();
-	}
+		std::make_shared<http_session>(std::move(socket), registry_)->start();
 
-	// Accept another connection
 	do_accept();
 }
 
-void listener::fail(boost::beast::error_code &ec) {
-	std::cerr << ec.message() << std::endl;
-	throw std::runtime_error("Error in TCP listener: " + ec.message());
+void listener::fail_except(boost::beast::error_code &ec, const std::string_view msg) {
+	fail(ec, msg);
+	throw new std::runtime_error(ec.message());
+}
+
+void listener::fail(boost::beast::error_code &ec, const std::string_view msg) {
+	std::cerr << "Error in TCP listener during " << msg << "operation:" << ec.message() << std::endl;
 }
 } // namespace warp::http::detail

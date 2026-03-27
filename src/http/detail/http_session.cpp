@@ -1,16 +1,22 @@
-#include "session.hpp"
+#include "http_session.hpp"
 
 #include <string_view>
 #include <unordered_map>
 
 #include <boost/beast/http.hpp>
+#include <boost/beast/websocket.hpp>
 
 #include "warp/net/http/request.hpp"
 
+namespace beast = boost::beast;                 // from <boost/beast.hpp>
+namespace websocket = beast::websocket;         // from <boost/beast/websocket.hpp>
+namespace net = boost::asio;                    // from <boost/asio.hpp>
+using tcp = boost::asio::ip::tcp;               // from <boost/asio/ip/tcp.hpp>
+
 namespace warp::http::detail {
 
-using beast_request = boost::beast::http::request<boost::beast::http::string_body>;
-using beast_response = boost::beast::http::response<boost::beast::http::string_body>;
+using beast_request = beast::http::request<beast::http::string_body>;
+using beast_response = beast::http::response<beast::http::string_body>;
 
 int hex_value(char c) {
 	if (c >= '0' && c <= '9')
@@ -71,8 +77,8 @@ std::unordered_map<std::string, std::string> parse_query(std::string_view query)
 	return params;
 }
 
-net::http::method map_method(boost::beast::http::verb v) {
-	using verb = boost::beast::http::verb;
+net::http::method map_method(beast::http::verb v) {
+	using verb = beast::http::verb;
 	switch (v) {
 	case verb::get:
 		return net::http::method::get;
@@ -118,8 +124,8 @@ std::shared_ptr<beast_response> to_beast_response(const net::http::response &res
 	be_resp->result(resp.status());
 	be_resp->body() = std::string(resp.body());
 	for (const auto &[key, value] : resp.header_map()) {
-		auto field = boost::beast::http::string_to_field(key);
-		if (field == boost::beast::http::field::unknown) {
+		auto field = beast::http::string_to_field(key);
+		if (field == beast::http::field::unknown) {
 			be_resp->set(key, value);
 		} else {
 			be_resp->set(field, value);
@@ -134,20 +140,20 @@ std::shared_ptr<beast_response> to_beast_response(const net::http::response &res
 }
 
 // The socket executor is already a strand from the listener::do_accept method
-session::session(boost::asio::ip::tcp::socket&& socket, net::router::registry &routes)
+http_session::http_session(boost::asio::ip::tcp::socket&& socket, net::router::registry &routes)
     : stream_(std::move(socket)), routes_(routes) {}
 
-void session::start() {
+void http_session::start() {
 	// We need to be executing within a strand to perform async operations
 	// on the I/O objects in this session
 	boost::asio::dispatch(
 		stream_.get_executor(),
-		boost::beast::bind_front_handler(
-			&session::do_read,
+		beast::bind_front_handler(
+			&http_session::do_read,
 			this->shared_from_this()));
 }
 
-void session::do_read() {
+void http_session::do_read() {
 	// Construct a new parser for each message
 	parser_.emplace();
 
@@ -159,17 +165,17 @@ void session::do_read() {
 	stream_.expires_after(std::chrono::seconds(30));
 
 	// Read a request using the parser-oriented interface
-	boost::beast::http::async_read(
+	beast::http::async_read(
 		stream_,
 		buffer_,
 		*parser_,
-		boost::beast::bind_front_handler(
-			&session::on_read,
+		beast::bind_front_handler(
+			&http_session::on_read,
 			shared_from_this()));
 }
 
-void session::on_read(const boost::beast::error_code &ec, std::size_t) {
-	if (ec == boost::beast::http::error::end_of_stream) {
+void http_session::on_read(const beast::error_code &ec, std::size_t) {
+	if (ec == beast::http::error::end_of_stream) {
 		shutdown();
 		return;
 	}
@@ -189,16 +195,16 @@ void session::on_read(const boost::beast::error_code &ec, std::size_t) {
 	write_response(std::move(resp));
 }
 
-void on_read(boost::beast::error_code ec, std::size_t bytes_transferred)
+void http_session::on_read(beast::error_code ec, std::size_t bytes_transferred)
 {
 	boost::ignore_unused(bytes_transferred);
 
 	// This means they closed the connection
-	if(ec == http::error::end_of_stream)
-		return do_close();
+	if(ec == beast::http::error::end_of_stream)
+		return shutdown();
 
 	if(ec)
-		return fail(ec, "read");
+		fail(ec);
 
 	// See if it is a WebSocket Upgrade
 	if(websocket::is_upgrade(parser_->get()))
@@ -218,17 +224,17 @@ void on_read(boost::beast::error_code ec, std::size_t bytes_transferred)
 		do_read();
 }
 
-void session::write_response(const net::http::response &resp) {
+void http_session::write_response(const net::http::response &resp) {
 	auto be_resp = to_beast_response(resp, request_);
 	const bool close = !be_resp->keep_alive();
-	boost::beast::http::async_write(
+	beast::http::async_write(
 	    stream_, *be_resp,
-	    [self = shared_from_this(), be_resp, close](boost::beast::error_code ec, std::size_t bytes_transferred) {
+	    [self = shared_from_this(), be_resp, close](beast::error_code ec, std::size_t bytes_transferred) {
 		    self->on_write(ec, bytes_transferred, close);
 	    });
 }
 
-void session::on_write(boost::beast::error_code ec, std::size_t, bool close) {
+void http_session::on_write(beast::error_code ec, std::size_t, bool close) {
 	if (ec) {
 		return;
 	}
@@ -239,11 +245,9 @@ void session::on_write(boost::beast::error_code ec, std::size_t, bool close) {
 	read();
 }
 
-void session::shutdown() {
+void http_session::shutdown() {
 	boost::system::error_code ec;
-	stream_.socket().shutdown(boost::asio::ip::tcp::socket::shutdown_send, ec);
-	if (ec) {
-	}
+	stream_.socket().shutdown(tcp::socket::shutdown_send, ec);
 }
 
 } // namespace warp::http::detail
