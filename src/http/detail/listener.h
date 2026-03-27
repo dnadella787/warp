@@ -14,9 +14,6 @@ private:
     void do_accept();
     void on_accept(boost::beast::error_code ec, boost::asio::ip::tcp::socket socket);
 
-    static void fail(boost::beast::error_code &ec, std::string_view msg);
-    static void fail_except(boost::beast::error_code &ec, std::string_view msg);
-
     boost::asio::io_context& ioc_;
     boost::asio::ip::tcp::acceptor acceptor_;
     net::router::registry& registry_;

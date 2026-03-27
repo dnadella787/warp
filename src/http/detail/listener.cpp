@@ -21,7 +21,7 @@ listener::listener(boost::asio::io_context &ioc,  net::router::registry &registr
 	// Open the acceptor
 	acceptor_.open(endpoint.protocol(), ec);
 	if (ec) {
-		fail_except(ec, "open");
+		util::fail_except(ec, "open");
 	}
 
 	// Allow address reuse
@@ -60,14 +60,5 @@ void listener::on_accept(boost::beast::error_code ec, boost::asio::ip::tcp::sock
 		std::make_shared<http_session>(std::move(socket), registry_)->start();
 
 	do_accept();
-}
-
-void listener::fail_except(boost::beast::error_code &ec, const std::string_view msg) {
-	fail(ec, msg);
-	throw new std::runtime_error(ec.message());
-}
-
-void listener::fail(boost::beast::error_code &ec, const std::string_view msg) {
-	std::cerr << "Error in TCP listener during " << msg << "operation:" << ec.message() << std::endl;
 }
 } // namespace warp::http::detail

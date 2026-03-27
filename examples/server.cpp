@@ -6,7 +6,6 @@
 #include <string>
 #include <string_view>
 
-#include "../../../../../opt/homebrew/Cellar/boost/1.90.0_1/include/boost/asio/io_context.hpp"
 
 int main() {
 	auto server = warp::http::server_builder()
@@ -29,7 +28,6 @@ int main() {
 		                         return warp::http::response::ok(boost::json::serialize(json));
 	                         })
 	                  .build();
-	boost::asio::io_context ioc {3};
 	std::cout << "Warp example server running on http://127.0.0.1:8080" << std::endl;
 	server.run();
 	return 0;
