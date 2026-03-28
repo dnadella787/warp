@@ -32,6 +32,10 @@ public:
 
 	void set_path_params(std::unordered_map<std::string, std::string> params);
 	[[nodiscard]] const std::unordered_map<std::string, std::string> &path_params() const noexcept;
+
+	void set_keep_alive(bool keep_alive_);
+	[[nodiscard]] bool keep_alive() const noexcept;
+
 	[[nodiscard]] std::optional<std::string_view> path_param(std::string_view key) const;
 	[[nodiscard]] boost::json::value json_body() const;
 	[[nodiscard]] std::optional<boost::json::value> try_json_body() const noexcept;
@@ -42,6 +46,7 @@ private:
 	std::string path_;
 	std::string body_;
 	headers headers_;
+	bool keep_alive_ {false};
 	std::unordered_map<std::string, std::string> path_params_;
 	std::unordered_map<std::string, std::string> query_params_;
 };
@@ -96,6 +101,15 @@ inline void request::set_path_params(std::unordered_map<std::string, std::string
 inline const std::unordered_map<std::string, std::string> &request::path_params() const noexcept {
 	return path_params_;
 }
+
+inline void request::set_keep_alive(bool keep_alive) {
+	keep_alive_ = keep_alive;
+}
+
+[[nodiscard]] inline bool request::keep_alive() const noexcept {
+	return keep_alive_;
+}
+
 
 inline std::optional<std::string_view> request::path_param(std::string_view key) const {
 	if (auto it = path_params_.find(std::string(key)); it != path_params_.end()) {

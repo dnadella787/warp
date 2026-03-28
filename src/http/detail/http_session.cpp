@@ -6,6 +6,7 @@
 #include <boost/beast/http.hpp>
 #include <boost/beast/websocket.hpp>
 
+#include "ws_session.h"
 #include "../../util/fail.h"
 #include "warp/net/http/request.hpp"
 
@@ -116,12 +117,13 @@ net::http::request to_request(const beast_request &req) {
 	net::http::request warp_req(map_method(req.method()), std::move(target), req.body(), std::move(hdrs));
 	warp_req.set_path(std::move(path));
 	warp_req.set_query_params(std::move(query_params));
+	warp_req.set_keep_alive(req.keep_alive());
 	return warp_req;
 }
 
-std::shared_ptr<beast_response> to_beast_response(const net::http::response &resp, const beast_request &req) {
+std::shared_ptr<beast_response> to_beast_response(const net::http::response &resp) {
 	auto be_resp = std::make_shared<beast_response>();
-	be_resp->version(req.version());
+	be_resp->version(resp.version());
 	be_resp->result(resp.status());
 	be_resp->body() = std::string(resp.body());
 	for (const auto &[key, value] : resp.header_map()) {
@@ -143,6 +145,7 @@ std::shared_ptr<beast_response> to_beast_response(const net::http::response &res
 // The socket executor is already a strand from the listener::do_accept method
 http_session::http_session(boost::asio::ip::tcp::socket &&socket, net::router::registry &routes)
     : stream_(std::move(socket)), routes_(routes) {
+	static_assert(queue_limit > 0, "http session response queue limit must be > 0");
 }
 
 void http_session::start() {
@@ -168,77 +171,98 @@ void http_session::do_read() {
 	                        beast::bind_front_handler(&http_session::on_read, shared_from_this()));
 }
 
-void http_session::on_read(const beast::error_code &ec, std::size_t) {
-	if (ec == beast::http::error::end_of_stream) {
-		shutdown();
-		return;
-	}
-	if (ec) {
-		return;
-	}
-
-	auto warp_request = to_request(request_);
-	net::http::response resp;
-	if (auto match = routes_.find(warp_request.path())) {
-		warp_request.set_path_params(std::move(match->params));
-		resp = match->handler(warp_request);
-	} else {
-		resp = net::http::response::not_found();
-	}
-
-	write_response(std::move(resp));
-}
-
-void http_session::on_read(beast::error_code ec, std::size_t bytes_transferred) {
-	boost::ignore_unused(bytes_transferred);
-
+void http_session::on_read(beast::error_code &ec, std::size_t) {
 	// This means they closed the connection
 	if (ec == beast::http::error::end_of_stream)
 		return shutdown();
 
 	if (ec)
-		util::fail(ec, component, );
+		return util::fail(ec, component, "on_read");
 
 	// See if it is a WebSocket Upgrade
 	if (websocket::is_upgrade(parser_->get())) {
 		// Create a websocket session, transferring ownership
 		// of both the socket and the HTTP request.
-		std::make_shared<websocket_session>(stream_.release_socket())->do_accept(parser_->release());
+		std::make_shared<ws_session>(stream_.release_socket())->do_accept(parser_->release());
 		return;
 	}
 
-	// Send the response
-	queue_write(handle_request(*doc_root_, parser_->release()));
+	auto warp_request = to_request(parser_->release());
+	net::http::response resp;
+	if (const auto match = routes_.find(warp_request.path())) {
+		resp = match->handler(warp_request);
+		resp.set_keep_alive(warp_request.keep_alive());
+	} else {
+		resp = net::http::response::not_found();
+	}
+
+	queue_write(std::move(resp));
 
 	// If we aren't at the queue limit, try to pipeline another request
 	if (response_queue_.size() < queue_limit)
 		do_read();
 }
 
+void http_session::queue_write(net::http::response response) {
+	// Allocate and store the work
+	response_queue_.push(std::move(response));
+
+	// If there was no previous work, start the write loop
+	if (response_queue_.size() == 1)
+		do_write();
+}
+
 void http_session::write_response(const net::http::response &resp) {
-	auto be_resp = to_beast_response(resp, request_);
+	auto be_resp = to_beast_response(resp);
 	const bool close = !be_resp->keep_alive();
 	beast::http::async_write(
 	    stream_, *be_resp,
 	    [self = shared_from_this(), be_resp, close](beast::error_code ec, std::size_t bytes_transferred) {
-		    self->on_write(ec, bytes_transferred, close);
+		    self->on_write(bytes_transferred, close, ec);
 	    });
 }
 
-void http_session::on_write(beast::error_code ec, std::size_t, bool close) {
-	if (ec) {
-		return;
+// Called to start/continue the write-loop. Should not be called when
+// write_loop is already active.
+void http_session::do_write() {
+	if(!response_queue_.empty())
+	{
+		bool keep_alive = response_queue_.front().keep_alive();
+		auto beast_resp = to_beast_response( response_queue_.front());
+
+		beast::async_write(
+			stream_,
+			std::move(response_queue_.front()),
+			beast::bind_front_handler(
+				&http_session::on_write,
+				shared_from_this(),
+				keep_alive));
 	}
-	if (close) {
-		shutdown();
-		return;
-	}
-	read();
 }
+
+void http_session::on_write(std::size_t bytes_transferred, bool keep_alive, beast::error_code ec) {
+		boost::ignore_unused(bytes_transferred);
+
+		if(ec)
+			return util::fail(ec, component, "on_write");
+
+		if(!keep_alive)
+			return shutdown();
+
+		// Resume the read if it has been paused
+		if(response_queue_.size() == queue_limit)
+			do_read();
+
+		response_queue_.pop();
+
+		do_write();
+	}
+
 
 void http_session::shutdown() {
 	boost::system::error_code ec;
 	stream_.socket().shutdown(tcp::socket::shutdown_send, ec);
+	util::fail(ec, component, "shutdown");
 }
 
 } // namespace warp::http::detail
