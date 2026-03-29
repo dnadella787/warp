@@ -1,8 +1,20 @@
 #pragma once
+#include <iostream>
 #include <boost/beast/core.hpp>
 
 namespace warp::util {
-    static void fail(boost::beast::error_code &ec, std::string_view component, std::string_view action);
-    static void fail(std::string_view component, std::string_view action, std::string_view reason);
-    static void fail_except(boost::beast::error_code &ec, std::string_view component, std::string_view action);
+
+inline void fail(const std::string_view component, const std::string_view action, const std::string_view reason) {
+	std::cerr << std::format("Error in %s during %s: %s", component, action, reason) << std::endl;
+}
+
+inline void fail(const boost::beast::error_code &ec, const std::string_view component, const std::string_view action) {
+	fail(component, action, ec.message());
+}
+
+inline void fail_except(const boost::beast::error_code &ec, const std::string_view component, const std::string_view action) {
+	fail(ec, component, action);
+	throw new std::runtime_error(ec.message());
+}
+
 }

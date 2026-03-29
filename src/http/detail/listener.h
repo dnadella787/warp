@@ -7,7 +7,7 @@ namespace warp::http::detail {
 
 class listener : public std::enable_shared_from_this<listener> {
 public:
-    listener::listener(boost::asio::io_context& ioc, net::router::registry &registry, const std::string& address, unsigned short port);
+    listener(boost::asio::io_context& ioc, net::router::registry &registry, const std::string& address, unsigned short port);
 
     void run();
 private:
@@ -18,7 +18,7 @@ private:
     boost::asio::ip::tcp::acceptor acceptor_;
     net::router::registry& registry_;
 
-    constexpr std::string COMPONENT{"listener"};
+    static constexpr std::string COMPONENT{"listener"};
 };
 
 }

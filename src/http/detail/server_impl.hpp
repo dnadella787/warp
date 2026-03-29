@@ -23,11 +23,11 @@ private:
 	void start_runner_threads();
 	void stop_io_ctx();
 
+	std::size_t pool_size_;
 	boost::asio::io_context io_ctx_;
 	detail::listener listener_;
 	boost::asio::executor_work_guard<boost::asio::io_context::executor_type> guard_;
 	std::vector<std::thread> threads_;
-	std::size_t pool_size_;
 
 	net::router::registry routes_;
 	std::atomic<bool> running_ {false};

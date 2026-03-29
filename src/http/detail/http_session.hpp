@@ -1,12 +1,13 @@
 #pragma once
 
 #include <memory>
+#include <optional>
+#include <queue>
 
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
 
-#include "warp/net/http/response.hpp"
 #include "../../net/router/registry.hpp"
 
 namespace warp::http::detail {
@@ -19,19 +20,18 @@ public:
 
 private:
 	void do_read();
-	void on_read(boost::beast::error_code &ec, std::size_t bytes_transferred);
-	void queue_write(net::http::response response);
-	void write_response(const net::http::response &resp);
+	void on_read(boost::beast::error_code ec, std::size_t bytes_transferred);
+	void queue_write(boost::beast::http::response<boost::beast::http::string_body> response);
 
 	void do_write();
 
-	void on_write(std::size_t bytes_transferred, bool keep_alive, boost::beast::error_code ec);
+	void on_write(bool keep_alive, boost::beast::error_code ec, std::size_t bytes_transferred);
 	void shutdown();
 
 	boost::beast::tcp_stream stream_;
 	boost::beast::flat_buffer buffer_;
 	net::router::registry &routes_;
-	std::queue<net::http::response> response_queue_;
+	std::queue<boost::beast::http::response<boost::beast::http::string_body>> response_queue_;
 	// The parser is stored in an optional container so we can
 	// construct it from scratch it at the beginning of each new message.
 	std::optional<boost::beast::http::request_parser<boost::beast::http::string_body>> parser_;

@@ -73,11 +73,4 @@ void server::controller::stop() {
 	}
 }
 
-std::uint16_t server::port() const {
-	if (!impl_) {
-		return 0;
-	}
-	return impl_->port();
-}
-
 } // namespace warp::http

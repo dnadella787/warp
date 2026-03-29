@@ -1,7 +1,6 @@
 #include "server_impl.hpp"
 
 #include <iostream>
-#include <boost/asio/dispatch.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/strand.hpp>
 
@@ -12,8 +11,8 @@ namespace warp::http {
 
 server::impl::impl(const std::string &address, unsigned short port, std::size_t workers,
                    const net::router::registry &routes)
-    : io_ctx_(static_cast<int>(pool_size_)), listener_(io_ctx_, routes_, address, port),
-      guard_(boost::asio::make_work_guard(io_ctx_)), pool_size_(workers ? workers : 1), routes_(routes) {
+    : pool_size_(workers ? workers : 1), io_ctx_(static_cast<int>(pool_size_)), listener_(io_ctx_, routes_, address, port),
+      guard_(boost::asio::make_work_guard(io_ctx_)), routes_(routes) {
 	threads_.reserve(pool_size_);
 }
 
@@ -32,7 +31,6 @@ void server::impl::run() {
 	if (running_.exchange(true, std::memory_order_acq_rel)) {
 		return;
 	}
-	io_ctx_.run();
 	start_runner_threads();
 	listener_.run();
 }

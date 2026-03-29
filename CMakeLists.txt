@@ -47,6 +47,7 @@ add_library(
         src/http/server.cpp
         src/http/detail/server_impl.cpp
         src/http/detail/http_session.cpp
+        src/http/detail/listener.cpp
         src/net/http/json_support.cpp
         src/net/router/registry.cpp
         src/db/postgres/connection_config.cpp

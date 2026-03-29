@@ -8,12 +8,13 @@
 #include <unordered_map>
 #include <vector>
 
-#include "warp/net/http/request.hpp"
-#include "warp/net/http/response.hpp"
+#include <boost/beast/http.hpp>
 
 namespace warp::net::router {
 
-using handler = std::function<http::response(const http::request &)>;
+using request = boost::beast::http::request<boost::beast::http::string_body>;
+using response = boost::beast::http::response<boost::beast::http::string_body>;
+using handler = std::function<response(const request &)>;
 
 struct match_result {
 	handler handler;

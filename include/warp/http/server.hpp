@@ -4,18 +4,17 @@
 #include <memory>
 #include <string>
 #include <thread>
-#include <vector>
 #include <utility>
+#include <vector>
 
-#include "warp/net/http/request.hpp"
-#include "warp/net/http/response.hpp"
+#include <boost/beast/http.hpp>
 
 namespace warp::http {
 
-using request = net::http::request;
-using response = net::http::response;
-using headers = net::http::headers;
-using method = net::http::method;
+using request = boost::beast::http::request<boost::beast::http::string_body>;
+using response = boost::beast::http::response<boost::beast::http::string_body>;
+using headers = request::fields_type;
+using method = boost::beast::http::verb;
 using handler = std::function<response(const request &)>;
 
 class server;
@@ -65,7 +64,6 @@ public:
 	};
 
 	[[nodiscard]] controller get_controller() const;
-	[[nodiscard]] std::uint16_t port() const;
 
 private:
 	friend class server_builder;
