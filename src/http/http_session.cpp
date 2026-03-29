@@ -72,13 +72,9 @@ void http_session::queue_write(warp::response response) {
 
 void http_session::on_handler_complete(unsigned version, bool keep_alive, std::exception_ptr eptr,
                                        warp::response response) {
+	// Unhandled exception is returned to end user as 500
 	if (eptr) {
-		try {
-			std::rethrow_exception(eptr);
-		} catch (...) {
-			// Unhandled exception is returned to end user as 500
-			response = warp::response::server_error();
-		}
+		response = warp::response::server_error();
 	}
 
 	response.version(version);

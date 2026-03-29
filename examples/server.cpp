@@ -64,8 +64,11 @@ int main() {
 		             auto result = co_await db_pool->async_query(
 		                 std::format("SELECT * FROM exchanges WHERE exchange_code = '{}';", id));
 		             if (result.rows() == 0) {
-			             throw std::runtime_error("Query failed");
-			             // co_return warp::response::not_found(std::format("No exchange with code={} found", id));
+			             co_return warp::response::not_found(std::format("No exchange with code={} found", id));
+		             }
+	             	 if (result.rows() > 1) {
+	             	 	// end user gets 500 error
+			            throw std::runtime_error(std::format("Multiple exchanges for the same code={}", id));
 		             }
 
 		             co_return warp::response::ok(
