@@ -75,10 +75,9 @@ void http_session::on_handler_complete(unsigned version, bool keep_alive, std::e
 	if (eptr) {
 		try {
 			std::rethrow_exception(eptr);
-		} catch (const std::exception &ex) {
-			response = warp::response::server_error(ex.what());
 		} catch (...) {
-			response = warp::response::server_error("Unhandled exception");
+			// Unhandled exception is returned to end user as 500
+			response = warp::response::server_error();
 		}
 	}
 

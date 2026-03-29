@@ -14,7 +14,7 @@ inline void fail(const boost::beast::error_code &ec, const std::string_view comp
 
 inline void fail_except(const boost::beast::error_code &ec, const std::string_view component, const std::string_view action) {
 	fail(ec, component, action);
-	throw new std::runtime_error(ec.message());
+	throw std::runtime_error(ec.message());
 }
 
 }

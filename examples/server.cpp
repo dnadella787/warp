@@ -5,8 +5,6 @@
 #include <boost/asio/system_executor.hpp>
 
 #include <algorithm>
-#include <cctype>
-#include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -34,22 +32,6 @@ warp::db::postgres::connection_config make_db_config() {
 	return config;
 }
 
-bool is_integer(std::string_view value) {
-	return !value.empty() &&
-	       std::all_of(value.begin(), value.end(), [](unsigned char ch) { return std::isdigit(ch) != 0; });
-}
-
-warp::awaitable<warp::response> fetch_database_row(warp::db::postgres::connection_pool &pool, std::string id) {
-	auto result = co_await pool.async_query(std::string("select ") + id +
-	                                        "::int as requested_id, current_database() as database_name");
-
-	co_return warp::response::ok(
-	    warp::body_builder()
-	        .set("requested_id", result.rows() > 0 ? std::string(result.value(0, 0)) : id)
-	        .set("database_name", result.rows() > 0 ? std::string(result.value(0, 1)) : std::string {})
-	        .build());
-}
-
 } // namespace
 
 int main() {
@@ -65,7 +47,6 @@ int main() {
 	             [](const warp::request &req) -> warp::http::response {
 		             auto name = req.path_param("name").value_or("world");
 		             auto resp = warp::http::response::ok("Hello, " + std::string(name) + "!", "text/plain");
-		             resp.keep_alive(req.keep_alive());
 		             return resp;
 	             })
 	        .get("/hello",
@@ -74,21 +55,21 @@ int main() {
 		             std::cout << "Received a hello world request with query parameter name with value: " << name
 		                       << std::endl;
 		             auto resp = warp::response::ok(warp::body_builder().set("name", std::string(name)).build());
-		             resp.keep_alive(req.keep_alive());
 		             return resp;
 	             })
 	        .get("/db/{id}",
 	             [db_pool](warp::request req) -> warp::awaitable<warp::response> {
 		             auto id = req.path_param("id").value_or("");
-		             if (!is_integer(id)) {
-			             co_return warp::response::bad_request("id must be an integer");
+
+		             auto result = co_await db_pool->async_query(
+		                 std::format("SELECT * FROM exchanges WHERE exchange_code = '{}';", id));
+		             if (result.rows() == 0) {
+			             throw std::runtime_error("Query failed");
+			             // co_return warp::response::not_found(std::format("No exchange with code={} found", id));
 		             }
 
-		             try {
-			             co_return co_await fetch_database_row(*db_pool, std::string(id));
-		             } catch (const std::exception &ex) {
-			             co_return warp::response::server_error(ex.what());
-		             }
+		             co_return warp::response::ok(
+		                 warp::body_builder().set("exchange_name", result.value(0, 1)).build());
 	             })
 	        .build();
 	std::cout << "Warp example server running on http://127.0.0.1:8080" << std::endl;
