@@ -66,9 +66,9 @@ int main() {
 		             if (result.rows() == 0) {
 			             co_return warp::response::not_found(std::format("No exchange with code={} found", id));
 		             }
-	             	 if (result.rows() > 1) {
-	             	 	// end user gets 500 error
-			            throw std::runtime_error(std::format("Multiple exchanges for the same code={}", id));
+		             if (result.rows() > 1) {
+			             // end user gets 500 error
+			             throw std::runtime_error(std::format("Multiple exchanges for the same code={}", id));
 		             }
 
 		             co_return warp::response::ok(
