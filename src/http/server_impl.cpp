@@ -10,9 +10,9 @@
 namespace warp::http {
 
 server::impl::impl(const std::string &address, unsigned short port, std::size_t workers, const registry &routes)
-    : pool_size_(workers ? workers : 1), io_ctx_(static_cast<int>(pool_size_)),
+    : pool_size_(workers ? workers : 1), io_ctx_(static_cast<int>(pool_size_)), routes_(routes),
       listener_(std::make_shared<listener>(io_ctx_, routes_, address, port)),
-      guard_(boost::asio::make_work_guard(io_ctx_)), routes_(routes) {
+      guard_(boost::asio::make_work_guard(io_ctx_)) {
 	threads_.reserve(pool_size_);
 }
 

@@ -25,11 +25,10 @@ private:
 
 	std::size_t pool_size_;
 	boost::asio::io_context io_ctx_;
+	registry routes_;
 	std::shared_ptr<listener> listener_;
 	boost::asio::executor_work_guard<boost::asio::io_context::executor_type> guard_;
 	std::vector<std::thread> threads_;
-
-	registry routes_;
 	std::atomic<bool> running_ {false};
 };
 

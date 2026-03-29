@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <memory>
-#include <utility>
 
 #include "server_impl.hpp"
 #include "registry.hpp"
@@ -24,29 +23,9 @@ server_builder &server_builder::worker_threads(std::size_t count) {
 	return *this;
 }
 
-server_builder &server_builder::route(method verb, std::string path, handler handler) {
+server_builder &server_builder::route_async(method verb, std::string path, async_handler handler) {
 	routes_.push_back(route_definition {.verb = verb, .path = std::move(path), .callback = std::move(handler)});
 	return *this;
-}
-
-server_builder &server_builder::route(std::string path, handler handler) {
-	return route(method::get, std::move(path), std::move(handler));
-}
-
-server_builder &server_builder::get(std::string path, handler handler) {
-	return route(method::get, std::move(path), std::move(handler));
-}
-
-server_builder &server_builder::post(std::string path, handler handler) {
-	return route(method::post, std::move(path), std::move(handler));
-}
-
-server_builder &server_builder::put(std::string path, handler handler) {
-	return route(method::put, std::move(path), std::move(handler));
-}
-
-server_builder &server_builder::delete_(std::string path, handler handler) {
-	return route(method::delete_, std::move(path), std::move(handler));
 }
 
 server server_builder::build() const {

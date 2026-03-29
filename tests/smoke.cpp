@@ -1,6 +1,9 @@
 #include "warp/http/server.hpp"
 #include "../src/http/registry.hpp"
 
+#include <boost/asio/co_spawn.hpp>
+#include <boost/asio/io_context.hpp>
+#include <boost/asio/use_future.hpp>
 #include <boost/json/object.hpp>
 #include <boost/json/array.hpp>
 #include <boost/json/value.hpp>
@@ -11,6 +14,17 @@
 #include <string>
 
 #include "warp/db/postgres/connection_config.hpp"
+
+namespace {
+
+warp::response run_handler(const warp::async_handler &handler, warp::request req) {
+	boost::asio::io_context ioc;
+	auto future = boost::asio::co_spawn(ioc, handler(std::move(req)), boost::asio::use_future);
+	ioc.run();
+	return future.get();
+}
+
+} // namespace
 
 int main() {
 	auto res = warp::http::response::ok("ping");
@@ -77,13 +91,13 @@ int main() {
 	req.keep_alive(true);
 	req.body() = R"({"value":42})";
 
-	auto matched_response = (*get_handler)(req);
+	auto matched_response = run_handler(*get_handler, req);
 	auto matched_response_json = boost::json::parse(matched_response.body()).as_object();
 	assert(matched_response_json.at("id").as_string() == "42");
 	assert(matched_response_json.at("lang").as_string() == "en");
 
 	warp::request delete_req {boost::beast::http::verb::delete_, "/hello/42?lang=en", 11};
-	auto delete_response = (*delete_handler)(delete_req);
+	auto delete_response = run_handler(*delete_handler, delete_req);
 	auto delete_response_json = boost::json::parse(delete_response.body()).as_object();
 	assert(delete_response_json.at("deleted").as_bool());
 	assert(delete_response_json.at("id").as_string() == "42");
@@ -126,6 +140,10 @@ int main() {
 		return warp::response::ok(
 		    warp::body_builder().set("method", "delete").set("id", req.path_param("id").value_or("")).build());
 	});
+	route_builder.get("/items-async/{id}", [](warp::request req) -> warp::awaitable<warp::response> {
+		co_return warp::response::ok(
+		    warp::body_builder().set("method", "get").set("id", req.path_param("id").value_or("")).build());
+	});
 
 	warp::db::postgres::connection_config db_config;
 	db_config.host = "db.internal";
@@ -139,6 +157,5 @@ int main() {
 	assert(conninfo.find("port=5544") != std::string::npos);
 	assert(conninfo.find("user=user") != std::string::npos);
 	assert(conninfo.find("dbname=warp") != std::string::npos);
-
 	return 0;
 }

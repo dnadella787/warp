@@ -1,5 +1,7 @@
 #include "registry.hpp"
 
+#include <boost/asio/awaitable.hpp>
+
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -7,6 +9,16 @@
 #include <vector>
 
 namespace warp::http {
+
+namespace {
+
+async_handler wrap_sync_handler(handler callback) {
+	return [callback = std::move(callback)](request req) -> boost::asio::awaitable<response> {
+		co_return callback(req);
+	};
+}
+
+} // namespace
 
 registry::registry(const registry &other) {
 	routes_ = other.routes_;
@@ -20,7 +32,7 @@ registry &registry::operator=(const registry &other) {
 	return *this;
 }
 
-void registry::add(method verb, std::string path, handler h) {
+void registry::add(method verb, std::string path, async_handler h) {
 	auto segments = compile_pattern(path);
 	// Replace existing entry with same method/pattern if present.
 	for (auto &route : routes_) {
@@ -38,7 +50,11 @@ void registry::add(method verb, std::string path, handler h) {
 	});
 }
 
-std::optional<handler> registry::find(method verb, std::string_view path) const {
+void registry::add(method verb, std::string path, handler h) {
+	add(verb, std::move(path), wrap_sync_handler(std::move(h)));
+}
+
+std::optional<async_handler> registry::find(method verb, std::string_view path) const {
 	auto clean_path = path.substr(0, path.find('?'));
 	auto path_segments = split_path(clean_path);
 	const bool invalid_path = path_segments.empty() && !(clean_path.empty() || clean_path == "/");
@@ -56,10 +72,11 @@ std::optional<handler> registry::find(method verb, std::string_view path) const 
 		std::unordered_map<std::string, std::string> params;
 		if (match_segments(route.segments, path_segments, params)) {
 			auto route_handler = route.handler;
-			return handler {[route_handler = std::move(route_handler), params = std::move(params)](const request &req) {
-				request enriched = req;
+			return async_handler {[route_handler = std::move(route_handler),
+			                       params = std::move(params)](request req) -> boost::asio::awaitable<response> {
+				request enriched = std::move(req);
 				enriched.set_path_params(params);
-				return route_handler(enriched);
+				co_return co_await route_handler(std::move(enriched));
 			}};
 		}
 	}

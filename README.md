@@ -28,28 +28,31 @@ clang-format -i $(git ls-files '*.cpp' '*.hpp')
 
 ### PostgreSQL Client
 - `warp::db::postgres::connection_pool` wraps libpqxx and runs every query on a dedicated background thread pool so request handlers stay non-blocking.
-- Construct the pool with an executor from your `io_context`, then `co_await pool.async_query(...)` inside a coroutine to fetch data without blocking the HTTP worker.
+- Construct the pool with an executor, then `co_await pool.async_query(...)` inside a route handler to fetch data without blocking the HTTP worker.
+- You do not need to call `boost::asio::co_spawn` yourself. Warp spawns coroutine route handlers internally.
 - Synchronous `query` is also available; it posts the work to the same database thread pool and blocks the caller until completion.
 - Example:
   ```cpp
-  boost::asio::io_context ctx;
-  warp::db::postgres::connection_config cfg;
-  cfg.database = "warp";
-  warp::db::postgres::connection_pool pool(ctx.get_executor(), cfg, 8, 4);
+  .get("/db/{id}",
+       [db_pool](warp::request req) -> warp::awaitable<warp::response> {
+           auto id = req.path_param("id").value_or("");
+           if (!is_integer(id)) {
+               co_return warp::response::bad_request("id must be an integer");
+           }
 
-  boost::asio::co_spawn(
-      ctx,
-      [&pool]() -> boost::asio::awaitable<void> {
-          auto rows = co_await pool.async_query("select 1");
-          if (rows.rows() > 0) {
-              auto value = rows.value(0, 0);
-              // use value...
-          }
-          co_return;
-      },
-      boost::asio::detached);
-
-  ctx.run();
+           try {
+               auto result = co_await db_pool->async_query(
+                   "select " + id + "::int as requested_id, current_database() as database_name");
+               co_return warp::response::ok(
+                   warp::body_builder()
+                       .set("requested_id", result.rows() > 0 ? std::string(result.value(0, 0)) : id)
+                       .set("database_name",
+                            result.rows() > 0 ? std::string(result.value(0, 1)) : std::string {})
+                       .build());
+           } catch (const std::exception &ex) {
+               co_return warp::response::server_error(ex.what());
+           }
+       })
   ```
 
 ### TODO 

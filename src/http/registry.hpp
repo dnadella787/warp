@@ -7,6 +7,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include <boost/asio/awaitable.hpp>
 #include "warp/http/request.hpp"
 #include "warp/http/response.hpp"
 
@@ -14,14 +15,16 @@ namespace warp::http {
 
 using method = boost::beast::http::verb;
 using handler = std::function<response(const request &)>;
+using async_handler = std::function<boost::asio::awaitable<response>(request)>;
 
 class registry {
 public:
 	registry() = default;
 	registry(const registry &other);
 	registry &operator=(const registry &other);
+	void add(method verb, std::string path, async_handler h);
 	void add(method verb, std::string path, handler h);
-	[[nodiscard]] std::optional<handler> find(method verb, std::string_view path) const;
+	[[nodiscard]] std::optional<async_handler> find(method verb, std::string_view path) const;
 
 private:
 	struct segment {
@@ -37,7 +40,7 @@ private:
 		method verb;
 		std::string pattern;
 		std::vector<segment> segments;
-		handler handler;
+		async_handler handler;
 	};
 
 	static std::vector<segment> compile_pattern(const std::string &pattern);

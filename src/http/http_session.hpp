@@ -4,6 +4,7 @@
 #include <optional>
 #include <queue>
 
+#include <boost/asio/co_spawn.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
@@ -22,6 +23,7 @@ public:
 private:
 	void do_read();
 	void on_read(boost::beast::error_code ec, std::size_t bytes_transferred);
+	void on_handler_complete(unsigned version, bool keep_alive, std::exception_ptr eptr, warp::response response);
 	void queue_write(warp::response response);
 
 	void do_write();
@@ -38,7 +40,6 @@ private:
 	std::optional<boost::beast::http::request_parser<boost::beast::http::string_body>> parser_;
 
 	static constexpr std::string component {"http_session"};
-	static constexpr std::size_t queue_limit = 8;
 };
 
 } // namespace warp::http

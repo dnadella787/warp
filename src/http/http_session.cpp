@@ -1,5 +1,6 @@
 #include "http_session.hpp"
 
+#include <boost/asio/co_spawn.hpp>
 #include <boost/beast/http.hpp>
 
 #include "../common/util/fail.h"
@@ -13,7 +14,6 @@ namespace warp::http {
 // The socket executor is already a strand from the listener::do_accept method
 http_session::http_session(boost::asio::ip::tcp::socket &&socket, registry &routes)
     : stream_(std::move(socket)), routes_(routes) {
-	static_assert(queue_limit > 0, "http session response queue limit must be > 0");
 }
 
 void http_session::start() {
@@ -48,23 +48,17 @@ void http_session::on_read(beast::error_code ec, std::size_t) {
 		return util::fail(ec, component, "on_read");
 
 	warp::request request {parser_->release()};
-	warp::response response;
 	if (const auto handler = routes_.find(request.method(), request.target())) {
-		response = (*handler)(request);
-		response.version(request.version());
-		response.keep_alive(request.keep_alive());
+		boost::asio::co_spawn(stream_.get_executor(), (*handler)(request),
+		                      beast::bind_front_handler(&http_session::on_handler_complete, shared_from_this(),
+		                                                request.version(), request.keep_alive()));
 	} else {
-		response = response::not_found();
+		warp::response response = response::not_found();
 		response.version(request.version());
 		response.keep_alive(request.keep_alive());
+		response.prepare_payload();
+		queue_write(std::move(response));
 	}
-	response.prepare_payload();
-
-	queue_write(std::move(response));
-
-	// If we aren't at the queue limit, try to pipeline another request
-	if (response_queue_.size() < queue_limit)
-		do_read();
 }
 
 void http_session::queue_write(warp::response response) {
@@ -74,6 +68,24 @@ void http_session::queue_write(warp::response response) {
 	// If there was no previous work, start the write loop
 	if (response_queue_.size() == 1)
 		do_write();
+}
+
+void http_session::on_handler_complete(unsigned version, bool keep_alive, std::exception_ptr eptr,
+                                       warp::response response) {
+	if (eptr) {
+		try {
+			std::rethrow_exception(eptr);
+		} catch (const std::exception &ex) {
+			response = warp::response::server_error(ex.what());
+		} catch (...) {
+			response = warp::response::server_error("Unhandled exception");
+		}
+	}
+
+	response.version(version);
+	response.keep_alive(keep_alive);
+	response.prepare_payload();
+	queue_write(std::move(response));
 }
 
 // Called to start/continue the write-loop. Should not be called when
@@ -97,11 +109,12 @@ void http_session::on_write(bool keep_alive, beast::error_code ec, std::size_t b
 	if (!keep_alive)
 		return shutdown();
 
-	// Resume the read if it has been paused.
-	if (response_queue_.size() + 1 == queue_limit)
-		do_read();
+	if (!response_queue_.empty()) {
+		do_write();
+		return;
+	}
 
-	do_write();
+	do_read();
 }
 
 void http_session::shutdown() {

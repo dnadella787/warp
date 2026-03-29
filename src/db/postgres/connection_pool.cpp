@@ -22,14 +22,14 @@ connection_pool::~connection_pool() {
 	close();
 }
 
-result connection_pool::query(std::string sql) {
+result connection_pool::query(std::string sql) const {
 	if (!impl_) {
 		throw std::runtime_error("connection pool not initialised");
 	}
 	return impl_->sync_query(std::move(sql));
 }
 
-boost::asio::awaitable<result> connection_pool::async_query(std::string sql) {
+boost::asio::awaitable<result> connection_pool::async_query(std::string sql) const {
 	if (!impl_) {
 		throw std::runtime_error("connection pool not initialised");
 	}
