@@ -111,4 +111,4 @@ void http_session::shutdown() {
 		util::fail(ec, component, "shutdown");
 }
 
-} // namespace warp::http::detail
+} // namespace warp::http

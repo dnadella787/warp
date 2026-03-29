@@ -41,4 +41,4 @@ private:
 	static constexpr std::size_t queue_limit = 8;
 };
 
-} // namespace warp::http::detail
+} // namespace warp::http
