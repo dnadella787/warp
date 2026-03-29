@@ -42,10 +42,12 @@ clang-format -i $(git ls-files '*.cpp' '*.hpp')
 
            try {
                auto result = co_await db_pool->async_query(
-                   "select " + id + "::int as requested_id, current_database() as database_name");
+                   std::string("select ") + std::string(id) +
+                   "::int as requested_id, current_database() as database_name");
                co_return warp::response::ok(
                    warp::body_builder()
-                       .set("requested_id", result.rows() > 0 ? std::string(result.value(0, 0)) : id)
+                       .set("requested_id",
+                            result.rows() > 0 ? std::string(result.value(0, 0)) : std::string(id))
                        .set("database_name",
                             result.rows() > 0 ? std::string(result.value(0, 1)) : std::string {})
                        .build());

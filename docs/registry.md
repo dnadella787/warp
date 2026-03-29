@@ -29,6 +29,11 @@ Important types:
 - `warp::http::handler`
   A route handler has the shape `response(const request &)`.
 
+- `warp::http::async_handler`
+  Internal dispatch uses the shape `warp::awaitable<response>(request)`.
+  Public synchronous handlers are wrapped into this form so the runtime can
+  execute both sync and coroutine routes through the same path.
+
 - `warp::http::registry::segment`
   Internal representation of one compiled path segment. Each segment is either:
   - `literal`
@@ -42,19 +47,25 @@ Important types:
 
 ## Route Registration
 
-Routes are registered through `registry::add(std::string path, handler h)`.
+Routes are registered through:
+
+```cpp
+void add(method verb, std::string path, handler h);
+void add(method verb, std::string path, async_handler h);
+```
 
 When a route is added:
 
 1. The route pattern is compiled into `segment` objects.
 2. If the same pattern already exists, the existing handler is replaced.
 3. Otherwise a new `route_entry` is appended to the route list.
+4. Synchronous handlers are wrapped into the internal async handler form.
 
 Example:
 
 ```cpp
 registry routes;
-routes.add("/users/{id}", [](const warp::request &req) {
+routes.add(warp::method::get, "/users/{id}", [](const warp::request &req) {
     auto id = req.path_param("id").value_or("");
     return warp::response::ok(
         warp::body_builder().set("id", std::string(id)).build());
@@ -102,7 +113,7 @@ This avoids reparsing the route pattern on every request.
 Incoming lookup happens through:
 
 ```cpp
-std::optional<handler> registry::find(std::string_view path) const;
+std::optional<async_handler> find(method verb, std::string_view path) const;
 ```
 
 The matching flow is:
@@ -119,12 +130,12 @@ The matching flow is:
 
 5. Captured parameter values are stored in a temporary map.
 
-6. The registry returns an adapted handler that:
-   - copies the incoming `warp::request`
+6. The registry returns an adapted async handler that:
+   - takes ownership of the incoming `warp::request`
    - injects the captured path parameters with `set_path_params(...)`
-   - invokes the original route handler with the enriched request
+   - invokes the stored route handler with the enriched request
 
-This means callers of `find(...)` receive a callable handler directly, while path parameter extraction still works transparently.
+This means callers of `find(...)` receive an executable async handler directly, while path parameter extraction still works transparently.
 
 ## Example Match
 
@@ -228,10 +239,11 @@ The registry participates in the HTTP pipeline like this:
 1. `listener` accepts a socket.
 2. `http_session` reads an HTTP request with Beast.
 3. The Beast request is wrapped as `warp::request`.
-4. `registry::find(request.target())` looks up the route.
-5. If a route matches, the registry returns an adapted handler.
+4. `registry::find(request.method(), request.target())` looks up the route.
+5. If a route matches, the registry returns an adapted async handler.
 6. The adapted handler injects path params into the request.
-7. The user handler returns a `warp::response`.
-8. `http_session` writes that response back through Beast.
+7. `http_session` starts that handler with `co_spawn(...)`.
+8. The user handler eventually completes with a `warp::response`.
+9. `http_session` writes that response back through Beast.
 
 That design keeps the registry focused on route lookup while letting the public request/response API stay ergonomic.

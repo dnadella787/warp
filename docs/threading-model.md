@@ -17,9 +17,11 @@
 
 ## Session Execution
 - Each `http_session` performs asynchronous reads and writes on a `boost::beast::tcp_stream`.
-- The session stores incoming responses in a bounded queue with a limit of `8`.
+- The session stores outgoing responses in an internal queue and writes them asynchronously on the shared server `io_context`.
 - Request parsing and response writing are both asynchronous and execute on the shared server `io_context`.
-- Route handlers execute inline on the session's executor when `http_session::on_read(...)` invokes the matched handler. There is no separate application thread pool for HTTP handlers.
+- Route handlers are normalized to an internal async form and started with `boost::asio::co_spawn(...)` from `http_session::on_read(...)`.
+- Coroutine handlers run on the session executor until they suspend at a `co_await` or complete.
+- Warp currently keeps request processing sequential per connection. The next `do_read()` on a socket does not start until the current response has been fully written.
 
 ## Request and Route Handling
 - Incoming Beast requests are wrapped as `warp::request` before dispatch.
@@ -29,6 +31,8 @@
   - JSON body helpers
 - The HTTP registry matches only against the request path portion of the target.
 - If a route pattern includes parameters such as `/{id}`, the registry captures those values and injects them into the `warp::request` object before calling the user handler.
+- Public route handlers may return either `warp::response` or `warp::awaitable<warp::response>`.
+- Synchronous handlers are wrapped into the internal async route form so the dispatch path stays consistent.
 
 ## Registry Threading Assumption
 - The registry is no longer internally synchronized.
@@ -41,10 +45,12 @@
 ## Database Integration
 - `warp::db::postgres::connection_pool` integrates libpqxx with the server's executor. The pool owns a dedicated `boost::asio::thread_pool` whose size is `max(1, worker_threads)` from the constructor arguments (defaulting to hardware concurrency).
 - Synchronous queries (`sync_query`) package the work and post it to the database thread pool, blocking until the packaged task completes. This keeps synchronous callers off the network threads.
-- Asynchronous queries (`async_query`) also post the work to the database thread pool. Results are dispatched back through the completion executor supplied when the pool was constructed (typically one of the HTTP worker executors), so user continuations resume on the expected `io_context`.
+- Asynchronous queries (`async_query`) also post the work to the database thread pool. Results are dispatched back through the completion executor supplied when the pool was constructed (typically one of the HTTP worker executors), so coroutine continuations resume on the expected `io_context`.
 - Each query grabs a libpqxx connection from the pool (or opens a new one up to `max_connections`), executes the SQL, and then either returns the connection to the idle deque or discards it on error, allowing database operations to proceed without blocking the HTTP threads.
 
 ## Practical Consequences
-- A slow route handler will occupy one of the HTTP `io_context` threads for the duration of that handler.
+- A slow route handler will occupy one of the HTTP `io_context` threads until it either completes or suspends.
+- A route that quickly reaches `co_await db_pool.async_query(...)` frees that HTTP worker while the database query runs on the PostgreSQL pool.
 - Blocking work should be moved off the HTTP path, for example into the PostgreSQL pool or another executor.
 - Socket I/O remains serialized per connection because each session uses its own strand, but different sessions may progress concurrently on different threads servicing the shared `io_context`.
+- Coroutines improve throughput by avoiding blocked HTTP workers during I/O waits, but they do not make CPU-bound work faster by themselves.
