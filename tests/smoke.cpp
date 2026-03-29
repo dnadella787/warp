@@ -1,11 +1,11 @@
 #include "warp/http/server.hpp"
 #include "../src/net/router/registry.hpp"
 
-#include <boost/beast/http.hpp>
 #include <boost/json/object.hpp>
 #include <boost/json/array.hpp>
 #include <boost/json/value.hpp>
 #include <boost/json/parse.hpp>
+#include <boost/json/string.hpp>
 
 #include <cassert>
 #include <string>
@@ -13,31 +13,36 @@
 #include "warp/db/postgres/connection_config.hpp"
 
 int main() {
-	warp::http::response res {boost::beast::http::status::ok, 11};
-	res.body() = "ping";
-	res.prepare_payload();
+	auto res = warp::http::response::ok("ping");
 	assert(res.body() == "ping");
+	assert(res[boost::beast::http::field::content_type] == "application/json");
+
+	auto built_body = warp::body_builder().set("name", "client").set("second", "bob").set("count", 2).build();
+	auto built_json = boost::json::parse(built_body).as_object();
+	assert(built_json.at("name").as_string() == "client");
+	assert(built_json.at("second").as_string() == "bob");
+	assert(built_json.at("count").as_int64() == 2);
+
+	auto not_found = warp::http::response::not_found("missing");
+	assert(not_found[boost::beast::http::field::content_type] == "application/json");
+	auto not_found_json = boost::json::parse(not_found.body()).as_object();
+	assert(not_found_json.at("error").as_string() == "missing");
 
 	warp::net::router::registry routes;
 	routes.add("/hello/{id}", [](const warp::net::router::request &req) -> warp::net::router::response {
-		warp::net::router::response response {boost::beast::http::status::ok, req.version()};
-		response.body() = std::string(req.target());
+		auto response = warp::http::response::ok(std::string(req.target()));
 		response.keep_alive(req.keep_alive());
-		response.prepare_payload();
 		return response;
 	});
 
-	auto match = routes.find("/hello/42?lang=en");
-	assert(match);
-	auto id_it = match->params.find("id");
-	assert(id_it != match->params.end());
-	assert(id_it->second == "42");
+	auto handler = routes.find("/hello/42?lang=en");
+	assert(handler);
 
 	warp::net::router::request req {boost::beast::http::verb::get, "/hello/42?lang=en", 11};
 	req.keep_alive(true);
 	req.body() = R"({"value":42})";
 
-	auto matched_response = match->handler(req);
+	auto matched_response = (*handler)(req);
 	assert(matched_response.body() == "/hello/42?lang=en");
 
 	auto json_value = boost::json::parse(req.body());

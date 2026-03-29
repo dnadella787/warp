@@ -9,10 +9,12 @@
 
 #include <boost/beast/http.hpp>
 
+#include "warp/http/body_builder.hpp"
+#include "warp/http/response.hpp"
+
 namespace warp::http {
 
 using request = boost::beast::http::request<boost::beast::http::string_body>;
-using response = boost::beast::http::response<boost::beast::http::string_body>;
 using headers = request::fields_type;
 using method = boost::beast::http::verb;
 using handler = std::function<response(const request &)>;
@@ -74,3 +76,13 @@ private:
 };
 
 } // namespace warp::http
+
+namespace warp {
+
+using request = http::request;
+using body_builder = http::body_builder;
+using headers = http::headers;
+using method = http::method;
+using handler = http::handler;
+
+} // namespace warp

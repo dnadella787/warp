@@ -21,7 +21,7 @@ public:
 private:
 	void do_read();
 	void on_read(boost::beast::error_code ec, std::size_t bytes_transferred);
-	void queue_write(boost::beast::http::response<boost::beast::http::string_body> response);
+	void queue_write(net::router::response response);
 
 	void do_write();
 
@@ -31,7 +31,7 @@ private:
 	boost::beast::tcp_stream stream_;
 	boost::beast::flat_buffer buffer_;
 	net::router::registry &routes_;
-	std::queue<boost::beast::http::response<boost::beast::http::string_body>> response_queue_;
+	std::queue<net::router::response> response_queue_;
 	// The parser is stored in an optional container so we can
 	// construct it from scratch it at the beginning of each new message.
 	std::optional<boost::beast::http::request_parser<boost::beast::http::string_body>> parser_;

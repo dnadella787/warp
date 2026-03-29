@@ -10,7 +10,6 @@ using tcp = boost::asio::ip::tcp; // from <boost/asio/ip/tcp.hpp>
 namespace warp::http::detail {
 
 using beast_request = beast::http::request<beast::http::string_body>;
-using beast_response = beast::http::response<beast::http::string_body>;
 
 // The socket executor is already a strand from the listener::do_accept method
 http_session::http_session(boost::asio::ip::tcp::socket &&socket, net::router::registry &routes)
@@ -50,15 +49,14 @@ void http_session::on_read(beast::error_code ec, std::size_t) {
 		return util::fail(ec, component, "on_read");
 
 	auto request = parser_->release();
-	beast_response response;
-	if (const auto match = routes_.find(request.target())) {
-		response = match->handler(request);
+	net::router::response response;
+	if (const auto handler = routes_.find(request.target())) {
+		response = (*handler)(request);
 		response.version(request.version());
 		response.keep_alive(request.keep_alive());
 	} else {
-		response = beast_response {beast::http::status::not_found, request.version()};
-		response.set(beast::http::field::content_type, "text/plain");
-		response.body() = "Not Found";
+		response = response::not_found();
+		response.version(request.version());
 		response.keep_alive(request.keep_alive());
 	}
 	response.prepare_payload();
@@ -70,7 +68,7 @@ void http_session::on_read(beast::error_code ec, std::size_t) {
 		do_read();
 }
 
-void http_session::queue_write(beast_response response) {
+void http_session::queue_write(net::router::response response) {
 	// Allocate and store the work
 	response_queue_.push(std::move(response));
 

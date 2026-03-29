@@ -1,8 +1,5 @@
 #include "warp/http/server.hpp"
 
-#include <boost/beast/http.hpp>
-#include <boost/json/object.hpp>
-#include <boost/json/serialize.hpp>
 #include <iostream>
 #include <string>
 #include <string_view>
@@ -18,11 +15,8 @@ int main() {
 		                         auto slash = target.find_last_of('/');
 		                         auto name = slash == std::string_view::npos ? std::string_view {"world"}
 		                                                                     : target.substr(slash + 1);
-		                         warp::http::response resp {boost::beast::http::status::ok, req.version()};
-		                         resp.set(boost::beast::http::field::content_type, "text/plain");
-		                         resp.body() = "Hello, " + std::string(name) + "!";
+		                         auto resp = warp::http::response::ok("Hello, " + std::string(name) + "!", "text/plain");
 		                         resp.keep_alive(req.keep_alive());
-		                         resp.prepare_payload();
 		                         return resp;
 	                         })
 	                  .route("/hello",
@@ -41,13 +35,9 @@ int main() {
 		                         std::cout
 		                             << "Received a hello world request with query parameter name with value: " << name
 		                             << std::endl;
-		                         boost::json::object json;
-		                         json["name"] = name;
-		                         warp::http::response resp {boost::beast::http::status::ok, req.version()};
-		                         resp.set(boost::beast::http::field::content_type, "application/json");
-		                         resp.body() = boost::json::serialize(json);
+		                         auto resp = warp::http::response::ok(
+		                             warp::body_builder().set("name", std::string(name)).build());
 		                         resp.keep_alive(req.keep_alive());
-		                         resp.prepare_payload();
 		                         return resp;
 	                         })
 	                  .build();

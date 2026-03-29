@@ -10,16 +10,13 @@
 
 #include <boost/beast/http.hpp>
 
+#include "warp/http/response.hpp"
+
 namespace warp::net::router {
 
 using request = boost::beast::http::request<boost::beast::http::string_body>;
-using response = boost::beast::http::response<boost::beast::http::string_body>;
+using response = http::response;
 using handler = std::function<response(const request &)>;
-
-struct match_result {
-	handler handler;
-	std::unordered_map<std::string, std::string> params;
-};
 
 class registry {
 public:
@@ -27,7 +24,7 @@ public:
 	registry(const registry &other);
 	registry &operator=(const registry &other);
 	void add(std::string path, handler h);
-	[[nodiscard]] std::optional<match_result> find(std::string_view path) const;
+	[[nodiscard]] std::optional<handler> find(std::string_view path) const;
 
 private:
 	struct segment {
@@ -47,8 +44,7 @@ private:
 
 	static std::vector<segment> compile_pattern(const std::string &pattern);
 	static bool match_segments(const std::vector<segment> &pattern_segments,
-	                           const std::vector<std::string_view> &path_segments,
-	                           std::unordered_map<std::string, std::string> &out_params);
+	                           const std::vector<std::string_view> &path_segments);
 
 	[[nodiscard]] static std::vector<std::string_view> split_path(std::string_view path);
 

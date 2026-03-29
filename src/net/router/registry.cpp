@@ -38,7 +38,7 @@ void registry::add(std::string path, handler h) {
 	    route_entry {.pattern = std::move(path), .segments = std::move(segments), .handler = std::move(h)});
 }
 
-std::optional<match_result> registry::find(std::string_view path) const {
+std::optional<handler> registry::find(std::string_view path) const {
 	auto clean_path = path.substr(0, path.find('?'));
 	auto path_segments = split_path(clean_path);
 	const bool invalid_path = path_segments.empty() && !(clean_path.empty() || clean_path == "/");
@@ -51,9 +51,8 @@ std::optional<match_result> registry::find(std::string_view path) const {
 		if (route.segments.size() != path_segments.size()) {
 			continue;
 		}
-		std::unordered_map<std::string, std::string> params;
-		if (match_segments(route.segments, path_segments, params)) {
-			return match_result {route.handler, std::move(params)};
+		if (match_segments(route.segments, path_segments)) {
+			return route.handler;
 		}
 	}
 	return std::nullopt;
@@ -117,8 +116,7 @@ std::vector<std::string_view> registry::split_path(std::string_view path) {
 }
 
 bool registry::match_segments(const std::vector<segment> &pattern_segments,
-                              const std::vector<std::string_view> &path_segments,
-                              std::unordered_map<std::string, std::string> &out_params) {
+                              const std::vector<std::string_view> &path_segments) {
 	for (std::size_t i = 0; i < pattern_segments.size(); ++i) {
 		const auto &seg = pattern_segments[i];
 		const auto &value = path_segments[i];
@@ -126,8 +124,6 @@ bool registry::match_segments(const std::vector<segment> &pattern_segments,
 			if (value != seg.value) {
 				return false;
 			}
-		} else {
-			out_params.emplace(seg.value, std::string(value));
 		}
 	}
 	return true;
