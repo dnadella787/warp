@@ -24,8 +24,7 @@ public:
 	connection_pool &operator=(const connection_pool &) = delete;
 	~connection_pool();
 
-	result query(std::string sql) const;
-	boost::asio::awaitable<result> async_query(std::string sql) const;
+	boost::asio::awaitable<result> query(std::string sql) const;
 
 	void close();
 	[[nodiscard]] std::size_t size() const noexcept;

@@ -57,23 +57,23 @@ int main() {
 		             auto resp = warp::response::ok(warp::body_builder().set("name", std::string(name)).build());
 		             return resp;
 	             })
-	        .get("/db/{id}",
-	             [db_pool](warp::request req) -> warp::awaitable<warp::response> {
-		             auto id = req.path_param("id").value_or("");
+	        .get(
+	            "/db/{id}",
+	            [db_pool](warp::request req) -> warp::awaitable<warp::response> {
+		            auto id = req.path_param("id").value_or("");
 
-		             auto result = co_await db_pool->async_query(
-		                 std::format("SELECT * FROM exchanges WHERE exchange_code = '{}';", id));
-		             if (result.rows() == 0) {
-			             co_return warp::response::not_found(std::format("No exchange with code={} found", id));
-		             }
-		             if (result.rows() > 1) {
-			             // end user gets 500 error
-			             throw std::runtime_error(std::format("Multiple exchanges for the same code={}", id));
-		             }
+		            auto result =
+		                co_await db_pool->query(std::format("SELECT * FROM exchanges WHERE exchange_code = '{}';", id));
+		            if (result.rows() == 0) {
+			            co_return warp::response::not_found(std::format("No exchange with code={} found", id));
+		            }
+		            if (result.rows() > 1) {
+			            // end user gets 500 error
+			            throw std::runtime_error(std::format("Multiple exchanges for the same code={}", id));
+		            }
 
-		             co_return warp::response::ok(
-		                 warp::body_builder().set("exchange_name", result.value(0, 1)).build());
-	             })
+		            co_return warp::response::ok(warp::body_builder().set("exchange_name", result.value(0, 1)).build());
+	            })
 	        .build();
 	std::cout << "Warp example server running on http://127.0.0.1:8080" << std::endl;
 	std::cout << "Set WARP_DB_USER / WARP_DB_PASSWORD / WARP_DB_NAME to try GET /db/{id}" << std::endl;

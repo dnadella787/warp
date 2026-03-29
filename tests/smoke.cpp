@@ -80,33 +80,34 @@ int main() {
 		return response;
 	});
 
-	auto get_handler = routes.find(warp::method::get, "/hello/42?lang=en");
-	assert(get_handler);
-	auto delete_handler = routes.find(warp::method::delete_, "/hello/42?lang=en");
-	assert(delete_handler);
-	auto post_miss = routes.find(warp::method::post, "/hello/42?lang=en");
-	assert(!post_miss);
-
 	warp::request req {boost::beast::http::verb::get, "/hello/42?lang=en", 11};
 	req.keep_alive(true);
 	req.body() = R"({"value":42})";
 
+	auto get_handler = routes.find(req);
+	assert(get_handler);
 	auto matched_response = run_handler(*get_handler, req);
 	auto matched_response_json = boost::json::parse(matched_response.body()).as_object();
 	assert(matched_response_json.at("id").as_string() == "42");
 	assert(matched_response_json.at("lang").as_string() == "en");
 
 	warp::request delete_req {boost::beast::http::verb::delete_, "/hello/42?lang=en", 11};
+	auto delete_handler = routes.find(delete_req);
+	assert(delete_handler);
 	auto delete_response = run_handler(*delete_handler, delete_req);
 	auto delete_response_json = boost::json::parse(delete_response.body()).as_object();
 	assert(delete_response_json.at("deleted").as_bool());
 	assert(delete_response_json.at("id").as_string() == "42");
 
+	warp::request post_req {boost::beast::http::verb::post, "/hello/42?lang=en", 11};
+	auto post_miss = routes.find(post_req);
+	assert(!post_miss);
+
 	auto json_value = boost::json::parse(req.body());
 	assert(json_value.at("value").as_int64() == 42);
 	assert(req.path() == "/hello/42");
 	assert(req.query_param("lang").value_or("") == "en");
-	assert(!req.path_param("id"));
+	assert(req.path_param("id").value_or("") == "42");
 	boost::json::object payload_builder;
 	payload_builder["name"] = "warp";
 	payload_builder["answer"] = 42;
@@ -128,7 +129,8 @@ int main() {
 	} catch (const std::exception &) {
 	}
 
-	auto miss = routes.find(warp::method::get, "/goodbye/42");
+	warp::request miss_req {boost::beast::http::verb::get, "/goodbye/42", 11};
+	auto miss = routes.find(miss_req);
 	assert(!miss);
 
 	warp::http::server_builder route_builder;

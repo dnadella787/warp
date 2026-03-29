@@ -38,6 +38,10 @@ FetchContent_Declare(libpqxx
     UPDATE_DISCONNECTED ON)
 FetchContent_MakeAvailable(libpqxx)
 
+if (APPLE AND TARGET pqxx)
+    target_compile_options(pqxx PRIVATE -Wno-c++11-narrowing)
+endif()
+
 find_package(Boost 1.90 REQUIRED COMPONENTS json)
 find_package(PostgreSQL REQUIRED)
 find_package(Threads REQUIRED)
@@ -46,7 +50,7 @@ add_library(
     warp_http SHARED
         src/http/server.cpp
         src/http/server_impl.cpp
-        src/http/http_session.cpp
+        src/http/session/http_session.cpp
         src/http/listener.cpp
         src/http/registry.cpp
         src/db/postgres/connection_config.cpp

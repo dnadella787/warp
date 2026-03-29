@@ -17,11 +17,13 @@
 
 ## Session Execution
 - Each `http_session` performs asynchronous reads and writes on a `boost::beast::tcp_stream`.
-- The session stores outgoing responses in an internal queue and writes them asynchronously on the shared server `io_context`.
+- The session stores completed responses in an internal ordered buffer and writes them asynchronously on the shared server `io_context`.
 - Request parsing and response writing are both asynchronous and execute on the shared server `io_context`.
 - Route handlers are normalized to an internal async form and started with `boost::asio::co_spawn(...)` from `http_session::on_read(...)`.
 - Coroutine handlers run on the session executor until they suspend at a `co_await` or complete.
-- Warp currently keeps request processing sequential per connection. The next `do_read()` on a socket does not start until the current response has been fully written.
+- Warp allows multiple in-flight requests per connection up to an internal pipeline limit.
+- Responses are still written strictly in request order to preserve HTTP/1.1 semantics.
+- Once a request indicates `Connection: close`, the session stops reading additional requests and closes the connection after the ordered response stream is drained.
 
 ## Request and Route Handling
 - Incoming Beast requests are wrapped as `warp::request` before dispatch.

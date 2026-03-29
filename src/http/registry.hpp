@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -22,9 +23,11 @@ public:
 	registry() = default;
 	registry(const registry &other);
 	registry &operator=(const registry &other);
+	registry(registry &&) noexcept = default;
+	registry &operator=(registry &&) noexcept = default;
 	void add(method verb, std::string path, async_handler h);
 	void add(method verb, std::string path, handler h);
-	[[nodiscard]] std::optional<async_handler> find(method verb, std::string_view path) const;
+	[[nodiscard]] const async_handler *find(request &req) const;
 
 private:
 	struct segment {
@@ -36,21 +39,49 @@ private:
 		std::string value;
 	};
 
-	struct route_entry {
-		method verb;
-		std::string pattern;
-		std::vector<segment> segments;
-		async_handler handler;
+	struct route_parameter {
+		std::size_t index {};
+		std::string name;
 	};
 
+	struct route_entry {
+		async_handler handler;
+		std::vector<route_parameter> parameters;
+	};
+
+	struct transparent_string_hash {
+		using is_transparent = void;
+
+		[[nodiscard]] std::size_t operator()(std::string_view value) const noexcept;
+		[[nodiscard]] std::size_t operator()(const std::string &value) const noexcept;
+	};
+
+	struct transparent_string_equal {
+		using is_transparent = void;
+
+		[[nodiscard]] bool operator()(const std::string &lhs, const std::string &rhs) const noexcept;
+		[[nodiscard]] bool operator()(std::string_view lhs, std::string_view rhs) const noexcept;
+		[[nodiscard]] bool operator()(const std::string &lhs, std::string_view rhs) const noexcept;
+		[[nodiscard]] bool operator()(std::string_view lhs, const std::string &rhs) const noexcept;
+	};
+
+	struct node {
+		std::unordered_map<std::string, std::unique_ptr<node>, transparent_string_hash, transparent_string_equal>
+		    literal_children;
+		std::unique_ptr<node> parameter_child;
+		std::unique_ptr<route_entry> route;
+	};
+
+	struct method_hash {
+		[[nodiscard]] std::size_t operator()(method verb) const noexcept;
+	};
+
+	static node clone_node(const node &source);
 	static std::vector<segment> compile_pattern(const std::string &pattern);
-	static bool match_segments(const std::vector<segment> &pattern_segments,
-	                           const std::vector<std::string_view> &path_segments,
-	                           std::unordered_map<std::string, std::string> &out_params);
+	[[nodiscard]] static const route_entry *match_route(const node &root, std::string_view path);
+	static void apply_path_params(request &req, std::string_view path, const route_entry &route);
 
-	[[nodiscard]] static std::vector<std::string_view> split_path(std::string_view path);
-
-	std::vector<route_entry> routes_;
+	std::unordered_map<method, node, method_hash> method_roots_;
 };
 
 } // namespace warp::http

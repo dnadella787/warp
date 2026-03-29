@@ -63,8 +63,8 @@ The internal flow for a coroutine route is:
    - completes immediately, or
    - suspends at a `co_await`
 6. When the coroutine completes, Warp receives the final `warp::response` in `on_handler_complete(...)`.
-7. Warp writes the response back to the socket.
-8. After the write completes, the session begins reading the next request on that connection.
+7. Warp stores completed responses until they are eligible to be written in request order.
+8. Warp writes responses back to the socket in request order even if handlers finished out of order.
 
 The important part is that `http_session::on_read(...)` does not block waiting for the handler to finish. It starts the coroutine and returns control to Asio.
 
@@ -178,15 +178,16 @@ If users introduce another blocking dependency, they should give that work its o
 
 ### 5. Understand the connection-level limit
 
-Warp currently processes one in-flight request at a time per TCP connection.
+Warp currently allows a bounded number of in-flight requests per TCP connection.
 
 That means:
 
 - coroutines improve utilization while waiting on I/O
 - different client connections can make progress concurrently
-- a single connection still advances sequentially from request to response
+- a single connection may have multiple handlers running concurrently
+- responses on that connection are still serialized in request order
 
-So coroutine handlers improve server throughput mainly across many requests and many connections, not by pipelining multiple responses at once on the same socket.
+So coroutine handlers improve server throughput across many requests and many connections, while ordered writes preserve HTTP/1.1 response semantics on each socket.
 
 ## Choosing Between Sync and Coroutine Handlers
 

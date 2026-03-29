@@ -50,14 +50,6 @@ std::size_t connection_pool::impl::capacity() const noexcept {
 	return capacity_;
 }
 
-result connection_pool::impl::sync_query(std::string sql) {
-	auto task = std::make_shared<std::packaged_task<result()>>(
-	    [self = shared_from_this(), sql = std::move(sql)]() mutable { return self->execute_query(std::move(sql)); });
-	auto future = task->get_future();
-	boost::asio::post(workers_, [task]() mutable { (*task)(); });
-	return future.get();
-}
-
 std::unique_ptr<pqxx::connection> connection_pool::impl::acquire() {
 	std::unique_lock lock(mutex_);
 	cond_.wait(lock, [this]() { return closed_ || !idle_.empty() || total_ < capacity_; });

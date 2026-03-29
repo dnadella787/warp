@@ -2,6 +2,8 @@
 
 #include <boost/asio/awaitable.hpp>
 
+#include <functional>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -21,66 +23,112 @@ async_handler wrap_sync_handler(handler callback) {
 } // namespace
 
 registry::registry(const registry &other) {
-	routes_ = other.routes_;
+	for (const auto &[verb, root] : other.method_roots_) {
+		method_roots_.emplace(verb, clone_node(root));
+	}
 }
 
 registry &registry::operator=(const registry &other) {
 	if (this == &other) {
 		return *this;
 	}
-	routes_ = other.routes_;
+	method_roots_.clear();
+	for (const auto &[verb, root] : other.method_roots_) {
+		method_roots_.emplace(verb, clone_node(root));
+	}
 	return *this;
 }
 
 void registry::add(method verb, std::string path, async_handler h) {
 	auto segments = compile_pattern(path);
-	// Replace existing entry with same method/pattern if present.
-	for (auto &route : routes_) {
-		if (route.verb == verb && route.pattern == path) {
-			route.handler = std::move(h);
-			route.segments = std::move(segments);
-			return;
+	auto &root = method_roots_[verb];
+	auto *current = &root;
+
+	std::vector<route_parameter> parameters;
+	parameters.reserve(segments.size());
+
+	for (std::size_t i = 0; i < segments.size(); ++i) {
+		const auto &segment = segments[i];
+		if (segment.type == segment::kind::literal) {
+			auto [it, inserted] = current->literal_children.try_emplace(segment.value, std::make_unique<node>());
+			boost::ignore_unused(inserted);
+			current = it->second.get();
+			continue;
 		}
+
+		if (!current->parameter_child) {
+			current->parameter_child = std::make_unique<node>();
+		}
+		current = current->parameter_child.get();
+		parameters.push_back(route_parameter {.index = i, .name = segment.value});
 	}
-	routes_.push_back(route_entry {
-	    .verb = verb,
-	    .pattern = std::move(path),
-	    .segments = std::move(segments),
-	    .handler = std::move(h),
-	});
+
+	if (!current->route) {
+		current->route = std::make_unique<route_entry>();
+	}
+
+	current->route->handler = std::move(h);
+	current->route->parameters = std::move(parameters);
 }
 
 void registry::add(method verb, std::string path, handler h) {
 	add(verb, std::move(path), wrap_sync_handler(std::move(h)));
 }
 
-std::optional<async_handler> registry::find(method verb, std::string_view path) const {
-	auto clean_path = path.substr(0, path.find('?'));
-	auto path_segments = split_path(clean_path);
-	const bool invalid_path = path_segments.empty() && !(clean_path.empty() || clean_path == "/");
-	if (invalid_path) {
-		return std::nullopt;
+const async_handler *registry::find(request &req) const {
+	const auto it = method_roots_.find(req.method());
+	if (it == method_roots_.end()) {
+		return nullptr;
 	}
 
-	for (const auto &route : routes_) {
-		if (route.verb != verb) {
-			continue;
-		}
-		if (route.segments.size() != path_segments.size()) {
-			continue;
-		}
-		std::unordered_map<std::string, std::string> params;
-		if (match_segments(route.segments, path_segments, params)) {
-			auto route_handler = route.handler;
-			return async_handler {[route_handler = std::move(route_handler),
-			                       params = std::move(params)](request req) -> boost::asio::awaitable<response> {
-				request enriched = std::move(req);
-				enriched.set_path_params(params);
-				co_return co_await route_handler(std::move(enriched));
-			}};
-		}
+	if (const auto *route = match_route(it->second, req.path())) {
+		apply_path_params(req, req.path(), *route);
+		return &route->handler;
 	}
-	return std::nullopt;
+
+	return nullptr;
+}
+
+std::size_t registry::transparent_string_hash::operator()(std::string_view value) const noexcept {
+	return std::hash<std::string_view> {}(value);
+}
+
+std::size_t registry::transparent_string_hash::operator()(const std::string &value) const noexcept {
+	return (*this)(std::string_view {value});
+}
+
+bool registry::transparent_string_equal::operator()(const std::string &lhs, const std::string &rhs) const noexcept {
+	return lhs == rhs;
+}
+
+bool registry::transparent_string_equal::operator()(std::string_view lhs, std::string_view rhs) const noexcept {
+	return lhs == rhs;
+}
+
+bool registry::transparent_string_equal::operator()(const std::string &lhs, std::string_view rhs) const noexcept {
+	return std::string_view {lhs} == rhs;
+}
+
+bool registry::transparent_string_equal::operator()(std::string_view lhs, const std::string &rhs) const noexcept {
+	return lhs == std::string_view {rhs};
+}
+
+std::size_t registry::method_hash::operator()(method verb) const noexcept {
+	return std::hash<unsigned> {}(static_cast<unsigned>(verb));
+}
+
+registry::node registry::clone_node(const node &source) {
+	node copy;
+	for (const auto &[literal, child] : source.literal_children) {
+		copy.literal_children.emplace(literal, std::make_unique<node>(clone_node(*child)));
+	}
+	if (source.parameter_child) {
+		copy.parameter_child = std::make_unique<node>(clone_node(*source.parameter_child));
+	}
+	if (source.route) {
+		copy.route = std::make_unique<route_entry>(*source.route);
+	}
+	return copy;
 }
 
 std::vector<registry::segment> registry::compile_pattern(const std::string &pattern) {
@@ -116,45 +164,82 @@ std::vector<registry::segment> registry::compile_pattern(const std::string &patt
 	return segments;
 }
 
-std::vector<std::string_view> registry::split_path(std::string_view path) {
-	std::vector<std::string_view> segments;
-	std::size_t pos = 0;
-	if (!path.empty() && path.front() == '/') {
-		pos = 1;
+const registry::route_entry *registry::match_route(const node &root, std::string_view path) {
+	auto clean_path = path.substr(0, path.find('?'));
+	if (clean_path.empty()) {
+		clean_path = "/";
 	}
-	if (pos >= path.size()) {
-		return segments;
+	if (clean_path.front() != '/') {
+		return nullptr;
 	}
-	while (pos <= path.size()) {
-		auto next = path.find('/', pos);
-		auto len = (next == std::string::npos) ? path.size() - pos : next - pos;
+
+	const node *current = &root;
+	if (clean_path == "/") {
+		return current->route.get();
+	}
+
+	std::size_t pos = 1;
+	while (pos <= clean_path.size()) {
+		const auto next = clean_path.find('/', pos);
+		const auto len = next == std::string_view::npos ? clean_path.size() - pos : next - pos;
 		if (len == 0) {
-			return {};
+			return nullptr;
 		}
-		segments.emplace_back(path.substr(pos, len));
+
+		const auto token = clean_path.substr(pos, len);
+		if (auto it = current->literal_children.find(token); it != current->literal_children.end()) {
+			current = it->second.get();
+		} else if (current->parameter_child) {
+			current = current->parameter_child.get();
+		} else {
+			return nullptr;
+		}
+
 		if (next == std::string::npos) {
 			break;
 		}
 		pos = next + 1;
 	}
-	return segments;
+
+	return current->route.get();
 }
 
-bool registry::match_segments(const std::vector<segment> &pattern_segments,
-                              const std::vector<std::string_view> &path_segments,
-                              std::unordered_map<std::string, std::string> &out_params) {
-	for (std::size_t i = 0; i < pattern_segments.size(); ++i) {
-		const auto &seg = pattern_segments[i];
-		const auto &value = path_segments[i];
-		if (seg.type == segment::kind::literal) {
-			if (value != seg.value) {
-				return false;
-			}
-		} else {
-			out_params.emplace(seg.value, std::string(value));
-		}
+void registry::apply_path_params(request &req, std::string_view path, const route_entry &route) {
+	if (route.parameters.empty()) {
+		return;
 	}
-	return true;
+
+	std::unordered_map<std::string, std::string> params;
+	params.reserve(route.parameters.size());
+
+	auto clean_path = path.substr(0, path.find('?'));
+	if (clean_path.empty()) {
+		clean_path = "/";
+	}
+
+	std::size_t parameter_index = 0;
+	std::size_t segment_index = 0;
+	std::size_t pos = 1;
+	while (parameter_index < route.parameters.size() && pos <= clean_path.size()) {
+		const auto next = clean_path.find('/', pos);
+		const auto len = next == std::string_view::npos ? clean_path.size() - pos : next - pos;
+		if (len == 0) {
+			break;
+		}
+
+		if (route.parameters[parameter_index].index == segment_index) {
+			params.emplace(route.parameters[parameter_index].name, std::string(clean_path.substr(pos, len)));
+			++parameter_index;
+		}
+
+		if (next == std::string::npos) {
+			break;
+		}
+		pos = next + 1;
+		++segment_index;
+	}
+
+	req.set_path_params(std::move(params));
 }
 
 } // namespace warp::http

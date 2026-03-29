@@ -4,7 +4,7 @@
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/strand.hpp>
 
-#include "http_session.hpp"
+#include "session/http_session.hpp"
 #include "warp/http/server.hpp"
 
 namespace warp::http {

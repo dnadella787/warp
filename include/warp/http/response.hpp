@@ -55,13 +55,13 @@ private:
 	static response make_error(boost::beast::http::status status, std::string error);
 };
 
+// note we do not need resp.prepare_payload() here b/c http_session::on_handle_complete() does it for us
 inline response response::make(boost::beast::http::status status, std::string body, std::string_view content_type) {
 	response resp {status, 11};
 	if (!content_type.empty()) {
 		resp.set(boost::beast::http::field::content_type, content_type);
 	}
 	resp.body() = std::move(body);
-	resp.prepare_payload();
 	return resp;
 }
 

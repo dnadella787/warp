@@ -30,10 +30,8 @@ public:
 	[[nodiscard]] std::size_t size() const;
 	[[nodiscard]] std::size_t capacity() const noexcept;
 
-	result sync_query(std::string sql);
-
 	template <typename CompletionToken>
-	auto async_query(std::string sql, CompletionToken &&token) {
+	auto query(std::string sql, CompletionToken &&token) {
 		return boost::asio::async_initiate<CompletionToken, void(result)>(
 		    [self = shared_from_this(), sql = std::move(sql)](auto &&handler) mutable {
 			    using Handler = std::decay_t<decltype(handler)>;
