@@ -46,8 +46,7 @@ add_library(
     warp_http SHARED
         src/http/server.cpp
         src/http/detail/server_impl.cpp
-        src/http/detail/session.cpp
-        src/net/core/io_context_pool.cpp
+        src/http/detail/http_session.cpp
         src/net/http/json_support.cpp
         src/net/router/registry.cpp
         src/db/postgres/connection_config.cpp
@@ -65,8 +64,8 @@ target_link_libraries(
     warp_http
     PUBLIC
         Boost::json
-    PRIVATE
         Boost::headers
+    PRIVATE
         Threads::Threads
         libpqxx::pqxx)
 

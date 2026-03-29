@@ -6,8 +6,7 @@
 #include <boost/beast/http.hpp>
 #include <boost/beast/websocket.hpp>
 
-#include "ws_session.h"
-#include "../../util/fail.h"
+#include "../../common/util/fail.h"
 #include "warp/net/http/request.hpp"
 
 namespace beast = boost::beast;         // from <boost/beast.hpp>
@@ -179,14 +178,6 @@ void http_session::on_read(beast::error_code &ec, std::size_t) {
 	if (ec)
 		return util::fail(ec, component, "on_read");
 
-	// See if it is a WebSocket Upgrade
-	if (websocket::is_upgrade(parser_->get())) {
-		// Create a websocket session, transferring ownership
-		// of both the socket and the HTTP request.
-		std::make_shared<ws_session>(stream_.release_socket())->do_accept(parser_->release());
-		return;
-	}
-
 	auto warp_request = to_request(parser_->release());
 	net::http::response resp;
 	if (const auto match = routes_.find(warp_request.path())) {
@@ -210,16 +201,6 @@ void http_session::queue_write(net::http::response response) {
 	// If there was no previous work, start the write loop
 	if (response_queue_.size() == 1)
 		do_write();
-}
-
-void http_session::write_response(const net::http::response &resp) {
-	auto be_resp = to_beast_response(resp);
-	const bool close = !be_resp->keep_alive();
-	beast::http::async_write(
-	    stream_, *be_resp,
-	    [self = shared_from_this(), be_resp, close](beast::error_code ec, std::size_t bytes_transferred) {
-		    self->on_write(bytes_transferred, close, ec);
-	    });
 }
 
 // Called to start/continue the write-loop. Should not be called when
