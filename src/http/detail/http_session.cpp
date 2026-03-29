@@ -9,8 +9,6 @@ using tcp = boost::asio::ip::tcp; // from <boost/asio/ip/tcp.hpp>
 
 namespace warp::http::detail {
 
-using beast_request = beast::http::request<beast::http::string_body>;
-
 // The socket executor is already a strand from the listener::do_accept method
 http_session::http_session(boost::asio::ip::tcp::socket &&socket, net::router::registry &routes)
     : stream_(std::move(socket)), routes_(routes) {
@@ -48,7 +46,7 @@ void http_session::on_read(beast::error_code ec, std::size_t) {
 	if (ec)
 		return util::fail(ec, component, "on_read");
 
-	auto request = parser_->release();
+	net::router::request request {parser_->release()};
 	net::router::response response;
 	if (const auto handler = routes_.find(request.target())) {
 		response = (*handler)(request);

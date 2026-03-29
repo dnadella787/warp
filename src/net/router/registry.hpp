@@ -10,11 +10,12 @@
 
 #include <boost/beast/http.hpp>
 
+#include "warp/http/request.hpp"
 #include "warp/http/response.hpp"
 
 namespace warp::net::router {
 
-using request = boost::beast::http::request<boost::beast::http::string_body>;
+using request = http::request;
 using response = http::response;
 using handler = std::function<response(const request &)>;
 
@@ -44,7 +45,8 @@ private:
 
 	static std::vector<segment> compile_pattern(const std::string &pattern);
 	static bool match_segments(const std::vector<segment> &pattern_segments,
-	                           const std::vector<std::string_view> &path_segments);
+	                           const std::vector<std::string_view> &path_segments,
+	                           std::unordered_map<std::string, std::string> &out_params);
 
 	[[nodiscard]] static std::vector<std::string_view> split_path(std::string_view path);
 

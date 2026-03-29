@@ -51,8 +51,14 @@ std::optional<handler> registry::find(std::string_view path) const {
 		if (route.segments.size() != path_segments.size()) {
 			continue;
 		}
-		if (match_segments(route.segments, path_segments)) {
-			return route.handler;
+		std::unordered_map<std::string, std::string> params;
+		if (match_segments(route.segments, path_segments, params)) {
+			auto route_handler = route.handler;
+			return handler {[route_handler = std::move(route_handler), params = std::move(params)](const request &req) {
+				request enriched = req;
+				enriched.set_path_params(params);
+				return route_handler(enriched);
+			}};
 		}
 	}
 	return std::nullopt;
@@ -116,7 +122,8 @@ std::vector<std::string_view> registry::split_path(std::string_view path) {
 }
 
 bool registry::match_segments(const std::vector<segment> &pattern_segments,
-                              const std::vector<std::string_view> &path_segments) {
+                              const std::vector<std::string_view> &path_segments,
+                              std::unordered_map<std::string, std::string> &out_params) {
 	for (std::size_t i = 0; i < pattern_segments.size(); ++i) {
 		const auto &seg = pattern_segments[i];
 		const auto &value = path_segments[i];
@@ -124,6 +131,8 @@ bool registry::match_segments(const std::vector<segment> &pattern_segments,
 			if (value != seg.value) {
 				return false;
 			}
+		} else {
+			out_params.emplace(seg.value, std::string(value));
 		}
 	}
 	return true;

@@ -45,7 +45,15 @@ int main() {
 
 	warp::net::router::registry routes;
 	routes.add("/hello/{id}", [](const warp::net::router::request &req) -> warp::net::router::response {
-		auto response = warp::http::response::ok(std::string(req.target()));
+		auto id = req.path_param("id");
+		auto lang = req.query_param("lang");
+		assert(id);
+		assert(lang);
+		assert(req.path() == "/hello/42");
+		assert(req.path_params().at("id") == "42");
+		assert(req.query_params().at("lang") == "en");
+		auto response = warp::http::response::ok(
+		    warp::body_builder().set("id", std::string(*id)).set("lang", std::string(*lang)).build());
 		response.keep_alive(req.keep_alive());
 		return response;
 	});
@@ -58,10 +66,15 @@ int main() {
 	req.body() = R"({"value":42})";
 
 	auto matched_response = (*handler)(req);
-	assert(matched_response.body() == "/hello/42?lang=en");
+	auto matched_response_json = boost::json::parse(matched_response.body()).as_object();
+	assert(matched_response_json.at("id").as_string() == "42");
+	assert(matched_response_json.at("lang").as_string() == "en");
 
 	auto json_value = boost::json::parse(req.body());
 	assert(json_value.at("value").as_int64() == 42);
+	assert(req.path() == "/hello/42");
+	assert(req.query_param("lang").value_or("") == "en");
+	assert(!req.path_param("id"));
 	boost::json::object builder;
 	builder["name"] = "warp";
 	builder["answer"] = 42;
