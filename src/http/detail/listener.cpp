@@ -7,7 +7,7 @@
 #include <boost/asio/strand.hpp>
 
 #include "http_session.hpp"
-#include "../../util/fail.h"
+#include "../../common/util/fail.h"
 
 namespace warp::http::detail {
 
