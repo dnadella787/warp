@@ -2,21 +2,18 @@
 
 #include <functional>
 #include <optional>
-#include <shared_mutex>
 #include <string>
 #include <string_view>
 #include <unordered_map>
 #include <vector>
 
-#include <boost/beast/http.hpp>
-
 #include "warp/http/request.hpp"
 #include "warp/http/response.hpp"
 
-namespace warp::net::router {
+namespace warp::http {
 
-using request = http::request;
-using response = http::response;
+using request = request;
+using response = response;
 using handler = std::function<response(const request &)>;
 
 class registry {
@@ -50,8 +47,7 @@ private:
 
 	[[nodiscard]] static std::vector<std::string_view> split_path(std::string_view path);
 
-	mutable std::shared_mutex mutex_;
 	std::vector<route_entry> routes_;
 };
 
-} // namespace warp::net::router
+} // namespace warp::http

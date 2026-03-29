@@ -4,8 +4,8 @@
 #include <memory>
 #include <utility>
 
-#include "detail/server_impl.hpp"
-#include "../net/router/registry.hpp"
+#include "server_impl.hpp"
+#include "registry.hpp"
 
 namespace warp::http {
 
@@ -30,7 +30,7 @@ server_builder &server_builder::route(std::string path, handler handler) {
 }
 
 server server_builder::build() const {
-	net::router::registry registry;
+	registry registry;
 	for (const auto &[path, handler] : routes_) {
 		registry.add(path, handler);
 	}

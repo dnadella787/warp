@@ -1,5 +1,5 @@
 #include "warp/http/server.hpp"
-#include "../src/net/router/registry.hpp"
+#include "../src/http/registry.hpp"
 
 #include <boost/json/object.hpp>
 #include <boost/json/array.hpp>
@@ -43,8 +43,8 @@ int main() {
 	auto not_found_json = boost::json::parse(not_found.body()).as_object();
 	assert(not_found_json.at("error").as_string() == "missing");
 
-	warp::net::router::registry routes;
-	routes.add("/hello/{id}", [](const warp::net::router::request &req) -> warp::net::router::response {
+	warp::http::registry routes;
+	routes.add("/hello/{id}", [](const warp::request &req) -> warp::response {
 		auto id = req.path_param("id");
 		auto lang = req.query_param("lang");
 		assert(id);
@@ -61,7 +61,7 @@ int main() {
 	auto handler = routes.find("/hello/42?lang=en");
 	assert(handler);
 
-	warp::net::router::request req {boost::beast::http::verb::get, "/hello/42?lang=en", 11};
+	warp::request req {boost::beast::http::verb::get, "/hello/42?lang=en", 11};
 	req.keep_alive(true);
 	req.body() = R"({"value":42})";
 
@@ -88,7 +88,7 @@ int main() {
 	assert(numbers_array.size() == 2);
 	assert(numbers_array[0].as_int64() == 1);
 
-	warp::net::router::request bad_json {boost::beast::http::verb::get, "/bad", 11};
+	warp::request bad_json {boost::beast::http::verb::get, "/bad", 11};
 	bad_json.body() = "not json";
 	try {
 		static_cast<void>(boost::json::parse(bad_json.body()));

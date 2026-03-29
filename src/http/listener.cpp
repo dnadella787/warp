@@ -7,11 +7,11 @@
 #include <boost/asio/strand.hpp>
 
 #include "http_session.hpp"
-#include "../../common/util/fail.h"
+#include "../common/util/fail.h"
 
-namespace warp::http::detail {
+namespace warp::http {
 
-listener::listener(boost::asio::io_context &ioc, net::router::registry &registry, const std::string &address,
+listener::listener(boost::asio::io_context &ioc, registry &registry, const std::string &address,
                    const unsigned short port)
     : ioc_(ioc), registry_(registry), acceptor_(boost::asio::make_strand(ioc)) {
 	auto const addr = boost::asio::ip::make_address(address);
@@ -63,4 +63,4 @@ void listener::on_accept(boost::beast::error_code ec, boost::asio::ip::tcp::sock
 
 	do_accept();
 }
-} // namespace warp::http::detail
+} // namespace warp::http

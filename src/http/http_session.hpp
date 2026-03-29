@@ -8,20 +8,21 @@
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
 
-#include "../../net/router/registry.hpp"
+#include "registry.hpp"
+#include "warp/http/server.hpp"
 
-namespace warp::http::detail {
+namespace warp::http {
 
 class http_session : public std::enable_shared_from_this<http_session> {
 public:
-	http_session(boost::asio::ip::tcp::socket &&socket, net::router::registry &routes);
+	http_session(boost::asio::ip::tcp::socket &&socket, registry &routes);
 
 	void start();
 
 private:
 	void do_read();
 	void on_read(boost::beast::error_code ec, std::size_t bytes_transferred);
-	void queue_write(net::router::response response);
+	void queue_write(warp::response response);
 
 	void do_write();
 
@@ -30,8 +31,8 @@ private:
 
 	boost::beast::tcp_stream stream_;
 	boost::beast::flat_buffer buffer_;
-	net::router::registry &routes_;
-	std::queue<net::router::response> response_queue_;
+	registry &routes_;
+	std::queue<response> response_queue_;
 	// The parser is stored in an optional container so we can
 	// construct it from scratch it at the beginning of each new message.
 	std::optional<boost::beast::http::request_parser<boost::beast::http::string_body>> parser_;

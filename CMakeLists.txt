@@ -45,11 +45,10 @@ find_package(Threads REQUIRED)
 add_library(
     warp_http SHARED
         src/http/server.cpp
-        src/http/detail/server_impl.cpp
-        src/http/detail/http_session.cpp
-        src/http/detail/listener.cpp
-        src/net/http/json_support.cpp
-        src/net/router/registry.cpp
+        src/http/server_impl.cpp
+        src/http/http_session.cpp
+        src/http/listener.cpp
+        src/http/registry.cpp
         src/db/postgres/connection_config.cpp
         src/db/postgres/connection_pool.cpp
         src/db/postgres/detail/connection_pool_impl.cpp

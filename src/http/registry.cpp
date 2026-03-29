@@ -6,10 +6,9 @@
 #include <utility>
 #include <vector>
 
-namespace warp::net::router {
+namespace warp::http {
 
 registry::registry(const registry &other) {
-	std::shared_lock lock(other.mutex_);
 	routes_ = other.routes_;
 }
 
@@ -17,15 +16,12 @@ registry &registry::operator=(const registry &other) {
 	if (this == &other) {
 		return *this;
 	}
-	std::unique_lock lock_this(mutex_);
-	std::shared_lock lock_other(other.mutex_);
 	routes_ = other.routes_;
 	return *this;
 }
 
 void registry::add(std::string path, handler h) {
 	auto segments = compile_pattern(path);
-	std::unique_lock lock(mutex_);
 	// Replace existing entry with same pattern if present.
 	for (auto &route : routes_) {
 		if (route.pattern == path) {
@@ -46,7 +42,6 @@ std::optional<handler> registry::find(std::string_view path) const {
 		return std::nullopt;
 	}
 
-	std::shared_lock lock(mutex_);
 	for (const auto &route : routes_) {
 		if (route.segments.size() != path_segments.size()) {
 			continue;
@@ -138,4 +133,4 @@ bool registry::match_segments(const std::vector<segment> &pattern_segments,
 	return true;
 }
 
-} // namespace warp::net::router
+} // namespace warp::http

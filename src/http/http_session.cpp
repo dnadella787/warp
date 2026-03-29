@@ -2,15 +2,16 @@
 
 #include <boost/beast/http.hpp>
 
-#include "../../common/util/fail.h"
+#include "../common/util/fail.h"
+#include "warp/http/server.hpp"
 
 namespace beast = boost::beast;   // from <boost/beast.hpp>
 using tcp = boost::asio::ip::tcp; // from <boost/asio/ip/tcp.hpp>
 
-namespace warp::http::detail {
+namespace warp::http {
 
 // The socket executor is already a strand from the listener::do_accept method
-http_session::http_session(boost::asio::ip::tcp::socket &&socket, net::router::registry &routes)
+http_session::http_session(boost::asio::ip::tcp::socket &&socket, registry &routes)
     : stream_(std::move(socket)), routes_(routes) {
 	static_assert(queue_limit > 0, "http session response queue limit must be > 0");
 }
@@ -46,8 +47,8 @@ void http_session::on_read(beast::error_code ec, std::size_t) {
 	if (ec)
 		return util::fail(ec, component, "on_read");
 
-	net::router::request request {parser_->release()};
-	net::router::response response;
+	warp::request request {parser_->release()};
+	warp::response response;
 	if (const auto handler = routes_.find(request.target())) {
 		response = (*handler)(request);
 		response.version(request.version());
@@ -66,7 +67,7 @@ void http_session::on_read(beast::error_code ec, std::size_t) {
 		do_read();
 }
 
-void http_session::queue_write(net::router::response response) {
+void http_session::queue_write(warp::response response) {
 	// Allocate and store the work
 	response_queue_.push(std::move(response));
 

@@ -1,13 +1,50 @@
 # Warp Threading Model
 
 ## HTTP Server Execution
-- The `warp::http::server` owns a `net::core::io_context_pool` whose size is set by the `worker_threads` argument on `server_builder` (default is `max(1, std::thread::hardware_concurrency())`). One `boost::asio::io_context` instance is created per worker slot.
-- Calling `server::run()` spins up one std::thread per `io_context` in the pool. Each connection handler and route callback executes on these worker threads via `io_context::run()`.
-- A dedicated `boost::asio::io_context` (`accept_ctx_`) powers the single `boost::asio::ip::tcp::acceptor`. The thread that invokes `server::run()` services this accept loop by calling `accept_ctx_->run()`, so there is exactly one acceptor socket and it is driven by the caller's thread.
-- Incoming sockets are accepted on the acceptor's strand and then bound to the next worker `io_context` in round-robin order, ensuring load distribution without sharing an `io_context` across threads.
+- The current server implementation owns a single `boost::asio::io_context` in `server::impl`.
+- `worker_threads(count)` controls how many threads call `io_context::run()` on that single context. The effective pool size is `max(1, count)`.
+- `server::run(bool blocking)` starts those worker threads and also starts the listener on the same `io_context`.
+- If `blocking == true`, the calling thread also enters `io_context::run()`. In that mode, work may execute on:
+  - each spawned worker thread
+  - the caller's thread
+- If `blocking == false`, only the spawned worker threads service the `io_context`.
+
+## Accept Loop
+- The listener owns exactly one `boost::asio::ip::tcp::acceptor`.
+- The acceptor is constructed on `boost::asio::make_strand(io_context)`, so accept operations are serialized through that strand even though multiple threads may be running the same `io_context`.
+- `listener::run()` dispatches into the acceptor strand and begins the asynchronous accept loop.
+- Each accepted socket is rebound onto its own strand before the session starts. This gives each `http_session` serialized access to its own socket operations.
+
+## Session Execution
+- Each `http_session` performs asynchronous reads and writes on a `boost::beast::tcp_stream`.
+- The session stores incoming responses in a bounded queue with a limit of `8`.
+- Request parsing and response writing are both asynchronous and execute on the shared server `io_context`.
+- Route handlers execute inline on the session's executor when `http_session::on_read(...)` invokes the matched handler. There is no separate application thread pool for HTTP handlers.
+
+## Request and Route Handling
+- Incoming Beast requests are wrapped as `warp::request` before dispatch.
+- `warp::request` parses request-target metadata locally, including:
+  - clean path
+  - query parameters
+  - JSON body helpers
+- The HTTP registry matches only against the request path portion of the target.
+- If a route pattern includes parameters such as `/{id}`, the registry captures those values and injects them into the `warp::request` object before calling the user handler.
+
+## Registry Threading Assumption
+- The registry is no longer internally synchronized.
+- Current code assumes routes are added during setup and not mutated while request handling is in progress.
+- Because of that assumption:
+  - concurrent `find(...)` calls are fine as long as no thread is mutating the route table
+  - `add(...)` must not race with `find(...)`
+- If runtime route mutation is introduced later, the registry will need synchronization or immutable snapshots.
 
 ## Database Integration
 - `warp::db::postgres::connection_pool` integrates libpqxx with the server's executor. The pool owns a dedicated `boost::asio::thread_pool` whose size is `max(1, worker_threads)` from the constructor arguments (defaulting to hardware concurrency).
 - Synchronous queries (`sync_query`) package the work and post it to the database thread pool, blocking until the packaged task completes. This keeps synchronous callers off the network threads.
 - Asynchronous queries (`async_query`) also post the work to the database thread pool. Results are dispatched back through the completion executor supplied when the pool was constructed (typically one of the HTTP worker executors), so user continuations resume on the expected `io_context`.
 - Each query grabs a libpqxx connection from the pool (or opens a new one up to `max_connections`), executes the SQL, and then either returns the connection to the idle deque or discards it on error, allowing database operations to proceed without blocking the HTTP threads.
+
+## Practical Consequences
+- A slow route handler will occupy one of the HTTP `io_context` threads for the duration of that handler.
+- Blocking work should be moved off the HTTP path, for example into the PostgreSQL pool or another executor.
+- Socket I/O remains serialized per connection because each session uses its own strand, but different sessions may progress concurrently on different threads servicing the shared `io_context`.
