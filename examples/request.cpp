@@ -16,7 +16,7 @@ int main(int argc, char *argv[]) {
 
 		auto const host = "127.0.0.1";
 		auto const port = "8080";
-		auto const target = std::format("/hello?name={}", argc > 1 ? argv[1] : "Client");
+		auto const target = std::format("/hello/{}", argc > 1 ? argv[1] : "Client");
 
 		auto results = resolver.resolve(host, port);
 		asio::connect(socket, results);

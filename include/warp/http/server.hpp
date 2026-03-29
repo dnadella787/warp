@@ -11,6 +11,7 @@
 
 #include "warp/http/body_builder.hpp"
 #include "warp/http/response.hpp"
+#include "warp/http/response_builder.hpp"
 
 namespace warp::http {
 
@@ -81,6 +82,8 @@ namespace warp {
 
 using request = http::request;
 using body_builder = http::body_builder;
+using response_builder = http::response_builder;
+using response = http::response;
 using headers = http::headers;
 using method = http::method;
 using handler = http::handler;

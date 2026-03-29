@@ -33,8 +33,14 @@ public:
 	}
 
 	static response ok(std::string body = {}, std::string_view content_type = "application/json");
+	static response ok(const char *body, std::string_view content_type = "application/json");
+	static response ok(boost::json::value body);
 	static response created(std::string body = {}, std::string_view content_type = "application/json");
+	static response created(const char *body, std::string_view content_type = "application/json");
+	static response created(boost::json::value body);
 	static response accepted(std::string body = {}, std::string_view content_type = "application/json");
+	static response accepted(const char *body, std::string_view content_type = "application/json");
+	static response accepted(boost::json::value body);
 	static response no_content();
 	static response bad_request(std::string error = "Bad Request");
 	static response unauthorized(std::string error = "Unauthorized");
@@ -45,12 +51,11 @@ public:
 
 private:
 	static response make(boost::beast::http::status status, std::string body, std::string_view content_type);
+	static response make_json(boost::beast::http::status status, boost::json::value body);
 	static response make_error(boost::beast::http::status status, std::string error);
 };
 
-inline response response::make(boost::beast::http::status status,
-                               std::string body,
-                               std::string_view content_type) {
+inline response response::make(boost::beast::http::status status, std::string body, std::string_view content_type) {
 	response resp {status, 11};
 	if (!content_type.empty()) {
 		resp.set(boost::beast::http::field::content_type, content_type);
@@ -58,6 +63,10 @@ inline response response::make(boost::beast::http::status status,
 	resp.body() = std::move(body);
 	resp.prepare_payload();
 	return resp;
+}
+
+inline response response::make_json(boost::beast::http::status status, boost::json::value body) {
+	return make(status, boost::json::serialize(body), "application/json");
 }
 
 inline response response::make_error(boost::beast::http::status status, std::string error) {
@@ -68,12 +77,38 @@ inline response response::ok(std::string body, std::string_view content_type) {
 	return make(boost::beast::http::status::ok, std::move(body), content_type);
 }
 
+inline response response::ok(const char *body, std::string_view content_type) {
+	return make(boost::beast::http::status::ok, body == nullptr ? std::string {} : std::string {body}, content_type);
+}
+
+inline response response::ok(boost::json::value body) {
+	return make_json(boost::beast::http::status::ok, std::move(body));
+}
+
 inline response response::created(std::string body, std::string_view content_type) {
 	return make(boost::beast::http::status::created, std::move(body), content_type);
 }
 
+inline response response::created(const char *body, std::string_view content_type) {
+	return make(boost::beast::http::status::created, body == nullptr ? std::string {} : std::string {body},
+	            content_type);
+}
+
+inline response response::created(boost::json::value body) {
+	return make_json(boost::beast::http::status::created, std::move(body));
+}
+
 inline response response::accepted(std::string body, std::string_view content_type) {
 	return make(boost::beast::http::status::accepted, std::move(body), content_type);
+}
+
+inline response response::accepted(const char *body, std::string_view content_type) {
+	return make(boost::beast::http::status::accepted, body == nullptr ? std::string {} : std::string {body},
+	            content_type);
+}
+
+inline response response::accepted(boost::json::value body) {
+	return make_json(boost::beast::http::status::accepted, std::move(body));
 }
 
 inline response response::no_content() {

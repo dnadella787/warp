@@ -23,6 +23,21 @@ int main() {
 	assert(built_json.at("second").as_string() == "bob");
 	assert(built_json.at("count").as_int64() == 2);
 
+	auto built_response = warp::response_builder().status(200).body(warp::body_builder().set("x", "y").build()).build();
+	assert(built_response.result() == boost::beast::http::status::ok);
+	assert(built_response[boost::beast::http::field::content_type] == "application/json");
+	auto built_response_json = boost::json::parse(built_response.body()).as_object();
+	assert(built_response_json.at("x").as_string() == "y");
+
+	boost::json::object ok_payload;
+	ok_payload["name"] = "warp";
+	ok_payload["ready"] = true;
+	auto json_response = warp::http::response::ok(boost::json::value(ok_payload));
+	assert(json_response[boost::beast::http::field::content_type] == "application/json");
+	auto parsed_ok_payload = boost::json::parse(json_response.body()).as_object();
+	assert(parsed_ok_payload.at("name").as_string() == "warp");
+	assert(parsed_ok_payload.at("ready").as_bool());
+
 	auto not_found = warp::http::response::not_found("missing");
 	assert(not_found[boost::beast::http::field::content_type] == "application/json");
 	auto not_found_json = boost::json::parse(not_found.body()).as_object();
