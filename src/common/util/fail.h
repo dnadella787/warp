@@ -5,7 +5,7 @@
 namespace warp::util {
 
 inline void fail(const std::string_view component, const std::string_view action, const std::string_view reason) {
-	std::cerr << std::format("Error in %s during %s: %s", component, action, reason) << std::endl;
+	std::cerr << std::format("Error in {} during {}: {}", component, action, reason) << std::endl;
 }
 
 inline void fail(const boost::beast::error_code &ec, const std::string_view component, const std::string_view action) {

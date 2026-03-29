@@ -4,8 +4,8 @@
 
 #include "../../common/util/fail.h"
 
-namespace beast = boost::beast;         // from <boost/beast.hpp>
-using tcp = boost::asio::ip::tcp;       // from <boost/asio/ip/tcp.hpp>
+namespace beast = boost::beast;   // from <boost/beast.hpp>
+using tcp = boost::asio::ip::tcp; // from <boost/asio/ip/tcp.hpp>
 
 namespace warp::http::detail {
 
@@ -84,13 +84,8 @@ void http_session::queue_write(beast_response response) {
 void http_session::do_write() {
 	if (!response_queue_.empty()) {
 		bool keep_alive = response_queue_.front().keep_alive();
-		beast::http::async_write(
-			stream_,
-			response_queue_.front(),
-			beast::bind_front_handler(
-				&http_session::on_write,
-				shared_from_this(),
-				keep_alive));
+		beast::http::async_write(stream_, response_queue_.front(),
+		                         beast::bind_front_handler(&http_session::on_write, shared_from_this(), keep_alive));
 	}
 }
 
@@ -112,11 +107,11 @@ void http_session::on_write(bool keep_alive, beast::error_code ec, std::size_t b
 	do_write();
 }
 
-
 void http_session::shutdown() {
 	boost::system::error_code ec;
 	stream_.socket().shutdown(tcp::socket::shutdown_send, ec);
-	util::fail(ec, component, "shutdown");
+	if (ec)
+		util::fail(ec, component, "shutdown");
 }
 
 } // namespace warp::http::detail

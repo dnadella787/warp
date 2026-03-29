@@ -46,7 +46,7 @@ public:
 	server(server &&) noexcept;
 	server &operator=(server &&) noexcept;
 
-	void run();
+	void run(bool blocking = true);
 	void stop();
 
 	// note that controller keeps a reference to the impl and not the server

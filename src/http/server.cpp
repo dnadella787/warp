@@ -48,9 +48,9 @@ server::server(std::shared_ptr<impl> impl) : impl_(std::move(impl)) {
 server::server(server &&) noexcept = default;
 server &server::operator=(server &&) noexcept = default;
 
-void server::run() {
+void server::run(bool blocking) {
 	if (impl_) {
-		impl_->run();
+		impl_->run(blocking);
 	}
 }
 

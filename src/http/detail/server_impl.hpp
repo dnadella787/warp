@@ -16,7 +16,7 @@ class server::impl : public std::enable_shared_from_this<impl> {
 public:
 	impl(const std::string &address, std::uint16_t port, std::size_t workers, const net::router::registry &routes);
 
-	void run();
+	void run(bool blocking = true);
 	void stop();
 
 private:
@@ -25,7 +25,7 @@ private:
 
 	std::size_t pool_size_;
 	boost::asio::io_context io_ctx_;
-	detail::listener listener_;
+	std::shared_ptr<detail::listener> listener_;
 	boost::asio::executor_work_guard<boost::asio::io_context::executor_type> guard_;
 	std::vector<std::thread> threads_;
 

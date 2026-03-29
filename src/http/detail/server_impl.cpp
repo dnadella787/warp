@@ -11,7 +11,8 @@ namespace warp::http {
 
 server::impl::impl(const std::string &address, unsigned short port, std::size_t workers,
                    const net::router::registry &routes)
-    : pool_size_(workers ? workers : 1), io_ctx_(static_cast<int>(pool_size_)), listener_(io_ctx_, routes_, address, port),
+    : pool_size_(workers ? workers : 1), io_ctx_(static_cast<int>(pool_size_)),
+      listener_(std::make_shared<detail::listener>(io_ctx_, routes_, address, port)),
       guard_(boost::asio::make_work_guard(io_ctx_)), routes_(routes) {
 	threads_.reserve(pool_size_);
 }
@@ -24,7 +25,7 @@ server::impl::impl(const std::string &address, unsigned short port, std::size_t 
  TLDR: run/stop are r/w
  */
 
-void server::impl::run() {
+void server::impl::run(bool blocking) {
 	// try to start, if its already running just return early, use acq_rel
 	// b/c we want to acquire the current state and check if it in a non-running
 	// state, and then release it to consumers like listener::run()/stop()
@@ -32,7 +33,9 @@ void server::impl::run() {
 		return;
 	}
 	start_runner_threads();
-	listener_.run();
+	listener_->run();
+	if (blocking)
+		io_ctx_.run();
 }
 
 void server::impl::stop() {
