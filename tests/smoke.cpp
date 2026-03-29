@@ -44,7 +44,7 @@ int main() {
 	assert(not_found_json.at("error").as_string() == "missing");
 
 	warp::http::registry routes;
-	routes.add("/hello/{id}", [](const warp::request &req) -> warp::response {
+	routes.add(warp::method::get, "/hello/{id}", [](const warp::request &req) -> warp::response {
 		auto id = req.path_param("id");
 		auto lang = req.query_param("lang");
 		assert(id);
@@ -57,33 +57,51 @@ int main() {
 		response.keep_alive(req.keep_alive());
 		return response;
 	});
+	routes.add(warp::method::delete_, "/hello/{id}", [](const warp::request &req) -> warp::response {
+		auto id = req.path_param("id");
+		assert(id);
+		auto response =
+		    warp::http::response::ok(warp::body_builder().set("deleted", true).set("id", std::string(*id)).build());
+		response.keep_alive(req.keep_alive());
+		return response;
+	});
 
-	auto handler = routes.find("/hello/42?lang=en");
-	assert(handler);
+	auto get_handler = routes.find(warp::method::get, "/hello/42?lang=en");
+	assert(get_handler);
+	auto delete_handler = routes.find(warp::method::delete_, "/hello/42?lang=en");
+	assert(delete_handler);
+	auto post_miss = routes.find(warp::method::post, "/hello/42?lang=en");
+	assert(!post_miss);
 
 	warp::request req {boost::beast::http::verb::get, "/hello/42?lang=en", 11};
 	req.keep_alive(true);
 	req.body() = R"({"value":42})";
 
-	auto matched_response = (*handler)(req);
+	auto matched_response = (*get_handler)(req);
 	auto matched_response_json = boost::json::parse(matched_response.body()).as_object();
 	assert(matched_response_json.at("id").as_string() == "42");
 	assert(matched_response_json.at("lang").as_string() == "en");
+
+	warp::request delete_req {boost::beast::http::verb::delete_, "/hello/42?lang=en", 11};
+	auto delete_response = (*delete_handler)(delete_req);
+	auto delete_response_json = boost::json::parse(delete_response.body()).as_object();
+	assert(delete_response_json.at("deleted").as_bool());
+	assert(delete_response_json.at("id").as_string() == "42");
 
 	auto json_value = boost::json::parse(req.body());
 	assert(json_value.at("value").as_int64() == 42);
 	assert(req.path() == "/hello/42");
 	assert(req.query_param("lang").value_or("") == "en");
 	assert(!req.path_param("id"));
-	boost::json::object builder;
-	builder["name"] = "warp";
-	builder["answer"] = 42;
+	boost::json::object payload_builder;
+	payload_builder["name"] = "warp";
+	payload_builder["answer"] = 42;
 	boost::json::array numbers;
 	numbers.push_back(1);
 	numbers.push_back(2);
-	builder["numbers"] = numbers;
-	auto it = builder.find("numbers");
-	assert(it != builder.end());
+	payload_builder["numbers"] = numbers;
+	auto it = payload_builder.find("numbers");
+	assert(it != payload_builder.end());
 	const auto &numbers_array = it->value().as_array();
 	assert(numbers_array.size() == 2);
 	assert(numbers_array[0].as_int64() == 1);
@@ -96,8 +114,18 @@ int main() {
 	} catch (const std::exception &) {
 	}
 
-	auto miss = routes.find("/goodbye/42");
+	auto miss = routes.find(warp::method::get, "/goodbye/42");
 	assert(!miss);
+
+	warp::http::server_builder route_builder;
+	route_builder.get("/items/{id}", [](const warp::request &req) -> warp::response {
+		return warp::response::ok(
+		    warp::body_builder().set("method", "get").set("id", req.path_param("id").value_or("")).build());
+	});
+	route_builder.delete_("/items/{id}", [](const warp::request &req) -> warp::response {
+		return warp::response::ok(
+		    warp::body_builder().set("method", "delete").set("id", req.path_param("id").value_or("")).build());
+	});
 
 	warp::db::postgres::connection_config db_config;
 	db_config.host = "db.internal";

@@ -49,7 +49,7 @@ void http_session::on_read(beast::error_code ec, std::size_t) {
 
 	warp::request request {parser_->release()};
 	warp::response response;
-	if (const auto handler = routes_.find(request.target())) {
+	if (const auto handler = routes_.find(request.method(), request.target())) {
 		response = (*handler)(request);
 		response.version(request.version());
 		response.keep_alive(request.keep_alive());

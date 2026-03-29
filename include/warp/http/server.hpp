@@ -29,15 +29,26 @@ public:
 	server_builder &address(std::string address);
 	server_builder &port(std::uint16_t port);
 	server_builder &worker_threads(std::size_t count);
+	server_builder &route(method verb, std::string path, handler handler);
 	server_builder &route(std::string path, handler handler);
+	server_builder &get(std::string path, handler handler);
+	server_builder &post(std::string path, handler handler);
+	server_builder &put(std::string path, handler handler);
+	server_builder &delete_(std::string path, handler handler);
 
 	[[nodiscard]] server build() const;
 
 private:
+	struct route_definition {
+		method verb;
+		std::string path;
+		handler callback;
+	};
+
 	std::string address_ {"0.0.0.0"};
 	std::uint16_t port_ {8080};
 	std::size_t workers_ {std::max<std::size_t>(1, std::thread::hardware_concurrency())};
-	std::vector<std::pair<std::string, handler>> routes_;
+	std::vector<route_definition> routes_;
 };
 
 class server {

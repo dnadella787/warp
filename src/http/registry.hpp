@@ -12,8 +12,7 @@
 
 namespace warp::http {
 
-using request = request;
-using response = response;
+using method = boost::beast::http::verb;
 using handler = std::function<response(const request &)>;
 
 class registry {
@@ -21,8 +20,8 @@ public:
 	registry() = default;
 	registry(const registry &other);
 	registry &operator=(const registry &other);
-	void add(std::string path, handler h);
-	[[nodiscard]] std::optional<handler> find(std::string_view path) const;
+	void add(method verb, std::string path, handler h);
+	[[nodiscard]] std::optional<handler> find(method verb, std::string_view path) const;
 
 private:
 	struct segment {
@@ -35,6 +34,7 @@ private:
 	};
 
 	struct route_entry {
+		method verb;
 		std::string pattern;
 		std::vector<segment> segments;
 		handler handler;

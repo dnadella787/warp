@@ -20,21 +20,25 @@ registry &registry::operator=(const registry &other) {
 	return *this;
 }
 
-void registry::add(std::string path, handler h) {
+void registry::add(method verb, std::string path, handler h) {
 	auto segments = compile_pattern(path);
-	// Replace existing entry with same pattern if present.
+	// Replace existing entry with same method/pattern if present.
 	for (auto &route : routes_) {
-		if (route.pattern == path) {
+		if (route.verb == verb && route.pattern == path) {
 			route.handler = std::move(h);
 			route.segments = std::move(segments);
 			return;
 		}
 	}
-	routes_.push_back(
-	    route_entry {.pattern = std::move(path), .segments = std::move(segments), .handler = std::move(h)});
+	routes_.push_back(route_entry {
+	    .verb = verb,
+	    .pattern = std::move(path),
+	    .segments = std::move(segments),
+	    .handler = std::move(h),
+	});
 }
 
-std::optional<handler> registry::find(std::string_view path) const {
+std::optional<handler> registry::find(method verb, std::string_view path) const {
 	auto clean_path = path.substr(0, path.find('?'));
 	auto path_segments = split_path(clean_path);
 	const bool invalid_path = path_segments.empty() && !(clean_path.empty() || clean_path == "/");
@@ -43,6 +47,9 @@ std::optional<handler> registry::find(std::string_view path) const {
 	}
 
 	for (const auto &route : routes_) {
+		if (route.verb != verb) {
+			continue;
+		}
 		if (route.segments.size() != path_segments.size()) {
 			continue;
 		}

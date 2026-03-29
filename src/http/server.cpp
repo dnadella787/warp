@@ -24,15 +24,35 @@ server_builder &server_builder::worker_threads(std::size_t count) {
 	return *this;
 }
 
-server_builder &server_builder::route(std::string path, handler handler) {
-	routes_.emplace_back(std::move(path), std::move(handler));
+server_builder &server_builder::route(method verb, std::string path, handler handler) {
+	routes_.push_back(route_definition {.verb = verb, .path = std::move(path), .callback = std::move(handler)});
 	return *this;
+}
+
+server_builder &server_builder::route(std::string path, handler handler) {
+	return route(method::get, std::move(path), std::move(handler));
+}
+
+server_builder &server_builder::get(std::string path, handler handler) {
+	return route(method::get, std::move(path), std::move(handler));
+}
+
+server_builder &server_builder::post(std::string path, handler handler) {
+	return route(method::post, std::move(path), std::move(handler));
+}
+
+server_builder &server_builder::put(std::string path, handler handler) {
+	return route(method::put, std::move(path), std::move(handler));
+}
+
+server_builder &server_builder::delete_(std::string path, handler handler) {
+	return route(method::delete_, std::move(path), std::move(handler));
 }
 
 server server_builder::build() const {
 	registry registry;
-	for (const auto &[path, handler] : routes_) {
-		registry.add(path, handler);
+	for (const auto &route : routes_) {
+		registry.add(route.verb, route.path, route.callback);
 	}
 	auto impl = std::make_shared<server::impl>(address_, port_, workers_, std::move(registry));
 	return server {std::move(impl)};
