@@ -11,15 +11,26 @@
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
 
+#if defined(__APPLE__)
+#include <mach/mach.h>
+#endif
+
 #include <array>
+#include <algorithm>
 #include <chrono>
 #include <cstdlib>
 #include <cstdint>
+#include <fstream>
 #include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <sys/resource.h>
 #include <thread>
+
+#if defined(__linux__)
+#include <unistd.h>
+#endif
 
 namespace {
 
@@ -28,6 +39,8 @@ namespace beast = boost::beast;
 namespace http = beast::http;
 using tcp = asio::ip::tcp;
 using namespace std::chrono_literals;
+
+constexpr std::uint64_t rss_sample_interval = 128;
 
 struct db_env {
 	std::string host;
@@ -67,6 +80,91 @@ std::optional<db_env> load_db_env() {
 	}
 	return env;
 }
+
+double timeval_to_seconds(const timeval &value) {
+	return static_cast<double>(value.tv_sec) + static_cast<double>(value.tv_usec) / 1'000'000.0;
+}
+
+std::optional<double> process_cpu_seconds() {
+	rusage usage {};
+	if (::getrusage(RUSAGE_SELF, &usage) != 0) {
+		return std::nullopt;
+	}
+
+	return timeval_to_seconds(usage.ru_utime) + timeval_to_seconds(usage.ru_stime);
+}
+
+std::optional<std::uint64_t> current_resident_memory_bytes() {
+#if defined(__APPLE__)
+	mach_task_basic_info_data_t info {};
+	mach_msg_type_number_t info_count = MACH_TASK_BASIC_INFO_COUNT;
+	if (::task_info(mach_task_self(), MACH_TASK_BASIC_INFO, reinterpret_cast<task_info_t>(&info), &info_count) !=
+	    KERN_SUCCESS) {
+		return std::nullopt;
+	}
+
+	return static_cast<std::uint64_t>(info.resident_size);
+#elif defined(__linux__)
+	std::ifstream statm("/proc/self/statm");
+	std::uint64_t total_pages = 0;
+	std::uint64_t resident_pages = 0;
+	if (!(statm >> total_pages >> resident_pages)) {
+		return std::nullopt;
+	}
+
+	const long page_size = ::sysconf(_SC_PAGESIZE);
+	if (page_size <= 0) {
+		return std::nullopt;
+	}
+
+	return resident_pages * static_cast<std::uint64_t>(page_size);
+#else
+	return std::nullopt;
+#endif
+}
+
+double bytes_to_mib(std::uint64_t bytes) {
+	return static_cast<double>(bytes) / (1024.0 * 1024.0);
+}
+
+class process_resource_tracker {
+public:
+	void start() {
+		wall_start_ = std::chrono::steady_clock::now();
+		cpu_start_seconds_ = process_cpu_seconds();
+		sample_memory();
+	}
+
+	void sample_memory() {
+		if (const auto rss_bytes = current_resident_memory_bytes()) {
+			peak_rss_bytes_ = peak_rss_bytes_ ? std::max(*peak_rss_bytes_, *rss_bytes) : *rss_bytes;
+		}
+	}
+
+	void record(benchmark::State &state) {
+		sample_memory();
+
+		if (const auto cpu_end_seconds = process_cpu_seconds(); cpu_start_seconds_ && cpu_end_seconds) {
+			const auto cpu_seconds = std::max(0.0, *cpu_end_seconds - *cpu_start_seconds_);
+			state.counters["proc_cpu_us_per_req"] =
+			    benchmark::Counter(cpu_seconds * 1'000'000.0, benchmark::Counter::kAvgIterations);
+
+			const auto wall_seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - wall_start_).count();
+			if (wall_seconds > 0.0) {
+				state.counters["proc_cpu_pct"] = (cpu_seconds / wall_seconds) * 100.0;
+			}
+		}
+
+		if (peak_rss_bytes_) {
+			state.counters["rss_peak_mib"] = bytes_to_mib(*peak_rss_bytes_);
+		}
+	}
+
+private:
+	std::chrono::steady_clock::time_point wall_start_ {};
+	std::optional<double> cpu_start_seconds_;
+	std::optional<std::uint64_t> peak_rss_bytes_;
+};
 
 struct server_fixture {
 	explicit server_fixture(warp::http::server_builder builder)
@@ -135,6 +233,30 @@ void close_connection(client_connection &client) {
 	                     "\r\n");
 	auto response = read_response(client);
 	benchmark::DoNotOptimize(response.result_int());
+}
+
+void run_round_trip_benchmark(benchmark::State &state, client_connection &client, std::string_view request_payload) {
+	process_resource_tracker resources;
+	resources.start();
+
+	std::uint64_t completed_iterations = 0;
+	for (auto _ : state) {
+		send_request(client, request_payload);
+		auto response = read_response(client);
+		benchmark::DoNotOptimize(response.result_int());
+		benchmark::DoNotOptimize(response.body());
+
+		++completed_iterations;
+		// Sample RSS occasionally so the memory counters do not meaningfully perturb the request timings.
+		if ((completed_iterations % rss_sample_interval) == 0) {
+			resources.sample_memory();
+		}
+	}
+
+	resources.record(state);
+	state.SetItemsProcessed(state.iterations());
+	state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) *
+	                        static_cast<std::int64_t>(request_payload.size()));
 }
 
 class event_loop_benchmark : public benchmark::Fixture {
@@ -219,16 +341,7 @@ protected:
 };
 
 BENCHMARK_DEFINE_F(event_loop_benchmark, round_trip)(benchmark::State &state) {
-	for (auto _ : state) {
-		send_request(*client_, request_payload);
-		auto response = read_response(*client_);
-		benchmark::DoNotOptimize(response.result_int());
-		benchmark::DoNotOptimize(response.body());
-	}
-
-	state.SetItemsProcessed(state.iterations());
-	state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) *
-	                        static_cast<std::int64_t>(request_payload.size()));
+	run_round_trip_benchmark(state, *client_, request_payload);
 }
 
 BENCHMARK_REGISTER_F(event_loop_benchmark, round_trip)
@@ -255,16 +368,7 @@ BENCHMARK_DEFINE_F(db_event_loop_benchmark, db_round_trip)(benchmark::State &sta
 		return;
 	}
 
-	for (auto _ : state) {
-		send_request(*client_, request_payload);
-		auto response = read_response(*client_);
-		benchmark::DoNotOptimize(response.result_int());
-		benchmark::DoNotOptimize(response.body());
-	}
-
-	state.SetItemsProcessed(state.iterations());
-	state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) *
-	                        static_cast<std::int64_t>(request_payload.size()));
+	run_round_trip_benchmark(state, *client_, request_payload);
 }
 
 BENCHMARK_REGISTER_F(db_event_loop_benchmark, db_round_trip)

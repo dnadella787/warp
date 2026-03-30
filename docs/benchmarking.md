@@ -32,7 +32,8 @@ Run it:
 ./build-bench/benchmarks/warp_http_event_loop_benchmark \
   --benchmark_min_time=1.5s \
   --benchmark_repetitions=5 \
-  --benchmark_report_aggregates_only=true
+  --benchmark_report_aggregates_only=true \
+  --benchmark_counters_tabular=true
 ```
 
 The benchmark source is [http_event_loop_benchmark.cpp](/Users/dnadella/Projects/warp/benchmarks/http_event_loop_benchmark.cpp).
@@ -61,6 +62,14 @@ Each benchmark iteration:
 2. Reads the full HTTP response
 3. Measures real wall-clock round-trip time
 
+Each benchmark run also reports three resource counters for the Warp benchmark process itself:
+
+- `proc_cpu_us_per_req`: total process CPU time divided by completed requests
+- `proc_cpu_pct`: total process CPU time divided by wall-clock runtime
+- `rss_peak_mib`: peak resident set size observed while the timed benchmark loop was running
+
+These counters include the benchmark client and the in-process Warp server. The DB-backed benchmark does not include the external PostgreSQL server's own CPU or RAM usage.
+
 The `/ping` route is intentionally simple so the comparison stays focused on the event-loop implementation rather than application logic.
 
 The `/db/exchanges/nyse` route includes the PostgreSQL connection pool and one SQL query so you can see how the two event-loop modes behave when the handler suspends on database I/O.
@@ -84,6 +93,8 @@ Observed aggregates:
 | Coroutines | 83.2 us | 82.7 us | 12.02k req/s | 12.10k req/s |
 
 In this run, the callback event loop was about 8% faster on this minimal round-trip benchmark.
+
+Fresh runs also include `proc_cpu_us_per_req`, `proc_cpu_pct`, and `rss_peak_mib` in the aggregate output. The snippet below was captured before those counters were added, so it only shows latency and throughput fields.
 
 The exact Google Benchmark aggregates captured were:
 
@@ -115,6 +126,8 @@ Observed aggregates for `GET /db/exchanges/nyse`:
 | Coroutines | 2130 us | 2112 us | 469.802 req/s | 473.443 req/s |
 
 In this run, the coroutine event loop was about 4% faster on the DB-backed benchmark.
+
+Fresh runs also include `proc_cpu_us_per_req`, `proc_cpu_pct`, and `rss_peak_mib` in the aggregate output. The snippet below was captured before those counters were added, so it only shows latency and throughput fields.
 
 The exact Google Benchmark output captured was:
 
