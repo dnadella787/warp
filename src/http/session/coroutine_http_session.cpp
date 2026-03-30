@@ -14,7 +14,8 @@ using tcp = boost::asio::ip::tcp;
 namespace warp::http {
 
 coroutine_http_session::coroutine_http_session(boost::asio::ip::tcp::socket &&socket, registry &routes)
-    : stream_(std::move(socket)), routes_(routes), read_signal_(stream_.get_executor()), write_signal_(stream_.get_executor()) {
+    : stream_(std::move(socket)), routes_(routes), read_signal_(stream_.get_executor()),
+      write_signal_(stream_.get_executor()) {
 }
 
 void coroutine_http_session::start() {
@@ -77,8 +78,8 @@ boost::asio::awaitable<void> coroutine_http_session::read_loop() {
 		if (const auto *handler = routes_.find(req)) {
 			boost::asio::co_spawn(
 			    stream_.get_executor(),
-			    [self = shared_from_this(), sequence, version, keep_alive, handler, req = std::move(req)]() mutable
-			        -> boost::asio::awaitable<void> {
+			    [self = shared_from_this(), sequence, version, keep_alive, handler,
+			     req = std::move(req)]() mutable -> boost::asio::awaitable<void> {
 				    co_await self->execute_handler(sequence, version, keep_alive, *handler, std::move(req));
 			    },
 			    boost::asio::detached);
@@ -153,10 +154,8 @@ boost::asio::awaitable<void> coroutine_http_session::wait_for_write_ready() {
 	co_await write_signal_.async_wait(boost::asio::redirect_error(boost::asio::use_awaitable, ec));
 }
 
-boost::asio::awaitable<void> coroutine_http_session::execute_handler(std::size_t sequence,
-                                                                     unsigned version,
-                                                                     bool keep_alive,
-                                                                     const async_handler &handler,
+boost::asio::awaitable<void> coroutine_http_session::execute_handler(std::size_t sequence, unsigned version,
+                                                                     bool keep_alive, const async_handler &handler,
                                                                      request req) {
 	try {
 		auto resp = co_await handler(std::move(req));
@@ -166,9 +165,7 @@ boost::asio::awaitable<void> coroutine_http_session::execute_handler(std::size_t
 	}
 }
 
-void coroutine_http_session::complete_request(std::size_t sequence,
-                                              unsigned version,
-                                              bool keep_alive,
+void coroutine_http_session::complete_request(std::size_t sequence, unsigned version, bool keep_alive,
                                               response response) {
 	if (shutdown_started_) {
 		return;

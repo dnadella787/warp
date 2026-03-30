@@ -9,7 +9,7 @@ A route can return either:
 - `warp::response`
 - `warp::awaitable<warp::response>`
 
-Warp normalizes both forms internally and always executes routes through its async dispatch path.
+`server_builder` normalizes both forms into the internal async shape `warp::awaitable<warp::response>(warp::request&&)`, so the server always dispatches routes through one async path.
 
 ## User-Facing Model
 
@@ -49,24 +49,78 @@ The code reads top-to-bottom:
 3. `co_await` async work
 4. `co_return` a response
 
-That is the main benefit of the coroutine API. Users get direct sequential control flow without manually wiring completion handlers.
+## Event Loop Modes
 
-## What Warp Does Internally
+Warp now has two internal server event-loop implementations:
 
-The internal flow for a coroutine route is:
+- `warp::event_loop_mode::callbacks`
+- `warp::event_loop_mode::coroutines`
 
-1. `http_session` reads and parses the HTTP request.
-2. The request is wrapped as `warp::request`.
-3. The registry finds the matching route and returns an internal async handler.
-4. `http_session` starts that handler with `boost::asio::co_spawn(...)`.
-5. The route coroutine runs on the session executor until it either:
-   - completes immediately, or
-   - suspends at a `co_await`
-6. When the coroutine completes, Warp receives the final `warp::response` in `on_handler_complete(...)`.
-7. Warp stores completed responses until they are eligible to be written in request order.
-8. Warp writes responses back to the socket in request order even if handlers finished out of order.
+The default is `callbacks`.
 
-The important part is that `http_session::on_read(...)` does not block waiting for the handler to finish. It starts the coroutine and returns control to Asio.
+Users can switch modes through the server builder:
+
+```cpp
+auto server = warp::server_builder()
+    .event_loop(warp::event_loop_mode::coroutines)
+    .get("/ping", [](warp::request) {
+        return warp::response::ok("{\"status\":\"ok\"}");
+    })
+    .build();
+```
+
+This setting changes how Warp runs the accept loop and HTTP session internals. It does not change the route API. Coroutine route handlers work in both modes.
+
+## Internal Flow
+
+The shared dispatch flow is:
+
+1. A listener accepts a socket.
+2. A session reads and parses an HTTP request.
+3. The Beast request is wrapped as `warp::request`.
+4. The registry matches the route and injects path params into the request.
+5. Warp starts the normalized async handler.
+6. The handler either completes immediately or suspends at a `co_await`.
+7. When the handler completes, Warp stores the response until it can be written in request order.
+8. The session writes responses back in HTTP/1.1 request order.
+
+The difference between the two modes is how steps 1, 2, 5, and 8 are driven internally.
+
+### Callback Mode
+
+Callback mode uses:
+
+- [listener.cpp](/Users/dnadella/Projects/warp/src/http/listener/listener.cpp)
+- [http_session.cpp](/Users/dnadella/Projects/warp/src/http/session/http_session.cpp)
+
+Flow:
+
+1. `listener::run()` dispatches onto the acceptor strand.
+2. `listener::do_accept()` starts `async_accept(...)`.
+3. `http_session::on_read(...)` receives each parsed request.
+4. The route handler is launched with `boost::asio::co_spawn(...)`.
+5. `on_handler_complete(...)` stores the finished response.
+6. `async_write(...)` flushes ready responses in sequence order.
+
+`on_read(...)` does not block waiting for the handler to finish. It launches the coroutine and returns to Asio.
+
+### Coroutine Mode
+
+Coroutine mode uses:
+
+- [coroutine_listener.cpp](/Users/dnadella/Projects/warp/src/http/listener/coroutine_listener.cpp)
+- [coroutine_http_session.cpp](/Users/dnadella/Projects/warp/src/http/session/coroutine_http_session.cpp)
+
+Flow:
+
+1. `coroutine_listener::run()` starts the accept loop with `boost::asio::co_spawn(...)`.
+2. `accept_loop()` repeatedly `co_await`s `async_accept(...)`.
+3. Each `coroutine_http_session` starts a coroutine `read_loop()` and `write_loop()`.
+4. `read_loop()` parses requests and launches each matched route handler with `co_spawn(...)`.
+5. `write_loop()` waits until the next response in sequence is ready, then `co_await`s `async_write(...)`.
+6. Internal timers are used as wake signals so the read loop can pause at the pipeline limit and the write loop can sleep until a response becomes ready.
+
+This path is more coroutine-native internally, but user route code stays the same.
 
 ## What `co_await` Changes
 
@@ -76,14 +130,14 @@ What it does do:
 
 - lets a route suspend while waiting for I/O
 - frees the HTTP worker thread to do other work
-- avoids blocking the session thread on database or other asynchronous operations
+- avoids blocking the session executor on database or other asynchronous operations
 - keeps route logic readable and sequential
 
-So the main performance win is throughput and thread utilization, not faster arithmetic or faster string manipulation.
+The main gain is better thread utilization and throughput under I/O-heavy load.
 
 ## Database Example
 
-`warp::db::postgres::connection_pool::async_query(...)` is a good example of where coroutines help.
+`warp::db::postgres::connection_pool::async_query(...)` is a good fit for coroutine routes.
 
 When a route does:
 
@@ -94,122 +148,56 @@ auto result = co_await db_pool->async_query(sql);
 the behavior is:
 
 - the HTTP route coroutine suspends
-- the actual blocking libpqxx query work runs on the PostgreSQL pool's worker threads
+- the blocking libpqxx work runs on the PostgreSQL pool threads
 - when the query finishes, the coroutine resumes on the expected completion executor
 - the route continues and eventually `co_return`s its response
 
 That means the HTTP worker is not blocked by the database round trip.
 
-## How Users Get Better Performance
+## Performance Guidance
 
-Coroutines help when users apply them to the right kind of work.
+Coroutines help most when users apply them to I/O-bound work.
 
-### Good Uses
+Good uses:
 
-- waiting on database queries
-- waiting on other asynchronous network calls
-- multi-step request flows that are mostly I/O
-- validation plus I/O plus response construction in one linear function
+- database queries
+- outbound HTTP or RPC calls
+- multi-step request flows with several async waits
 
-### Poor Uses
+Poor uses:
 
 - long CPU-heavy loops
-- large synchronous file reads
-- expensive JSON transformation with no suspension points
-- any blocking library call that never yields control back to Asio
+- large blocking file reads
+- expensive transformations with no suspension points
+- libraries that block the calling thread and never yield to Asio
 
-If a route does heavy CPU work before its first `co_await`, that work still occupies an HTTP worker thread.
+Practical rules:
 
-## Practical Performance Guidance
+1. Prefer async APIs inside coroutine routes.
+2. Keep work before the first `co_await` small.
+3. Move truly blocking work onto another executor or thread pool.
+4. Expect ordered writes per connection even when handlers complete out of order.
 
-### 1. Prefer async APIs inside coroutine routes
+## Connection-Level Behavior
 
-If an operation already has an awaitable form, use that form.
-
-Good:
-
-```cpp
-auto result = co_await db_pool->async_query(sql);
-```
-
-Less good for HTTP throughput:
-
-```cpp
-auto result = db_pool->query(sql);
-```
-
-The synchronous form still works, but it blocks the calling route until the result is ready.
-
-### 2. Keep pre-await work small
-
-Do cheap validation and request parsing before the first suspension point, then move into async work quickly.
-
-Good examples:
-
-- parse `id`
-- check auth headers
-- validate required fields
-
-Bad examples:
-
-- run expensive report generation inline
-- compress a large payload on the HTTP executor
-- perform large blocking filesystem traversals
-
-### 3. Use coroutines for clarity, not just syntax
-
-Coroutines are most useful when the route would otherwise become callback-heavy.
-
-This pattern scales well:
-
-```cpp
-auto user = co_await load_user(...);
-auto permissions = co_await load_permissions(...);
-co_return build_response(user, permissions);
-```
-
-Compared with nested callbacks, this is easier to maintain and less error-prone.
-
-### 4. Move truly blocking work off the HTTP executor
-
-Warp already does this for PostgreSQL queries.
-
-If users introduce another blocking dependency, they should give that work its own executor or worker pool instead of calling it directly inside the route coroutine.
-
-### 5. Understand the connection-level limit
-
-Warp currently allows a bounded number of in-flight requests per TCP connection.
+Warp allows a bounded number of in-flight requests per TCP connection.
 
 That means:
 
-- coroutines improve utilization while waiting on I/O
-- different client connections can make progress concurrently
-- a single connection may have multiple handlers running concurrently
-- responses on that connection are still serialized in request order
+- one connection may have several route handlers running concurrently
+- handlers may complete out of order
+- responses are still written strictly in request order
+- if the request path eventually closes the connection, Warp stops reading new requests and drains what is already accepted
 
-So coroutine handlers improve server throughput across many requests and many connections, while ordered writes preserve HTTP/1.1 response semantics on each socket.
+## Benchmarking
 
-## Choosing Between Sync and Coroutine Handlers
-
-Use a synchronous handler when:
-
-- the route is trivial
-- all work is cheap and local
-- no I/O suspension is needed
-
-Use a coroutine handler when:
-
-- the route waits on database or network I/O
-- the request flow has multiple async steps
-- you want linear control flow with non-blocking behavior
+The callback event loop is still the default because it currently has the lower event-loop overhead on Warp's local round-trip benchmark. The latest measurements are documented in [benchmarking.md](/Users/dnadella/Projects/warp/docs/benchmarking.md).
 
 ## Summary
 
-Warp uses coroutines internally to keep HTTP request handling non-blocking while preserving a simple route API.
-
-For users, the main rule is straightforward:
+For users, the rule is simple:
 
 - if the route waits on I/O, prefer `warp::awaitable<warp::response>` and `co_await`
-- if the route is cheap and local, returning `warp::response` directly is fine
+- if the route is trivial and local, returning `warp::response` directly is fine
 
-That combination keeps the API simple while improving throughput under concurrent load.
+The event-loop mode only changes Warp's internal execution model. The public coroutine route API stays the same.

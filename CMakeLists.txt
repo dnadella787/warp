@@ -14,6 +14,7 @@ include(FetchContent)
 
 option(warp_BUILD_EXAMPLES "Build warp HTTP framework examples" ON)
 option(warp_BUILD_TESTS "Build warp test suite" ON)
+option(warp_BUILD_BENCHMARKS "Build warp benchmark suite" OFF)
 cmake_dependent_option(warp_FETCH_BOOST "Fetch Boost via FetchContent if not available" OFF
     "NOT DEFINED ENV{BOOST_ROOT}" OFF)
 
@@ -41,6 +42,18 @@ FetchContent_MakeAvailable(libpqxx)
 if (APPLE AND TARGET pqxx)
     target_compile_options(pqxx PRIVATE -Wno-c++11-narrowing)
 endif()
+
+if (warp_BUILD_BENCHMARKS)
+    set(BENCHMARK_ENABLE_GTEST_TESTS OFF CACHE BOOL "" FORCE)
+    set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+    set(BENCHMARK_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+
+    FetchContent_Declare(benchmark
+        GIT_REPOSITORY https://github.com/google/benchmark.git
+        GIT_TAG v1.9.1
+        UPDATE_DISCONNECTED ON)
+    FetchContent_MakeAvailable(benchmark)
+endif ()
 
 find_package(Boost 1.90 REQUIRED COMPONENTS json)
 find_package(PostgreSQL REQUIRED)
@@ -93,4 +106,8 @@ endif ()
 if (warp_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
+endif ()
+
+if (warp_BUILD_BENCHMARKS)
+    add_subdirectory(benchmarks)
 endif ()

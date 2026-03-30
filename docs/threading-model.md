@@ -1,58 +1,154 @@
 # Warp Threading Model
 
-## HTTP Server Execution
-- The current server implementation owns a single `boost::asio::io_context` in `server::impl`.
-- `worker_threads(count)` controls how many threads call `io_context::run()` on that single context. The effective pool size is `max(1, count)`.
-- `server::run(bool blocking)` starts those worker threads and also starts the listener on the same `io_context`.
-- If `blocking == true`, the calling thread also enters `io_context::run()`. In that mode, work may execute on:
-  - each spawned worker thread
-  - the caller's thread
-- If `blocking == false`, only the spawned worker threads service the `io_context`.
+## Server Execution
+
+Warp's HTTP server owns one `boost::asio::io_context` inside `server::impl`.
+
+- `worker_threads(count)` controls how many background threads call `io_context::run()`
+- the effective pool size is `max(1, count)`
+- `server::run(true)` also runs the `io_context` on the caller thread
+- `server::run(false)` leaves the work to the spawned worker threads only
+
+All HTTP listeners, sessions, and route handlers execute on that shared `io_context` unless work is explicitly moved to another executor.
+
+## Event Loop Selection
+
+Warp now supports two internal HTTP event-loop implementations:
+
+- `warp::event_loop_mode::callbacks`
+- `warp::event_loop_mode::coroutines`
+
+The mode is selected through `server_builder::event_loop(...)`. The default is `callbacks`.
+
+At runtime, `server::impl` constructs either:
+
+- [listener.cpp](/Users/dnadella/Projects/warp/src/http/listener/listener.cpp) plus [http_session.cpp](/Users/dnadella/Projects/warp/src/http/session/http_session.cpp)
+- [coroutine_listener.cpp](/Users/dnadella/Projects/warp/src/http/listener/coroutine_listener.cpp) plus [coroutine_http_session.cpp](/Users/dnadella/Projects/warp/src/http/session/coroutine_http_session.cpp)
+
+The public route API is the same in both modes.
 
 ## Accept Loop
-- The listener owns exactly one `boost::asio::ip::tcp::acceptor`.
-- The acceptor is constructed on `boost::asio::make_strand(io_context)`, so accept operations are serialized through that strand even though multiple threads may be running the same `io_context`.
-- `listener::run()` dispatches into the acceptor strand and begins the asynchronous accept loop.
-- Each accepted socket is rebound onto its own strand before the session starts. This gives each `http_session` serialized access to its own socket operations.
+
+Both listener implementations own one `boost::asio::ip::tcp::acceptor`.
+
+- the acceptor is created on `boost::asio::make_strand(io_context)`
+- accepts are therefore serialized through the acceptor strand
+- each accepted socket is rebound to its own strand with `boost::asio::make_strand(ioc_)`
+
+That per-connection strand guarantees serialized access to a given session's socket state even when many threads are servicing the shared `io_context`.
+
+### Callback Listener
+
+The callback listener:
+
+- starts from `listener::run()`
+- uses `boost::asio::dispatch(...)` onto the acceptor executor
+- chains `async_accept(...)` through `do_accept()` and `on_accept(...)`
+
+### Coroutine Listener
+
+The coroutine listener:
+
+- starts from `coroutine_listener::run()`
+- launches `accept_loop()` with `boost::asio::co_spawn(...)`
+- repeatedly `co_await`s `async_accept(...)`
 
 ## Session Execution
-- Each `http_session` performs asynchronous reads and writes on a `boost::beast::tcp_stream`.
-- The session stores completed responses in an internal ordered buffer and writes them asynchronously on the shared server `io_context`.
-- Request parsing and response writing are both asynchronous and execute on the shared server `io_context`.
-- Route handlers are normalized to an internal async form and started with `boost::asio::co_spawn(...)` from `http_session::on_read(...)`.
-- Coroutine handlers run on the session executor until they suspend at a `co_await` or complete.
-- Warp allows multiple in-flight requests per connection up to an internal pipeline limit.
-- Responses are still written strictly in request order to preserve HTTP/1.1 semantics.
-- Once a request indicates `Connection: close`, the session stops reading additional requests and closes the connection after the ordered response stream is drained.
+
+Each connection owns exactly one HTTP session object on its own socket strand.
+
+Shared behavior across both session implementations:
+
+- requests are read asynchronously with Beast
+- route handlers are normalized to the internal shape `warp::awaitable<warp::response>(warp::request&&)`
+- multiple requests may be in flight on the same connection up to the internal pipeline limit
+- responses are buffered and written strictly in request order
+- once `Connection: close` is observed, Warp stops accepting new requests on that connection and drains what is already accepted
+
+### Callback Session
+
+The callback session uses explicit state flags and completion handlers.
+
+Important details:
+
+- `http_session::maybe_read()` starts a new read only when:
+  - shutdown has not started
+  - the session is still accepting new requests
+  - no read is already in progress
+  - the connection has not reached the pipeline limit
+- `http_session::on_read(...)` wraps the parsed Beast request as `warp::request`
+- the matched route handler is launched with `boost::asio::co_spawn(...)`
+- `on_handler_complete(...)` stores the finished response
+- `do_write()` and `on_write(...)` flush responses in sequence order
+
+This mode uses callbacks for the accept/session event loop, but route handlers may still be coroutines.
+
+### Coroutine Session
+
+The coroutine session moves the session control flow itself into coroutines.
+
+Important details:
+
+- `start()` launches `read_loop()` and `write_loop()` with `co_spawn(...)`
+- `read_loop()` keeps reading requests until shutdown, `Connection: close`, or the pipeline limit blocks further reads
+- matched handlers are still launched independently with `co_spawn(...)`
+- completed responses are inserted into the ordered response map
+- `write_loop()` waits for the next sequence-ready response and `co_await`s `async_write(...)`
+- `steady_timer` instances are used as wake signals so the read loop can pause at the pipeline limit and the write loop can sleep until a response becomes ready
+
+This keeps the session logic itself sequential without changing user-facing handler code.
 
 ## Request and Route Handling
-- Incoming Beast requests are wrapped as `warp::request` before dispatch.
-- `warp::request` parses request-target metadata locally, including:
-  - clean path
-  - query parameters
-  - JSON body helpers
-- The HTTP registry matches only against the request path portion of the target.
-- If a route pattern includes parameters such as `/{id}`, the registry captures those values and injects them into the `warp::request` object before calling the user handler.
-- Public route handlers may return either `warp::response` or `warp::awaitable<warp::response>`.
-- Synchronous handlers are wrapped into the internal async route form so the dispatch path stays consistent.
 
-## Registry Threading Assumption
-- The registry is no longer internally synchronized.
-- Current code assumes routes are added during setup and not mutated while request handling is in progress.
-- Because of that assumption:
-  - concurrent `find(...)` calls are fine as long as no thread is mutating the route table
-  - `add(...)` must not race with `find(...)`
-- If runtime route mutation is introduced later, the registry will need synchronization or immutable snapshots.
+Incoming Beast requests are wrapped as `warp::request`.
+
+The current `warp::request` type:
+
+- inherits from `boost::beast::http::request<boost::beast::http::string_body>`
+- parses the request target into:
+  - `path()`
+  - `query_params()`
+  - `query_param(...)`
+- stores route-specific path params injected later by the registry
+- exposes `json_body()` and `try_json_body()` helpers
+
+The registry matches only against the request path and fills `path_param(...)` values on a successful route match.
+
+Public route handlers may return either:
+
+- `warp::response`
+- `warp::awaitable<warp::response>`
+
+`server_builder` adapts both forms into the internal async route shape so dispatch stays uniform.
+
+## Registry Concurrency Assumption
+
+The registry is not internally synchronized.
+
+Current code assumes:
+
+- routes are added during setup
+- request processing performs reads only
+- `add(...)` does not race with `find(...)`
+
+Because of that, concurrent route lookup is fine as long as the route table is not being mutated at the same time.
 
 ## Database Integration
-- `warp::db::postgres::connection_pool` integrates libpqxx with the server's executor. The pool owns a dedicated `boost::asio::thread_pool` whose size is `max(1, worker_threads)` from the constructor arguments (defaulting to hardware concurrency).
-- Synchronous queries (`sync_query`) package the work and post it to the database thread pool, blocking until the packaged task completes. This keeps synchronous callers off the network threads.
-- Asynchronous queries (`async_query`) also post the work to the database thread pool. Results are dispatched back through the completion executor supplied when the pool was constructed (typically one of the HTTP worker executors), so coroutine continuations resume on the expected `io_context`.
-- Each query grabs a libpqxx connection from the pool (or opens a new one up to `max_connections`), executes the SQL, and then either returns the connection to the idle deque or discards it on error, allowing database operations to proceed without blocking the HTTP threads.
+
+`warp::db::postgres::connection_pool` uses a dedicated `boost::asio::thread_pool` for libpqxx work.
+
+- synchronous queries package work onto the database pool and block the caller until that work completes
+- asynchronous queries package work onto the database pool and resume the awaiting coroutine on the configured completion executor
+
+The result is that a route which reaches `co_await db_pool->async_query(...)` does not keep an HTTP worker blocked while the database round trip is in progress.
 
 ## Practical Consequences
-- A slow route handler will occupy one of the HTTP `io_context` threads until it either completes or suspends.
-- A route that quickly reaches `co_await db_pool.async_query(...)` frees that HTTP worker while the database query runs on the PostgreSQL pool.
-- Blocking work should be moved off the HTTP path, for example into the PostgreSQL pool or another executor.
-- Socket I/O remains serialized per connection because each session uses its own strand, but different sessions may progress concurrently on different threads servicing the shared `io_context`.
-- Coroutines improve throughput by avoiding blocked HTTP workers during I/O waits, but they do not make CPU-bound work faster by themselves.
+
+- slow CPU-bound work still occupies an HTTP executor thread until it completes
+- coroutine handlers improve utilization when they suspend on I/O
+- different client connections can make progress concurrently on different worker threads
+- socket I/O is still serialized per connection because each session runs on its own strand
+- callback mode is currently the lower-overhead default for raw event-loop latency
+- coroutine mode remains useful when you want the server internals themselves to use coroutine control flow
+
+For measured callback-vs-coroutine event-loop overhead, see [benchmarking.md](/Users/dnadella/Projects/warp/docs/benchmarking.md).

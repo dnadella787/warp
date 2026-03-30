@@ -2,48 +2,47 @@
 
 ## Purpose
 
-`warp::http::registry` is the in-memory route table used by the HTTP server. Its job is intentionally narrow:
+`warp::http::registry` is the in-memory route table used by the HTTP server.
+
+Its job is intentionally narrow:
 
 - store route patterns and their handlers
-- match an incoming request path against those patterns
-- extract path parameters from parameterized segments such as `/{id}`
-- enrich the `warp::request` object with those path parameters before invoking the handler
+- bucket routes by HTTP method
+- match an incoming request path against the compiled route tree
+- extract path parameters such as `/{id}`
+- inject those path parameters into `warp::request` before the handler runs
 
-The registry does not perform I/O, networking, request parsing, or response serialization. Those concerns live in `listener`, `http_session`, and the public request/response helpers.
+The registry does not perform socket I/O, request parsing, or response serialization.
 
 ## Main Types
 
-The registry implementation lives in:
+The implementation lives in:
 
-- [registry.hpp](/Users/dnadella/Projects/warp/src/http/registry.hpp)
-- [registry.cpp](/Users/dnadella/Projects/warp/src/http/registry.cpp)
+- [registry.hpp](/Users/dnadella/Projects/warp/src/http/router/registry.hpp)
+- [registry.cpp](/Users/dnadella/Projects/warp/src/http/router/registry.cpp)
 
 Important types:
 
 - `warp::http::request`
-  This is the public request wrapper over Beast. It exposes helpers such as `path()`, `query_param(...)`, `path_param(...)`, `json_body()`, and `try_json_body()`.
+  The public request type. It currently inherits Beast's string-body request and adds helpers such as `path()`, `query_param(...)`, `path_param(...)`, `json_body()`, and `try_json_body()`.
 
 - `warp::http::response`
-  This is the public response type returned by route handlers.
+  The public response type returned by route handlers.
 
 - `warp::http::handler`
-  A route handler has the shape `response(const request &)`.
+  Synchronous internal registry handler shape: `response(const request &)`.
 
 - `warp::http::async_handler`
-  Internal dispatch uses the shape `warp::awaitable<response>(request)`.
-  Public synchronous handlers are wrapped into this form so the runtime can
-  execute both sync and coroutine routes through the same path.
+  Internal dispatch shape: `warp::awaitable<response>(request &&)`.
 
-- `warp::http::registry::segment`
-  Internal representation of one compiled path segment. Each segment is either:
-  - `literal`
-  - `parameter`
+- `warp::http::registry::node`
+  One trie node for a specific HTTP method. A node may have:
+  - literal children keyed by segment text
+  - one parameter child
+  - an optional terminal route entry
 
 - `warp::http::registry::route_entry`
-  Internal storage for one route:
-  - original route pattern string
-  - compiled segment vector
-  - handler
+  The stored handler plus the compiled list of parameter slots for that route.
 
 ## Route Registration
 
@@ -56,21 +55,16 @@ void add(method verb, std::string path, async_handler h);
 
 When a route is added:
 
-1. The route pattern is compiled into `segment` objects.
-2. If the same pattern already exists, the existing handler is replaced.
-3. Otherwise a new `route_entry` is appended to the route list.
-4. Synchronous handlers are wrapped into the internal async handler form.
+1. The path pattern is compiled into segments.
+2. The registry picks the root trie for that HTTP verb.
+3. Each segment descends into either:
+   - a literal child, or
+   - the single parameter child
+4. The terminal node stores or replaces the route entry.
 
-Example:
+Because each HTTP method has its own root, paths such as `GET /name/{id}` and `DELETE /name/{id}` can coexist without conflict.
 
-```cpp
-registry routes;
-routes.add(warp::method::get, "/users/{id}", [](const warp::request &req) {
-    auto id = req.path_param("id").value_or("");
-    return warp::response::ok(
-        warp::body_builder().set("id", std::string(id)).build());
-});
-```
+If the same method and the same structural path are added more than once, the later add replaces the handler at that terminal node.
 
 ## Pattern Compilation
 
@@ -91,13 +85,7 @@ Rules enforced during compilation:
 - parameter names must not be empty
   Example: `/users/{}` is rejected
 
-Compilation converts a string like:
-
-```text
-/users/{id}/posts/{post_id}
-```
-
-into a segment sequence conceptually equivalent to:
+`/users/{id}/posts/{post_id}` is compiled conceptually as:
 
 ```text
 literal("users")
@@ -106,36 +94,27 @@ literal("posts")
 parameter("post_id")
 ```
 
-This avoids reparsing the route pattern on every request.
+That compilation happens once at registration time, not on every request.
 
-## Path Matching
+## Lookup
 
 Incoming lookup happens through:
 
 ```cpp
-std::optional<async_handler> find(method verb, std::string_view path) const;
+const async_handler *find(request &req) const;
 ```
 
 The matching flow is:
 
-1. Strip the query string from the input path.
-   Example:
-   `/users/42?lang=en` becomes `/users/42`
+1. Read the request method.
+2. Select the trie root for that method.
+3. Match the cleaned request path segment-by-segment.
+4. Prefer a literal child when one exists for the current segment.
+5. Otherwise fall back to the parameter child.
+6. If the match succeeds, inject captured path params into `req`.
+7. Return a pointer to the stored handler.
 
-2. Split the clean path into segments.
-
-3. Compare the request segments against each compiled route entry.
-
-4. If all literal segments match and parameter segments line up positionally, the route matches.
-
-5. Captured parameter values are stored in a temporary map.
-
-6. The registry returns an adapted async handler that:
-   - takes ownership of the incoming `warp::request`
-   - injects the captured path parameters with `set_path_params(...)`
-   - invokes the stored route handler with the enriched request
-
-This means callers of `find(...)` receive an executable async handler directly, while path parameter extraction still works transparently.
+The registry no longer returns a separate match structure. The caller gets the final handler pointer directly.
 
 ## Example Match
 
@@ -153,97 +132,79 @@ Incoming target:
 
 The registry:
 
-- strips the query string for path matching
-- matches the literals `users` and `posts`
-- captures:
-  - `id = "42"`
-  - `post_id = "99"`
+- ignores `?draft=true` for path matching
+- matches `users`
+- captures `id = "42"`
+- matches `posts`
+- captures `post_id = "99"`
 
-The `warp::request` object passed to the user handler then exposes:
+The resulting request exposes:
 
 ```cpp
-req.path();                    // "/users/42/posts/99"
-req.query_param("draft");      // "true"
-req.path_param("id");          // "42"
-req.path_param("post_id");     // "99"
+req.path();               // "/users/42/posts/99"
+req.query_param("draft"); // "true"
+req.path_param("id");     // "42"
+req.path_param("post_id"); // "99"
 ```
-
-## Interaction With `warp::request`
-
-The registry only provides path parameters. Query parameters are not extracted by the registry.
-
-Query parameters are parsed directly by `warp::request` from the Beast request target. That parsing happens when the request wrapper is constructed.
-
-As a result:
-
-- `query_param(...)` and `query_params()` come from the request wrapper itself
-- `path_param(...)` and `path_params()` are injected by the registry when a route matches
-
-This split keeps responsibilities clean:
-
-- request wrapper: parse request target metadata
-- registry: match routes and attach route-specific path params
 
 ## Matching Semantics
 
 Important details of the current implementation:
 
 - query strings are ignored for route matching
-- route order matters when multiple patterns could match
-  The first matching route in `routes_` wins
 - segment counts must match exactly
-  `/users/{id}` does not match `/users/42/posts`
 - literal segments must match exactly
-- parameter segments match any non-empty segment value
-- the root route `/` is represented as zero segments
+- parameter segments match any non-empty segment
+- `/` is represented as the root node with no path segments
+- literal matches win over parameter matches at the same depth
+- matching is method-specific because each verb has its own trie root
+
+That last point is what enables `GET /name/{id}` and `DELETE /name/{id}` to exist at the same time.
+
+## Interaction With `warp::request`
+
+The request object parses request-target metadata when it is constructed from the Beast request.
+
+That means:
+
+- `path()` and `query_param(...)` come from `warp::request`
+- `path_param(...)` is attached by the registry after a route match
+
+The registry only deals with route-specific path parameters.
 
 ## Threading and Safety
 
-The registry is currently implemented as a plain vector with no internal locking.
+The registry has no internal locking.
 
-That is a deliberate design choice based on the current project assumption:
+Current code assumes:
 
-- routes are registered during setup
-- handlers are then read during request processing
-- callers do not mutate the registry concurrently with `find(...)`
+- routes are added during setup
+- request processing only performs reads
+- `add(...)` does not race with `find(...)`
 
-Consequences:
-
-- `find(...)` is safe for concurrent reads only if no thread is mutating `routes_`
-- `add(...)` must not race with `find(...)`
-- if the project later supports runtime route mutation, the registry will need synchronization or an immutable snapshot strategy
-
-This assumption should be treated as part of the contract of the current implementation.
+Under that assumption, concurrent lookups are fine. Runtime route mutation would require synchronization or immutable route snapshots.
 
 ## Complexity
 
-Current complexity is linear in the number of registered routes.
+The current structure is method-bucketed and trie-based.
 
 - `add(...)`
-  - `O(n)` when checking for an existing pattern to replace
+  - `O(s)`, where `s` is the number of segments in the route pattern
 - `find(...)`
-  - `O(n * s)` where `n` is route count and `s` is segment count for the candidate path
+  - `O(s)`, where `s` is the number of path segments in the incoming request
 
-This is acceptable for a small to moderate route table, and it keeps the implementation easy to reason about.
-
-If route counts grow substantially, likely next steps would be:
-
-- trie-based path storage
-- method-aware dispatch buckets
-- immutable compiled route tables
+There is no full route-table scan on every lookup anymore.
 
 ## End-to-End Request Flow
 
 The registry participates in the HTTP pipeline like this:
 
-1. `listener` accepts a socket.
-2. `http_session` reads an HTTP request with Beast.
+1. A listener accepts a socket.
+2. A session reads an HTTP request with Beast.
 3. The Beast request is wrapped as `warp::request`.
-4. `registry::find(request.method(), request.target())` looks up the route.
-5. If a route matches, the registry returns an adapted async handler.
-6. The adapted handler injects path params into the request.
-7. `http_session` starts that handler with `co_spawn(...)`.
-8. The user handler eventually completes with a `warp::response`.
-9. `http_session` writes that response back through Beast.
+4. `registry::find(req)` looks up the route and injects path params into that request.
+5. The session launches the returned handler if one exists.
+6. The handler eventually completes with a `warp::response`.
+7. The session writes the response back through Beast.
 
-That design keeps the registry focused on route lookup while letting the public request/response API stay ergonomic.
+This keeps the registry focused on route lookup while the listener and session implementations own transport behavior.

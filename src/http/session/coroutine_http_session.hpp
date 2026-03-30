@@ -32,7 +32,6 @@ private:
 	void notify_read_loop();
 	void notify_write_loop();
 	void shutdown();
-	
 
 	boost::beast::tcp_stream stream_;
 	boost::beast::flat_buffer buffer_;
