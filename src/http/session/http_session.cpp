@@ -67,16 +67,18 @@ void http_session::on_read(beast::error_code ec, std::size_t) {
 
 	warp::request request {parser_->release()};
 	const auto sequence = next_request_sequence_++;
+	const auto version = request.version();
+	const auto keep_alive = request.keep_alive();
 	++outstanding_requests_;
-	if (!request.keep_alive())
+	if (!keep_alive)
 		stop_reading_ = true;
 
 	if (const auto *handler = routes_.find(request)) {
 		boost::asio::co_spawn(stream_.get_executor(), (*handler)(std::move(request)),
 		                      beast::bind_front_handler(&http_session::on_handler_complete, shared_from_this(),
-		                                                sequence, request.version(), request.keep_alive()));
+		                                                sequence, version, keep_alive));
 	} else {
-		on_handler_complete(sequence, request.version(), request.keep_alive(), nullptr, response::not_found());
+		on_handler_complete(sequence, version, keep_alive, nullptr, response::not_found());
 	}
 
 	maybe_read();

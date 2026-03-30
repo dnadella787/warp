@@ -4,16 +4,22 @@
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/strand.hpp>
 
-#include "session/http_session.hpp"
+#include "listener/coroutine_listener.hpp"
+#include "listener/listener.h"
 #include "warp/http/server.hpp"
 
 namespace warp::http {
 
-server::impl::impl(const std::string &address, unsigned short port, std::size_t workers, registry routes)
+server::impl::impl(const std::string &address, unsigned short port, std::size_t workers, event_loop_mode mode,
+                   registry routes)
     : pool_size_(workers ? workers : 1), io_ctx_(static_cast<int>(pool_size_)), routes_(std::move(routes)),
-      listener_(std::make_shared<listener>(io_ctx_, routes_, address, port)),
       guard_(boost::asio::make_work_guard(io_ctx_)) {
 	threads_.reserve(pool_size_);
+	if (mode == event_loop_mode::coroutines) {
+		listener_ = std::make_shared<coroutine_listener>(io_ctx_, routes_, address, port);
+	} else {
+		listener_ = std::make_shared<listener>(io_ctx_, routes_, address, port);
+	}
 }
 
 /*

@@ -78,6 +78,11 @@ struct db_env {
 	std::string database;
 };
 
+constexpr std::array<warp::event_loop_mode, 2> event_loop_modes {
+    warp::event_loop_mode::callbacks,
+    warp::event_loop_mode::coroutines,
+};
+
 std::string make_request(std::string_view path, std::string_view connection = "keep-alive") {
 	return "GET " + std::string(path) +
 	       " HTTP/1.1\r\n"
@@ -183,12 +188,13 @@ asio::awaitable<warp::response> delay_ok(std::string label, std::chrono::millise
 	co_return warp::response::ok(body_fn());
 }
 
-void test_pipelined_ordering() {
+void test_pipelined_ordering(warp::event_loop_mode mode) {
 	auto slow_started = std::make_shared<std::atomic<bool>>(false);
 	auto fast_finished = std::make_shared<std::atomic<bool>>(false);
 
 	server_fixture fixture(
 	    warp::http::server_builder()
+	        .event_loop(mode)
 	        .get("/slow",
 	             [slow_started, fast_finished](warp::request) -> warp::awaitable<warp::response> {
 		             slow_started->store(true, std::memory_order_release);
@@ -224,9 +230,9 @@ void test_pipelined_ordering() {
 	assert(read_until_eof(*client));
 }
 
-void test_many_pipelined_requests() {
+void test_many_pipelined_requests(warp::event_loop_mode mode) {
 	server_fixture fixture(
-	    warp::http::server_builder().get("/echo/{id}", [](const warp::request &req) -> warp::response {
+	    warp::http::server_builder().event_loop(mode).get("/echo/{id}", [](const warp::request &req) -> warp::response {
 		    return warp::response::ok(
 		        warp::body_builder().set("id", std::string(req.path_param("id").value_or(""))).build());
 	    }));
@@ -248,10 +254,10 @@ void test_many_pipelined_requests() {
 	assert(read_until_eof(*client));
 }
 
-void test_slow_third_request_blocks_later_writes() {
+void test_slow_third_request_blocks_later_writes(warp::event_loop_mode mode) {
 	auto fast_after_three = std::make_shared<std::atomic<int>>(0);
 
-	server_fixture fixture(warp::http::server_builder().get(
+	server_fixture fixture(warp::http::server_builder().event_loop(mode).get(
 	    "/item/{id}", [fast_after_three](warp::request req) -> warp::awaitable<warp::response> {
 		    auto id = std::string(req.path_param("id").value_or(""));
 		    if (id == "3") {
@@ -290,10 +296,11 @@ void test_slow_third_request_blocks_later_writes() {
 	assert(read_until_eof(*client));
 }
 
-void test_connection_close_stops_following_requests() {
+void test_connection_close_stops_following_requests(warp::event_loop_mode mode) {
 	auto after_processed = std::make_shared<std::atomic<int>>(0);
 
 	server_fixture fixture(warp::http::server_builder()
+	                           .event_loop(mode)
 	                           .get("/close",
 	                                [](const warp::request &) -> warp::response {
 		                                return warp::response::ok(warp::body_builder().set("route", "close").build());
@@ -315,10 +322,11 @@ void test_connection_close_stops_following_requests() {
 	assert(after_processed->load(std::memory_order_acquire) == 0);
 }
 
-void test_throwing_route_preserves_order() {
+void test_throwing_route_preserves_order(warp::event_loop_mode mode) {
 	auto throw_started = std::make_shared<std::atomic<bool>>(false);
 
 	server_fixture fixture(warp::http::server_builder()
+	                           .event_loop(mode)
 	                           .get("/throw",
 	                                [throw_started](warp::request) -> warp::awaitable<warp::response> {
 		                                throw_started->store(true, std::memory_order_release);
@@ -350,10 +358,11 @@ void test_throwing_route_preserves_order() {
 	assert(read_until_eof(*client));
 }
 
-void test_missing_and_normal_routes_preserve_order() {
+void test_missing_and_normal_routes_preserve_order(warp::event_loop_mode mode) {
 	auto fast_finished = std::make_shared<std::atomic<bool>>(false);
 
 	server_fixture fixture(warp::http::server_builder()
+	                           .event_loop(mode)
 	                           .get("/slow",
 	                                [fast_finished](warp::request) -> warp::awaitable<warp::response> {
 		                                co_return co_await delay_ok("slow", 150ms, [fast_finished]() {
@@ -390,7 +399,7 @@ void test_missing_and_normal_routes_preserve_order() {
 	assert(read_until_eof(*client));
 }
 
-void test_db_route_if_configured() {
+void test_db_route_if_configured(warp::event_loop_mode mode) {
 	auto env = load_db_env();
 	if (!env) {
 		std::cerr << "Skipping DB integration test: WARP_DB_USER / WARP_DB_PASSWORD / WARP_DB_NAME not set\n";
@@ -400,8 +409,8 @@ void test_db_route_if_configured() {
 	auto db_pool =
 	    std::make_shared<warp::db::postgres::connection_pool>(asio::system_executor {}, make_db_config(*env), 4, 2);
 
-	server_fixture fixture(
-	    warp::http::server_builder().get("/db/{id}", [db_pool](warp::request req) -> warp::awaitable<warp::response> {
+	server_fixture fixture(warp::http::server_builder().event_loop(mode).get(
+	    "/db/{id}", [db_pool](warp::request req) -> warp::awaitable<warp::response> {
 		    auto id = std::string(req.path_param("id").value_or("0"));
 		    auto result = co_await db_pool->query(std::string("select ") + id +
 		                                          "::int as requested_id, current_database() as database_name");
@@ -426,12 +435,14 @@ void test_db_route_if_configured() {
 } // namespace
 
 int main() {
-	test_pipelined_ordering();
-	test_many_pipelined_requests();
-	test_slow_third_request_blocks_later_writes();
-	test_connection_close_stops_following_requests();
-	test_throwing_route_preserves_order();
-	test_missing_and_normal_routes_preserve_order();
-	test_db_route_if_configured();
+	for (auto mode : event_loop_modes) {
+		test_pipelined_ordering(mode);
+		test_many_pipelined_requests(mode);
+		test_slow_third_request_blocks_later_writes(mode);
+		test_connection_close_stops_following_requests(mode);
+		test_throwing_route_preserves_order(mode);
+		test_missing_and_normal_routes_preserve_order(mode);
+		test_db_route_if_configured(mode);
+	}
 	return 0;
 }

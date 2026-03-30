@@ -4,7 +4,7 @@
 #include <memory>
 
 #include "server_impl.hpp"
-#include "registry.hpp"
+#include "router/registry.hpp"
 
 namespace warp::http {
 
@@ -23,6 +23,11 @@ server_builder &server_builder::worker_threads(std::size_t count) {
 	return *this;
 }
 
+server_builder &server_builder::event_loop(event_loop_mode mode) {
+	event_loop_mode_ = mode;
+	return *this;
+}
+
 server_builder &server_builder::route_async(method verb, std::string path, async_handler handler) {
 	routes_.push_back(route_definition {.verb = verb, .path = std::move(path), .callback = std::move(handler)});
 	return *this;
@@ -33,7 +38,7 @@ server server_builder::build() const {
 	for (const auto &route : routes_) {
 		registry.add(route.verb, route.path, route.callback);
 	}
-	auto impl = std::make_shared<server::impl>(address_, port_, workers_, std::move(registry));
+	auto impl = std::make_shared<server::impl>(address_, port_, workers_, event_loop_mode_, std::move(registry));
 	return server {std::move(impl)};
 }
 

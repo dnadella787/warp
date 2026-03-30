@@ -1,5 +1,5 @@
 #include "warp/http/server.hpp"
-#include "../src/http/registry.hpp"
+#include "../src/http/router/registry.hpp"
 
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/io_context.hpp>

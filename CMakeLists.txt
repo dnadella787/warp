@@ -51,8 +51,10 @@ add_library(
         src/http/server.cpp
         src/http/server_impl.cpp
         src/http/session/http_session.cpp
-        src/http/listener.cpp
-        src/http/registry.cpp
+        src/http/session/coroutine_http_session.cpp
+        src/http/listener/listener.cpp
+        src/http/listener/coroutine_listener.cpp
+        src/http/router/registry.cpp
         src/db/postgres/connection_config.cpp
         src/db/postgres/connection_pool.cpp
         src/db/postgres/detail/connection_pool_impl.cpp

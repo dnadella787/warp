@@ -9,7 +9,7 @@
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
 
-#include "../registry.hpp"
+#include "../router/registry.hpp"
 #include "warp/http/server.hpp"
 
 namespace warp::http {

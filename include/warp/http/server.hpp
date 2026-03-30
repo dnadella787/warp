@@ -13,6 +13,7 @@
 #include <boost/beast/http.hpp>
 
 #include "warp/http/body_builder.hpp"
+#include "warp/http/event_loop_mode.hpp"
 #include "warp/http/request.hpp"
 #include "warp/http/response.hpp"
 #include "warp/http/response_builder.hpp"
@@ -50,6 +51,7 @@ public:
 	server_builder &address(std::string address);
 	server_builder &port(std::uint16_t port);
 	server_builder &worker_threads(std::size_t count);
+	server_builder &event_loop(event_loop_mode mode);
 
 	template <typename H>
 	    requires detail::route_handler<H>
@@ -119,6 +121,7 @@ private:
 	std::string address_ {"0.0.0.0"};
 	std::uint16_t port_ {8080};
 	std::size_t workers_ {std::max<std::size_t>(1, std::thread::hardware_concurrency())};
+	event_loop_mode event_loop_mode_ {event_loop_mode::callbacks};
 	std::vector<route_definition> routes_;
 };
 
