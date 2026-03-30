@@ -32,13 +32,15 @@ public:
 		return *this;
 	}
 
-	static response ok(std::string body = {}, std::string_view content_type = "application/json");
+	static response ok(std::string body = body_builder().build(), std::string_view content_type = "application/json");
 	static response ok(const char *body, std::string_view content_type = "application/json");
 	static response ok(boost::json::value body);
-	static response created(std::string body = {}, std::string_view content_type = "application/json");
+	static response created(std::string body = body_builder().build(),
+	                        std::string_view content_type = "application/json");
 	static response created(const char *body, std::string_view content_type = "application/json");
 	static response created(boost::json::value body);
-	static response accepted(std::string body = {}, std::string_view content_type = "application/json");
+	static response accepted(std::string body = body_builder().build(),
+	                         std::string_view content_type = "application/json");
 	static response accepted(const char *body, std::string_view content_type = "application/json");
 	static response accepted(boost::json::value body);
 	static response no_content();
@@ -78,7 +80,8 @@ inline response response::ok(std::string body, std::string_view content_type) {
 }
 
 inline response response::ok(const char *body, std::string_view content_type) {
-	return make(boost::beast::http::status::ok, body == nullptr ? std::string {} : std::string {body}, content_type);
+	return make(boost::beast::http::status::ok, body == nullptr ? body_builder().build() : std::string {body},
+	            content_type);
 }
 
 inline response response::ok(boost::json::value body) {
@@ -90,7 +93,7 @@ inline response response::created(std::string body, std::string_view content_typ
 }
 
 inline response response::created(const char *body, std::string_view content_type) {
-	return make(boost::beast::http::status::created, body == nullptr ? std::string {} : std::string {body},
+	return make(boost::beast::http::status::created, body == nullptr ? body_builder().build() : std::string {body},
 	            content_type);
 }
 
@@ -103,7 +106,7 @@ inline response response::accepted(std::string body, std::string_view content_ty
 }
 
 inline response response::accepted(const char *body, std::string_view content_type) {
-	return make(boost::beast::http::status::accepted, body == nullptr ? std::string {} : std::string {body},
+	return make(boost::beast::http::status::accepted, body == nullptr ? body_builder().build() : std::string {body},
 	            content_type);
 }
 
