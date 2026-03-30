@@ -15,7 +15,7 @@ namespace warp::http {
 namespace {
 
 async_handler wrap_sync_handler(handler callback) {
-	return [callback = std::move(callback)](request req) -> boost::asio::awaitable<response> {
+	return [callback = std::move(callback)](request &&req) -> boost::asio::awaitable<response> {
 		co_return callback(req);
 	};
 }

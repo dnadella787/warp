@@ -24,7 +24,7 @@ using method = boost::beast::http::verb;
 template <typename T>
 using awaitable = boost::asio::awaitable<T>;
 using handler = std::function<response(const request &)>;
-using async_handler = std::function<awaitable<response>(request)>;
+using async_handler = std::function<awaitable<response>(request &&)>;
 
 namespace detail {
 
@@ -96,13 +96,13 @@ private:
 		auto fn = fn_type(std::forward<H>(handler));
 
 		if constexpr (detail::is_sync_route_handler<fn_type>) {
-			return [fn = std::move(fn)](request req) mutable -> awaitable<response> {
+			return [fn = std::move(fn)](request &&req) mutable -> awaitable<response> {
 				co_return std::invoke(fn, std::move(req));
 			};
 		} else {
 			static_assert(detail::is_async_route_handler<fn_type>,
 			              "route handler must return warp::response or warp::awaitable<warp::response>");
-			return [fn = std::move(fn)](request req) mutable -> awaitable<response> {
+			return [fn = std::move(fn)](request &&req) mutable -> awaitable<response> {
 				co_return co_await std::invoke(fn, std::move(req));
 			};
 		}

@@ -16,7 +16,7 @@ namespace warp::http {
 
 using method = boost::beast::http::verb;
 using handler = std::function<response(const request &)>;
-using async_handler = std::function<boost::asio::awaitable<response>(request)>;
+using async_handler = std::function<boost::asio::awaitable<response>(request &&)>;
 
 class registry {
 public:

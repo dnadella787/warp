@@ -50,7 +50,7 @@ int main() {
 		             return resp;
 	             })
 	        .get("/hello",
-	             [](const warp::http::request &req) -> warp::http::response {
+	             [](const warp::http::request req) -> warp::http::response {
 		             auto name = req.query_param("name").value_or("World");
 		             std::cout << "Received a hello world request with query parameter name with value: " << name
 		                       << std::endl;

@@ -14,7 +14,7 @@ namespace warp::http {
 
 class server::impl : public std::enable_shared_from_this<impl> {
 public:
-	impl(const std::string &address, std::uint16_t port, std::size_t workers, const registry &routes);
+	impl(const std::string &address, std::uint16_t port, std::size_t workers, registry routes);
 
 	void run(bool blocking = true);
 	void stop();
