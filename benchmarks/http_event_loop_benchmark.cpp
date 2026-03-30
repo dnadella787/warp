@@ -1,17 +1,22 @@
 #include "warp/http/server.hpp"
+#include "warp/db/postgres/connection_config.hpp"
+#include "warp/db/postgres/connection_pool.hpp"
 
 #include <benchmark/benchmark.h>
 
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/system_executor.hpp>
 #include <boost/asio/write.hpp>
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
 
 #include <array>
 #include <chrono>
+#include <cstdlib>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -24,17 +29,48 @@ namespace http = beast::http;
 using tcp = asio::ip::tcp;
 using namespace std::chrono_literals;
 
+struct db_env {
+	std::string host;
+	std::optional<std::uint16_t> port;
+	std::string user;
+	std::string password;
+	std::string database;
+};
+
+warp::db::postgres::connection_config make_db_config(const db_env &env) {
+	warp::db::postgres::connection_config config;
+	config.host = env.host.empty() ? "127.0.0.1" : env.host;
+	config.port = env.port;
+	config.user = env.user;
+	config.password = env.password;
+	config.database = env.database;
+	return config;
+}
+
+std::optional<db_env> load_db_env() {
+	const char *user = std::getenv("WARP_DB_USER");
+	const char *password = std::getenv("WARP_DB_PASSWORD");
+	const char *database = std::getenv("WARP_DB_NAME");
+	if (user == nullptr || password == nullptr || database == nullptr) {
+		return std::nullopt;
+	}
+
+	db_env env;
+	env.user = user;
+	env.password = password;
+	env.database = database;
+	if (const char *host = std::getenv("WARP_DB_HOST")) {
+		env.host = host;
+	}
+	if (const char *port = std::getenv("WARP_DB_PORT")) {
+		env.port = static_cast<std::uint16_t>(std::stoi(port));
+	}
+	return env;
+}
+
 struct server_fixture {
-	explicit server_fixture(warp::event_loop_mode mode)
-	    : port(reserve_port()),
-	      server(warp::http::server_builder()
-	                 .address("127.0.0.1")
-	                 .port(port)
-	                 .worker_threads(4)
-	                 .event_loop(mode)
-	                 .get("/ping",
-	                      [](const warp::request &) -> warp::response { return warp::response::ok(R"({"ok":true})"); })
-	                 .build()) {
+	explicit server_fixture(warp::http::server_builder builder)
+	    : port(reserve_port()), server(builder.address("127.0.0.1").port(port).worker_threads(4).build()) {
 		server.run(false);
 	}
 
@@ -105,7 +141,8 @@ class event_loop_benchmark : public benchmark::Fixture {
 public:
 	void SetUp(const benchmark::State &state) override {
 		const auto mode = static_cast<warp::event_loop_mode>(state.range(0));
-		server_ = std::make_unique<server_fixture>(mode);
+		server_ = std::make_unique<server_fixture>(warp::http::server_builder().event_loop(mode).get(
+		    "/ping", [](const warp::request &) -> warp::response { return warp::response::ok(R"({"ok":true})"); }));
 		client_ = connect_client(server_->port);
 	}
 
@@ -123,6 +160,60 @@ protected:
 	                                                    "Connection: keep-alive\r\n"
 	                                                    "\r\n";
 
+	std::unique_ptr<server_fixture> server_;
+	std::unique_ptr<client_connection> client_;
+};
+
+class db_event_loop_benchmark : public benchmark::Fixture {
+public:
+	void SetUp(const benchmark::State &state) override {
+		skip_reason_.clear();
+		auto env = load_db_env();
+		if (!env) {
+			skip_reason_ = "WARP_DB_USER / WARP_DB_PASSWORD / WARP_DB_NAME must be set for DB benchmark";
+			return;
+		}
+
+		db_pool_ =
+		    std::make_shared<warp::db::postgres::connection_pool>(asio::system_executor {}, make_db_config(*env), 4, 2);
+
+		const auto mode = static_cast<warp::event_loop_mode>(state.range(0));
+		server_ = std::make_unique<server_fixture>(warp::http::server_builder().event_loop(mode).get(
+		    "/db/exchanges/nyse", [db_pool = db_pool_](warp::request) -> warp::awaitable<warp::response> {
+			    auto result = co_await db_pool->query(
+			        "SELECT exchange_code, exchange_name FROM exchanges WHERE exchange_code = 'NYSE' LIMIT 1");
+			    if (result.rows() == 0) {
+				    co_return warp::response::not_found("No exchange with code=NYSE found");
+			    }
+
+			    co_return warp::response::ok(warp::body_builder()
+			                                     .set("exchange_code", std::string(result.value(0, 0)))
+			                                     .set("exchange_name", std::string(result.value(0, 1)))
+			                                     .build());
+		    }));
+		client_ = connect_client(server_->port);
+	}
+
+	void TearDown(const benchmark::State &) override {
+		if (client_) {
+			close_connection(*client_);
+			client_.reset();
+		}
+		server_.reset();
+		if (db_pool_) {
+			db_pool_->close();
+			db_pool_.reset();
+		}
+	}
+
+protected:
+	static constexpr std::string_view request_payload = "GET /db/exchanges/nyse HTTP/1.1\r\n"
+	                                                    "Host: 127.0.0.1\r\n"
+	                                                    "Connection: keep-alive\r\n"
+	                                                    "\r\n";
+
+	std::string skip_reason_;
+	std::shared_ptr<warp::db::postgres::connection_pool> db_pool_;
 	std::unique_ptr<server_fixture> server_;
 	std::unique_ptr<client_connection> client_;
 };
@@ -150,6 +241,42 @@ BENCHMARK_REGISTER_F(event_loop_benchmark, round_trip)
 BENCHMARK_REGISTER_F(event_loop_benchmark, round_trip)
     ->Arg(static_cast<int>(warp::event_loop_mode::coroutines))
     ->Name("BM_CoroutineEventLoop_RoundTrip")
+    ->UseRealTime()
+    ->Unit(benchmark::kMicrosecond)
+    ->MinTime(1.0);
+
+BENCHMARK_DEFINE_F(db_event_loop_benchmark, db_round_trip)(benchmark::State &state) {
+	if (!skip_reason_.empty()) {
+		state.SkipWithError(skip_reason_.c_str());
+		return;
+	}
+
+	if (!client_) {
+		return;
+	}
+
+	for (auto _ : state) {
+		send_request(*client_, request_payload);
+		auto response = read_response(*client_);
+		benchmark::DoNotOptimize(response.result_int());
+		benchmark::DoNotOptimize(response.body());
+	}
+
+	state.SetItemsProcessed(state.iterations());
+	state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) *
+	                        static_cast<std::int64_t>(request_payload.size()));
+}
+
+BENCHMARK_REGISTER_F(db_event_loop_benchmark, db_round_trip)
+    ->Arg(static_cast<int>(warp::event_loop_mode::callbacks))
+    ->Name("BM_CallbackEventLoop_DbRoundTrip")
+    ->UseRealTime()
+    ->Unit(benchmark::kMicrosecond)
+    ->MinTime(1.0);
+
+BENCHMARK_REGISTER_F(db_event_loop_benchmark, db_round_trip)
+    ->Arg(static_cast<int>(warp::event_loop_mode::coroutines))
+    ->Name("BM_CoroutineEventLoop_DbRoundTrip")
     ->UseRealTime()
     ->Unit(benchmark::kMicrosecond)
     ->MinTime(1.0);
