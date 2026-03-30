@@ -149,7 +149,8 @@ public:
 			state.counters["proc_cpu_us_per_req"] =
 			    benchmark::Counter(cpu_seconds * 1'000'000.0, benchmark::Counter::kAvgIterations);
 
-			const auto wall_seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - wall_start_).count();
+			const auto wall_seconds =
+			    std::chrono::duration<double>(std::chrono::steady_clock::now() - wall_start_).count();
 			if (wall_seconds > 0.0) {
 				state.counters["proc_cpu_pct"] = (cpu_seconds / wall_seconds) * 100.0;
 			}

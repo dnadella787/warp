@@ -16,12 +16,11 @@ int main(int argc, char *argv[]) {
 
 		auto const host = "127.0.0.1";
 		auto const port = "8080";
-		auto const target = std::format("/db/{}", argc > 1 ? argv[1] : "Client");
 
 		auto results = resolver.resolve(host, port);
 		asio::connect(socket, results);
 
-		http::request<http::string_body> req {http::verb::get, target, 11};
+		http::request<http::string_body> req {http::verb::get, argv[1], 11};
 		req.set(http::field::host, host);
 		req.set(http::field::user_agent, BOOST_BEAST_VERSION_STRING);
 

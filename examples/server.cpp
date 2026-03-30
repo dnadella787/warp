@@ -57,6 +57,15 @@ int main() {
 		             auto resp = warp::response::ok(warp::body_builder().set("name", std::string(name)).build());
 		             return resp;
 	             })
+	        .get("/ping",
+	             [](const warp::http::request req) -> warp::http::response {
+		             auto name = req.query_param("name").value_or("World");
+		             std::cout << "Received a hello world request with query parameter name with value: " << name
+		                       << std::endl;
+		             auto b = warp::body_builder().set("path", "ping");
+		             auto resp = warp::response::ok(warp::body_builder().set("endpoint", b.json()).build());
+		             return resp;
+	             })
 	        .get(
 	            "/db/{id}",
 	            [db_pool](warp::request req) -> warp::awaitable<warp::response> {
