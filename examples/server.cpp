@@ -58,11 +58,9 @@ int main() {
 		             return resp;
 	             })
 	        .get("/ping",
-	             [](const warp::http::request req) -> warp::http::response {
-		             auto name = req.query_param("name").value_or("World");
-		             std::cout << "Received a hello world request with query parameter name with value: " << name
-		                       << std::endl;
-		             auto b = warp::body_builder().set("path", "ping");
+	             [](const warp::http::request) -> warp::http::response {
+		             std::cout << "ping request" << std::endl;
+		             auto b = warp::body_builder().set("path", "ping").set("protocol", "http");
 		             auto resp = warp::response::ok(warp::body_builder().set("endpoint", b.json()).build());
 		             return resp;
 	             })
