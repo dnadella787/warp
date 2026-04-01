@@ -8,6 +8,39 @@ Warp is a WIP lib that uses Boost's Beast, Asio, and JSON to provide a high thro
 cmake -S . -B build
 cmake --build build --config Release
 ```
+
+### Testing
+Configure with tests enabled:
+```bash
+cmake -S . -B build -Dwarp_BUILD_TESTS=ON
+```
+
+Build the test targets:
+```bash
+cmake --build build --target warp_http_unit_tests warp_http_smoke_tests warp_http_integration_tests -j4
+```
+
+Run the unit tests:
+```bash
+./build/tests/warp_http_unit_tests
+```
+
+Run the smoke tests:
+```bash
+./build/tests/warp_http_smoke_tests
+```
+
+Run the integration tests:
+```bash
+./build/tests/warp_http_integration_tests
+```
+
+Notes:
+- All unit tests use Google Test.
+- Smoke tests also use Google Test, but avoid binding sockets.
+- Integration tests use Google Test and start a real Warp server on `127.0.0.1`, so they need an environment where localhost binds are allowed.
+- The DB integration tests use `GTEST_SKIP()` when `WARP_DB_USER`, `WARP_DB_PASSWORD`, and `WARP_DB_NAME` are not set.
+
 ### Run example server:
 ```bash
 ./build/examples/warp_example_server
@@ -65,6 +98,5 @@ clang-format -i $(git ls-files '*.cpp' '*.hpp')
 - Request/response interceptors
 - Return output as JSON
 - Tag with request-id in header
-- Lots of unit tests (with GoogleTest)
 - Code generation from YAML (using Jinja?) and allow registration of classes
 - Add benchmark suite (Google Benchmark) and fuzz targets for parser hardening.
