@@ -30,7 +30,7 @@ Run it:
 
 ```bash
 ./build-bench/benchmarks/warp_http_event_loop_benchmark \
-  --benchmark_min_time=1.5s \
+  --benchmark_min_time=60s \
   --benchmark_repetitions=5 \
   --benchmark_report_aggregates_only=true \
   --benchmark_counters_tabular=true
@@ -82,30 +82,29 @@ Measured on this machine with:
 
 - `arm64`
 - `Release` build
+- `--benchmark_min_time=60s`
 - 5 repetitions
 - aggregate-only Google Benchmark reporting
 
 Observed aggregates:
 
-| Mode | Mean round-trip time | Median round-trip time | Mean throughput | Median throughput |
-| --- | ---: | ---: | ---: | ---: |
-| Callbacks | 77.0 us | 77.2 us | 12.98k req/s | 12.96k req/s |
-| Coroutines | 83.2 us | 82.7 us | 12.02k req/s | 12.10k req/s |
+| Mode | Mean round-trip time | Median round-trip time | Mean throughput | Median throughput | Mean proc CPU / req | Peak RSS |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Callbacks | 79.8 us | 79.6 us | 12.54k req/s | 12.56k req/s | 82.0 us | 7.57 MiB |
+| Coroutines | 80.2 us | 80.1 us | 12.46k req/s | 12.49k req/s | 80.7 us | 7.66 MiB |
 
-In this run, the callback event loop was about 8% faster on this minimal round-trip benchmark.
-
-Fresh runs also include `proc_cpu_us_per_req`, `proc_cpu_pct`, and `rss_peak_mib` in the aggregate output. The snippet below was captured before those counters were added, so it only shows latency and throughput fields.
+In this run, the callback event loop remained slightly faster on raw `/ping` round-trip latency, but the gap was under 1%.
 
 The exact Google Benchmark aggregates captured were:
 
 ```text
-BM_CallbackEventLoop_RoundTrip/0/min_time:1.000/real_time_mean    77.0 us   bytes_per_second=798.642Ki/s items_per_second=12.9811k/s
-BM_CallbackEventLoop_RoundTrip/0/min_time:1.000/real_time_median  77.2 us   bytes_per_second=797.218Ki/s items_per_second=12.958k/s
-BM_CallbackEventLoop_RoundTrip/0/min_time:1.000/real_time_stddev 0.392 us
+BM_CallbackEventLoop_RoundTrip/0/min_time:60.000/real_time_mean    79.8 us   bytes_per_second=771.484Ki/s items_per_second=12.5397k/s proc_cpu_pct=102.761 proc_cpu_us_per_req=81.9719 rss_peak_mib=7.56563
+BM_CallbackEventLoop_RoundTrip/0/min_time:60.000/real_time_median  79.6 us   bytes_per_second=772.488Ki/s items_per_second=12.556k/s  proc_cpu_pct=102.823 proc_cpu_us_per_req=82.9718 rss_peak_mib=7.39062
+BM_CallbackEventLoop_RoundTrip/0/min_time:60.000/real_time_stddev  1.73 us   bytes_per_second=16.6878Ki/s items_per_second=271.243/s proc_cpu_pct=2.21112 proc_cpu_us_per_req=2.14672 rss_peak_mib=0.422077
 
-BM_CoroutineEventLoop_RoundTrip/1/min_time:1.000/real_time_mean   83.2 us   bytes_per_second=739.587Ki/s items_per_second=12.0212k/s
-BM_CoroutineEventLoop_RoundTrip/1/min_time:1.000/real_time_median 82.7 us   bytes_per_second=744.21Ki/s items_per_second=12.0964k/s
-BM_CoroutineEventLoop_RoundTrip/1/min_time:1.000/real_time_stddev 2.56 us
+BM_CoroutineEventLoop_RoundTrip/1/min_time:60.000/real_time_mean   80.2 us   bytes_per_second=766.884Ki/s items_per_second=12.4649k/s proc_cpu_pct=100.518 proc_cpu_us_per_req=80.6526 rss_peak_mib=7.6625
+BM_CoroutineEventLoop_RoundTrip/1/min_time:60.000/real_time_median 80.1 us   bytes_per_second=768.326Ki/s items_per_second=12.4883k/s proc_cpu_pct=100.169 proc_cpu_us_per_req=79.7039 rss_peak_mib=7.65625
+BM_CoroutineEventLoop_RoundTrip/1/min_time:60.000/real_time_stddev 0.812 us  bytes_per_second=7.69416Ki/s items_per_second=125.061/s proc_cpu_pct=1.02245 proc_cpu_us_per_req=1.57709 rss_peak_mib=8.55816m
 ```
 
 ### PostgreSQL `NYSE` Round Trip
@@ -120,25 +119,23 @@ Measured with the same machine and build tree, plus:
 
 Observed aggregates for `GET /db/exchanges/nyse`:
 
-| Mode | Mean round-trip time | Median round-trip time | Mean throughput | Median throughput |
-| --- | ---: | ---: | ---: | ---: |
-| Callbacks | 2212 us | 2204 us | 452.231 req/s | 453.621 req/s |
-| Coroutines | 2130 us | 2112 us | 469.802 req/s | 473.443 req/s |
+| Mode | Mean round-trip time | Median round-trip time | Mean throughput | Median throughput | Mean proc CPU / req | Peak RSS |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Callbacks | 2164 us | 2167 us | 462.109 req/s | 461.362 req/s | 193.5 us | 18.75 MiB |
+| Coroutines | 2105 us | 2094 us | 475.321 req/s | 477.583 req/s | 196.4 us | 18.72 MiB |
 
-In this run, the coroutine event loop was about 4% faster on the DB-backed benchmark.
-
-Fresh runs also include `proc_cpu_us_per_req`, `proc_cpu_pct`, and `rss_peak_mib` in the aggregate output. The snippet below was captured before those counters were added, so it only shows latency and throughput fields.
+In this run, the coroutine event loop was about 3% faster on the DB-backed benchmark.
 
 The exact Google Benchmark output captured was:
 
 ```text
-BM_CallbackEventLoop_DbRoundTrip/0/min_time:1.000/real_time_mean    2212 us   bytes_per_second=33.564Ki/s items_per_second=452.231/s
-BM_CallbackEventLoop_DbRoundTrip/0/min_time:1.000/real_time_median  2204 us   bytes_per_second=33.6672Ki/s items_per_second=453.621/s
-BM_CallbackEventLoop_DbRoundTrip/0/min_time:1.000/real_time_stddev  38.0 us   bytes_per_second=582.459/s items_per_second=7.66393/s
+BM_CallbackEventLoop_DbRoundTrip/0/min_time:60.000/real_time_mean    2164 us   bytes_per_second=34.2971Ki/s items_per_second=462.109/s proc_cpu_pct=8.94046 proc_cpu_us_per_req=193.49 rss_peak_mib=18.7469
+BM_CallbackEventLoop_DbRoundTrip/0/min_time:60.000/real_time_median  2167 us   bytes_per_second=34.2417Ki/s items_per_second=461.362/s proc_cpu_pct=8.92785 proc_cpu_us_per_req=192.977 rss_peak_mib=18.75
+BM_CallbackEventLoop_DbRoundTrip/0/min_time:60.000/real_time_stddev  21.1 us   bytes_per_second=343.829/s items_per_second=4.52406/s proc_cpu_pct=0.0622825 proc_cpu_us_per_req=2.70193 rss_peak_mib=0.0356305
 
-BM_CoroutineEventLoop_DbRoundTrip/1/min_time:1.000/real_time_mean   2130 us   bytes_per_second=34.8681Ki/s items_per_second=469.802/s
-BM_CoroutineEventLoop_DbRoundTrip/1/min_time:1.000/real_time_median 2112 us   bytes_per_second=35.1384Ki/s items_per_second=473.443/s
-BM_CoroutineEventLoop_DbRoundTrip/1/min_time:1.000/real_time_stddev 62.5 us   bytes_per_second=1.01275Ki/s items_per_second=13.6454/s
+BM_CoroutineEventLoop_DbRoundTrip/1/min_time:60.000/real_time_mean   2105 us   bytes_per_second=35.2777Ki/s items_per_second=475.321/s proc_cpu_pct=9.33099 proc_cpu_us_per_req=196.391 rss_peak_mib=18.7188
+BM_CoroutineEventLoop_DbRoundTrip/1/min_time:60.000/real_time_median 2094 us   bytes_per_second=35.4456Ki/s items_per_second=477.583/s proc_cpu_pct=9.29202 proc_cpu_us_per_req=195.461 rss_peak_mib=18.7188
+BM_CoroutineEventLoop_DbRoundTrip/1/min_time:60.000/real_time_stddev 44.6 us   bytes_per_second=760.558/s items_per_second=10.0073/s proc_cpu_pct=0.139151 proc_cpu_us_per_req=5.65371 rss_peak_mib=0
 ```
 
 ## Interpretation
@@ -146,7 +143,7 @@ BM_CoroutineEventLoop_DbRoundTrip/1/min_time:1.000/real_time_stddev 62.5 us   by
 This benchmark measures the overhead of the HTTP event loop itself under a very small handler.
 
 - The callback path is currently the faster default for raw round-trip latency.
-- The coroutine path remains close, but adds a small amount of scheduler/state-machine overhead in this scenario.
+- The coroutine path is now very close on the minimal `/ping` benchmark and used slightly less process CPU time per request in this run.
 - These numbers are directional, not universal. The DB-backed benchmark shows that once the handler spends most of its time waiting on PostgreSQL, event-loop overhead becomes a much smaller part of total request time.
 
 ## Notes
@@ -154,4 +151,5 @@ This benchmark measures the overhead of the HTTP event loop itself under a very 
 - The benchmark uses real sockets on localhost, so it needs an environment where binding local ports is allowed.
 - The DB-backed benchmark also requires a reachable PostgreSQL instance with an `exchanges` table and a row for `exchange_code = 'NYSE'` if you want a successful `200 OK` response.
 - Google Benchmark on this macOS setup could not determine CPU frequency metadata correctly. That warning does not affect the measured wall-clock results above.
+- Google Benchmark rejected `--benchmark_min_time=1m` on this setup; `60s` is the accepted one-minute form.
 - Re-run the benchmark on an otherwise idle machine if you want cleaner absolute numbers.

@@ -350,14 +350,14 @@ BENCHMARK_REGISTER_F(event_loop_benchmark, round_trip)
     ->Name("BM_CallbackEventLoop_RoundTrip")
     ->UseRealTime()
     ->Unit(benchmark::kMicrosecond)
-    ->MinTime(1.0);
+    ->MinTime(60.0);
 
 BENCHMARK_REGISTER_F(event_loop_benchmark, round_trip)
     ->Arg(static_cast<int>(warp::event_loop_mode::coroutines))
     ->Name("BM_CoroutineEventLoop_RoundTrip")
     ->UseRealTime()
     ->Unit(benchmark::kMicrosecond)
-    ->MinTime(1.0);
+    ->MinTime(60.0);
 
 BENCHMARK_DEFINE_F(db_event_loop_benchmark, db_round_trip)(benchmark::State &state) {
 	if (!skip_reason_.empty()) {
@@ -377,14 +377,14 @@ BENCHMARK_REGISTER_F(db_event_loop_benchmark, db_round_trip)
     ->Name("BM_CallbackEventLoop_DbRoundTrip")
     ->UseRealTime()
     ->Unit(benchmark::kMicrosecond)
-    ->MinTime(1.0);
+    ->MinTime(60.0);
 
 BENCHMARK_REGISTER_F(db_event_loop_benchmark, db_round_trip)
     ->Arg(static_cast<int>(warp::event_loop_mode::coroutines))
     ->Name("BM_CoroutineEventLoop_DbRoundTrip")
     ->UseRealTime()
     ->Unit(benchmark::kMicrosecond)
-    ->MinTime(1.0);
+    ->MinTime(60.0);
 
 } // namespace
 
