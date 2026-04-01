@@ -92,7 +92,7 @@ inline response_builder &response_builder::keep_alive(bool value) {
 }
 
 inline response_builder &response_builder::header(std::string key, std::string value) {
-	headers_.set(std::move(key), std::move(value));
+	headers_.set(boost::beast::string_view {key}, boost::beast::string_view {value});
 	return *this;
 }
 
@@ -102,7 +102,11 @@ inline response response_builder::build() const {
 	resp.keep_alive(keep_alive_);
 	resp.set(boost::beast::http::field::content_type, content_type_.empty() ? "application/json" : content_type_);
 	for (const auto &field : headers_) {
-		resp.set(field.name(), field.value());
+		if (field.name() == boost::beast::http::field::unknown) {
+			resp.insert(boost::beast::http::field::unknown, field.name_string(), field.value());
+		} else {
+			resp.set(field.name(), field.value());
+		}
 	}
 	resp.prepare_payload();
 	return resp;

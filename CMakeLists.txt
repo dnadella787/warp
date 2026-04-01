@@ -55,6 +55,17 @@ if (warp_BUILD_BENCHMARKS)
     FetchContent_MakeAvailable(benchmark)
 endif ()
 
+if (warp_BUILD_TESTS)
+    set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+
+    FetchContent_Declare(googletest
+        GIT_REPOSITORY https://github.com/google/googletest.git
+        GIT_TAG v1.14.0
+        UPDATE_DISCONNECTED ON)
+    FetchContent_MakeAvailable(googletest)
+endif ()
+
 find_package(Boost 1.90 REQUIRED COMPONENTS json)
 find_package(PostgreSQL REQUIRED)
 find_package(Threads REQUIRED)
