@@ -8,9 +8,3 @@ enum class event_loop_mode {
 };
 
 } // namespace warp::http
-
-namespace warp {
-
-using event_loop_mode = http::event_loop_mode;
-
-} // namespace warp

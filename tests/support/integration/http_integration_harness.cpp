@@ -96,8 +96,8 @@ boost::json::object parse_object_body(const http_response &response) {
 	return boost::json::parse(response.body()).as_object();
 }
 
-warp::db::postgres::connection_config make_db_config(const db_env &env) {
-	warp::db::postgres::connection_config config;
+db::postgres::connection_config make_db_config(const db_env &env) {
+	db::postgres::connection_config config;
 	config.host = env.host.empty() ? "127.0.0.1" : env.host;
 	config.port = env.port;
 	config.user = env.user;
@@ -127,20 +127,19 @@ std::optional<db_env> load_db_env() {
 	return env;
 }
 
-asio::awaitable<warp::response> delayed_ok_response(std::chrono::milliseconds delay,
-                                                    std::function<std::string()> body_fn) {
+asio::awaitable<response> delayed_ok_response(std::chrono::milliseconds delay, std::function<std::string()> body_fn) {
 	const auto executor = co_await asio::this_coro::executor;
 	asio::steady_timer timer(executor);
 	timer.expires_after(delay);
 	co_await timer.async_wait(asio::use_awaitable);
-	co_return warp::response::ok(body_fn());
+	co_return response::ok(body_fn());
 }
 
-const char *event_loop_mode_name(warp::event_loop_mode mode) {
+const char *event_loop_mode_name(event_loop_mode mode) {
 	switch (mode) {
-	case warp::event_loop_mode::callbacks:
+	case event_loop_mode::callbacks:
 		return "Callbacks";
-	case warp::event_loop_mode::coroutines:
+	case event_loop_mode::coroutines:
 		return "Coroutines";
 	}
 	return "Unknown";

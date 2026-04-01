@@ -175,5 +175,6 @@ template <typename T>
 using awaitable = http::awaitable<T>;
 using handler = http::handler;
 using async_handler = http::async_handler;
+using event_loop_mode = http::event_loop_mode;
 
 } // namespace warp

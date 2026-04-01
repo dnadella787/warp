@@ -6,7 +6,7 @@
 
 namespace {
 
-constexpr std::array<warp::event_loop_mode, 2> event_loop_modes {
+constexpr std::array event_loop_modes {
     warp::event_loop_mode::callbacks,
     warp::event_loop_mode::coroutines,
 };

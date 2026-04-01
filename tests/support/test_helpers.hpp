@@ -12,7 +12,7 @@
 
 namespace warp::test {
 
-inline warp::response run_handler(const warp::async_handler &handler, warp::request req) {
+inline response run_handler(const async_handler &handler, request req) {
 	boost::asio::io_context ioc;
 	auto future = boost::asio::co_spawn(ioc, handler(std::move(req)), boost::asio::use_future);
 	ioc.run();

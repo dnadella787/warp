@@ -15,10 +15,10 @@ namespace warp::tests {
 
 namespace asio = boost::asio;
 namespace http = boost::beast::http;
-namespace support = warp::tests::integration_support;
+namespace support = integration_support;
 using namespace std::chrono_literals;
 
-class HttpConnectionAndErrorIntegrationTest : public ::testing::TestWithParam<warp::event_loop_mode> {};
+class HttpConnectionAndErrorIntegrationTest : public ::testing::TestWithParam<event_loop_mode> {};
 
 TEST_P(HttpConnectionAndErrorIntegrationTest, ConnectionCloseStopsFollowingPipelinedRequests) {
 	auto after_processed = std::make_shared<std::atomic<int>>(0);
@@ -27,12 +27,10 @@ TEST_P(HttpConnectionAndErrorIntegrationTest, ConnectionCloseStopsFollowingPipel
 	    warp::http::server_builder()
 	        .event_loop(GetParam())
 	        .get("/close",
-	             [](const warp::request &) -> warp::response {
-		             return warp::response::ok(warp::body_builder().set("route", "close").build());
-	             })
-	        .get("/after", [after_processed](const warp::request &) -> warp::response {
+	             [](const request &) -> response { return response::ok(body_builder().set("route", "close").build()); })
+	        .get("/after", [after_processed](const request &) -> response {
 		        after_processed->fetch_add(1, std::memory_order_acq_rel);
-		        return warp::response::ok(warp::body_builder().set("route", "after").build());
+		        return response::ok(body_builder().set("route", "after").build());
 	        }));
 
 	auto client = support::connect_client(fixture.port);
@@ -56,7 +54,7 @@ TEST_P(HttpConnectionAndErrorIntegrationTest, ThrowingHandlerReturnsErrorAndStil
 	    warp::http::server_builder()
 	        .event_loop(GetParam())
 	        .get("/throw",
-	             [throw_started](warp::request) -> warp::awaitable<warp::response> {
+	             [throw_started](request) -> awaitable<response> {
 		             throw_started->store(true, std::memory_order_release);
 		             const auto executor = co_await asio::this_coro::executor;
 		             asio::steady_timer timer(executor);
@@ -64,11 +62,11 @@ TEST_P(HttpConnectionAndErrorIntegrationTest, ThrowingHandlerReturnsErrorAndStil
 		             co_await timer.async_wait(asio::use_awaitable);
 		             throw std::runtime_error("boom");
 	             })
-	        .get("/fast", [throw_started](const warp::request &) -> warp::response {
-		        return warp::response::ok(warp::body_builder()
-		                                      .set("route", "fast")
-		                                      .set("saw_throw_started", throw_started->load(std::memory_order_acquire))
-		                                      .build());
+	        .get("/fast", [throw_started](const request &) -> response {
+		        return response::ok(body_builder()
+		                                .set("route", "fast")
+		                                .set("saw_throw_started", throw_started->load(std::memory_order_acquire))
+		                                .build());
 	        }));
 
 	auto client = support::connect_client(fixture.port);
@@ -93,17 +91,17 @@ TEST_P(HttpConnectionAndErrorIntegrationTest, MissingRouteResponseStillKeepsOrde
 	    warp::http::server_builder()
 	        .event_loop(GetParam())
 	        .get("/slow",
-	             [fast_finished](warp::request) -> warp::awaitable<warp::response> {
+	             [fast_finished](request) -> awaitable<response> {
 		             co_return co_await support::delayed_ok_response(150ms, [fast_finished]() {
-			             return warp::body_builder()
+			             return body_builder()
 			                 .set("route", "slow")
 			                 .set("fast_finished_before_return", fast_finished->load(std::memory_order_acquire))
 			                 .build();
 		             });
 	             })
-	        .get("/fast", [fast_finished](const warp::request &) -> warp::response {
+	        .get("/fast", [fast_finished](const request &) -> response {
 		        fast_finished->store(true, std::memory_order_release);
-		        return warp::response::ok(warp::body_builder().set("route", "fast").build());
+		        return response::ok(body_builder().set("route", "fast").build());
 	        }));
 
 	auto client = support::connect_client(fixture.port);
