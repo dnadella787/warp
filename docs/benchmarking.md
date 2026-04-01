@@ -36,7 +36,9 @@ Run it:
   --benchmark_counters_tabular=true
 ```
 
-The benchmark source is [http_event_loop_benchmark.cpp](/Users/dnadella/Projects/warp/benchmarks/http_event_loop_benchmark.cpp).
+The benchmark sources live in [benchmarks/](/Users/dnadella/Projects/warp/benchmarks), with shared support code in
+[http_event_loop_benchmark_support.cpp](/Users/dnadella/Projects/warp/benchmarks/http_event_loop_benchmark_support.cpp)
+and separate scenario files for the in-memory and DB-backed cases.
 
 ## PostgreSQL Benchmark Setup
 
