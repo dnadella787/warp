@@ -29,16 +29,37 @@ using async_handler = std::function<awaitable<response>(request &&)>;
 
 namespace detail {
 
+/**
+ * @brief Trait to identify synchronous route handlers.
+ * * Validates that the handler 'H' (after type decay) can be invoked with a
+ * 'request' and returns a type convertible to 'response'. This supports
+ * standard, blocking request-handling logic.
+ *
+ * For both http_session and coroutine_http_session, the handler is
+ * launched synchronously.
+ */
 template <typename H>
 inline constexpr bool is_sync_route_handler = std::is_invocable_r_v<response, std::decay_t<H> &, request>;
 
+/**
+ * @brief Trait to identify asynchronous route handlers (C++20 Coroutines).
+ * * Validates that the handler 'H' is invocable with a 'request' and returns
+ * exactly an 'awaitable<response>'. This ensures compatibility with
+ * non-blocking I/O patterns powered by Boost Asio.
+ *
+ * For http_session, the handler is launched as a coroutine but in
+ * coroutine_http_session the handler is launched as a child coroutine
+ */
 template <typename H>
 inline constexpr bool is_async_route_handler =
     std::invocable<std::decay_t<H> &, request> &&
     std::same_as<std::remove_cvref_t<std::invoke_result_t<std::decay_t<H> &, request>>, awaitable<response>>;
 
+/**
+ * @brief compile time requirement for request handlers
+ */
 template <typename H>
-concept route_handler = is_sync_route_handler<H> || is_async_route_handler<H>;
+concept route_handler = is_async_route_handler<H> || is_sync_route_handler<H>;
 
 } // namespace detail
 

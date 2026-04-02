@@ -11,18 +11,18 @@
 
 namespace warp::http {
 
+template <typename T>
+concept json_convertible = requires(T &&t) { boost::json::value_from(std::forward<T>(t)); };
+
 class body_builder {
 public:
 	body_builder() = default;
 
-	body_builder &set(std::string key, std::string value);
-	body_builder &set(std::string key, std::string_view value);
-	body_builder &set(std::string key, const char *value);
-	body_builder &set(std::string key, boost::json::value value);
+	body_builder &set(std::string_view key, std::string_view value);
 
-	template <typename T>
-	body_builder &set(std::string key, T &&value) {
-		body_[std::move(key)] = boost::json::value_from(std::forward<T>(value));
+	template <json_convertible J>
+	body_builder &set(std::string_view key, J &&value) {
+		body_.insert_or_assign(key, std::forward<J>(value));
 		return *this;
 	}
 
@@ -33,23 +33,8 @@ private:
 	boost::json::object body_;
 };
 
-inline body_builder &body_builder::set(std::string key, std::string value) {
-	body_[std::move(key)] = std::move(value);
-	return *this;
-}
-
-inline body_builder &body_builder::set(std::string key, std::string_view value) {
-	body_[std::move(key)] = value;
-	return *this;
-}
-
-inline body_builder &body_builder::set(std::string key, const char *value) {
-	body_[std::move(key)] = value;
-	return *this;
-}
-
-inline body_builder &body_builder::set(std::string key, boost::json::value value) {
-	body_[std::move(key)] = std::move(value);
+inline body_builder &body_builder::set(std::string_view key, std::string_view value) {
+	body_.insert_or_assign(key, value);
 	return *this;
 }
 

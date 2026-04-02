@@ -78,7 +78,6 @@ int main() {
 			            // end user gets 500 error
 			            throw std::runtime_error(std::format("Multiple exchanges for the same code={}", id));
 		            }
-
 		            co_return warp::response::ok(warp::body_builder().set("exchange_name", result.value(0, 1)).build());
 	            })
 	        .build();
