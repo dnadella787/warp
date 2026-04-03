@@ -170,16 +170,28 @@ public:
 };
 ```
 
-The derived class implements handlers like:
+The resource class implements handlers like:
 
 ```cpp
-class users_resource : public generated_api::users_api_base<users_resource> {
+class users_resource {
 public:
-    generated_api::users_create_user_response create_user(generated_api::users_create_user_request request);
-};
+	explicit users_resource() = default;
+	generated_api::users_create_user_response create_user(generated_api::users_create_user_request request);
+} 
 ```
 
 Handlers may return either the generated result type directly or `warp::awaitable<result_type>`. Route registration dispatches through `warp::codegen::invoke_user_handler`, so sync and coroutine handlers both work.
+
+Register the class with the server builder like:
+```cpp
+int main() {
+	auto service = std::make_shared<users_resource>();
+	generated_api::users_api_routes routes(service);
+	auto server = warp::http::server_builder().address("127.0.0.1").port(8080).register_resource(routes).build();
+	server.run();
+	return 0;
+}
+```
 
 ## Request parsing and response serialization
 

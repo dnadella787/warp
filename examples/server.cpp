@@ -2,9 +2,6 @@
 #include "warp/db/postgres/connection_config.hpp"
 #include "warp/db/postgres/connection_pool.hpp"
 
-#include <boost/asio/system_executor.hpp>
-
-#include <algorithm>
 #include <iostream>
 #include <memory>
 #include <string>

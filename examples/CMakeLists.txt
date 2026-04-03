@@ -18,10 +18,11 @@ target_link_libraries(warp_example_request
         warp_http
         Boost::headers)
 
-add_executable(warp_example_generate_users_headers)
-target_sources(warp_example_generate_users_headers
+add_executable(users_resource_example)
+target_sources(users_resource_example
     PRIVATE
-        codegen/generate_users_headers.cpp)
-target_link_libraries(warp_example_generate_users_headers
+        codegen/users_resource_example.cpp)
+target_link_libraries(users_resource_example
     PRIVATE
+        warp_http
         warp_codegen_core)

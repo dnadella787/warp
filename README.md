@@ -148,7 +148,6 @@ Two supported workflows:
 
 - Docs: [docs/codegen.md](/Users/dnadella/Projects/warp/docs/codegen.md)
 - Example YAML: [examples/codegen/users_api.yaml](/Users/dnadella/Projects/warp/examples/codegen/users_api.yaml)
-- Header generation example: [examples/codegen/generate_users_headers.cpp](/Users/dnadella/Projects/warp/examples/codegen/generate_users_headers.cpp)
 - Example usage: [examples/codegen/users_resource_example.cpp](/Users/dnadella/Projects/warp/examples/codegen/users_resource_example.cpp)
 
 ### Benchmarking
