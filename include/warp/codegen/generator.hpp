@@ -21,7 +21,9 @@ struct api_stub_generator_options {
 
 class api_stub_generator {
 public:
-	[[nodiscard]] generated_api_stub generate(const api_spec &spec,
+	[[nodiscard]] generated_api_stub generate(const spec_ast &spec,
+	                                          const api_stub_generator_options &options = {}) const;
+	[[nodiscard]] generated_api_stub generate(const api_model &model,
 	                                          const api_stub_generator_options &options = {}) const;
 	[[nodiscard]] generated_api_stub generate_from_yaml(std::string_view yaml_text,
 	                                                    const api_stub_generator_options &options = {}) const;

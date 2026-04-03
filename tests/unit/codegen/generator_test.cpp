@@ -1,8 +1,10 @@
 #include "warp/codegen/generator.hpp"
+#include "warp/codegen/model.hpp"
 #include "warp/codegen/spec_parser.hpp"
 
 #include <gtest/gtest.h>
 
+#include <stdexcept>
 #include <string>
 
 namespace {
@@ -43,14 +45,34 @@ resources:
 
 	const auto generated =
 	    api_stub_generator().generate(spec, {.namespace_name = "generated_api", .model_header_name = "models.hpp"});
+	const auto generated_again =
+	    api_stub_generator().generate(spec, {.namespace_name = "generated_api", .model_header_name = "models.hpp"});
 
 	EXPECT_NE(generated.model_header.find("namespace generated_api {"), std::string::npos);
 	EXPECT_NE(generated.model_header.find("struct users_create_user_request"), std::string::npos);
 	EXPECT_NE(generated.resource_header.find("#include \"models.hpp\""), std::string::npos);
-	EXPECT_NE(generated.resource_header.find("class users_api_base"), std::string::npos);
+	EXPECT_NE(generated.resource_header.find("class users_api_routes"), std::string::npos);
 	EXPECT_NE(generated.resource_header.find("parse_http_request<generated_api::users_create_user_request>"),
 	          std::string::npos);
-	EXPECT_NE(generated.resource_header.find("derived().create_user(std::move(typed_request));"), std::string::npos);
+	EXPECT_NE(generated.resource_header.find("service->create_user(std::move(typed_request));"), std::string::npos);
+	EXPECT_EQ(generated.model_header, generated_again.model_header);
+	EXPECT_EQ(generated.resource_header, generated_again.resource_header);
+}
+
+TEST(ApiStubGeneratorTest, RejectsNamespaceOverrideMismatchForModels) {
+	const auto spec = parse_api_spec(R"(
+cpp_namespace: generated_api
+resources:
+  - name: users
+    endpoints:
+      - path: /health
+        response:
+          status: 204
+)");
+
+	const auto model = warp::codegen::build_api_model(spec);
+	EXPECT_THROW(static_cast<void>(api_stub_generator().generate(model, {.namespace_name = "other_namespace"})),
+	             std::invalid_argument);
 }
 
 } // namespace

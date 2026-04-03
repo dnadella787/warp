@@ -8,7 +8,6 @@
 
 #include <array>
 #include <chrono>
-#include <cstdlib>
 #include <stdexcept>
 #include <thread>
 
@@ -94,37 +93,6 @@ bool read_until_eof(client_connection &client) {
 
 boost::json::object parse_object_body(const http_response &response) {
 	return boost::json::parse(response.body()).as_object();
-}
-
-db::postgres::connection_config make_db_config(const db_env &env) {
-	db::postgres::connection_config config;
-	config.host = env.host.empty() ? "127.0.0.1" : env.host;
-	config.port = env.port;
-	config.user = env.user;
-	config.password = env.password;
-	config.database = env.database;
-	return config;
-}
-
-std::optional<db_env> load_db_env() {
-	const char *user = std::getenv("WARP_DB_USER");
-	const char *password = std::getenv("WARP_DB_PASSWORD");
-	const char *database = std::getenv("WARP_DB_NAME");
-	if (user == nullptr || password == nullptr || database == nullptr) {
-		return std::nullopt;
-	}
-
-	db_env env;
-	env.user = user;
-	env.password = password;
-	env.database = database;
-	if (const char *host = std::getenv("WARP_DB_HOST")) {
-		env.host = host;
-	}
-	if (const char *port = std::getenv("WARP_DB_PORT")) {
-		env.port = static_cast<std::uint16_t>(std::stoi(port));
-	}
-	return env;
 }
 
 asio::awaitable<response> delayed_ok_response(std::chrono::milliseconds delay, std::function<std::string()> body_fn) {

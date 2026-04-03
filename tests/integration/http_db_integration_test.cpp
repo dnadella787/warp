@@ -1,4 +1,5 @@
 #include "support/integration/http_integration_harness.hpp"
+#include "support/integration/http_db_test_support.hpp"
 
 #include "warp/db/postgres/connection_pool.hpp"
 
@@ -21,6 +22,10 @@ TEST_P(HttpDbIntegrationTest, DbRouteReturnsRequestedIdAndDatabaseNameWhenEnviro
 	const auto env = support::load_db_env();
 	if (!env) {
 		GTEST_SKIP() << "Skipping DB integration test: WARP_DB_USER / WARP_DB_PASSWORD / WARP_DB_NAME not set";
+	}
+
+	if (const auto probe_error = support::probe_db_connection(*env)) {
+		GTEST_SKIP() << "Skipping DB integration test: " << *probe_error;
 	}
 
 	auto db_pool = std::make_shared<warp::db::postgres::connection_pool>(asio::system_executor {},

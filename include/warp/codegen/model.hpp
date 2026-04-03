@@ -3,11 +3,19 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
+#include "warp/common/route_pattern.hpp"
 #include "warp/codegen/spec_model.hpp"
 
 namespace warp::codegen {
+
+enum class http_body_mode {
+	forbidden,
+	optional,
+	required,
+};
 
 struct schema_type {
 	enum class kind {
@@ -33,6 +41,7 @@ struct schema_type {
 };
 
 struct field_model {
+	source_span span {};
 	std::string json_name;
 	std::string member_name;
 	schema_type type;
@@ -40,11 +49,13 @@ struct field_model {
 };
 
 struct object_schema_model {
+	source_span span {};
 	std::string name;
 	std::vector<field_model> fields;
 };
 
 struct parameter_model {
+	source_span span {};
 	std::string source_name;
 	std::string member_name;
 	parameter_location location {parameter_location::query};
@@ -53,17 +64,23 @@ struct parameter_model {
 };
 
 struct request_model {
+	source_span span {};
 	std::string name;
 	std::optional<std::string> body_type_name;
 	std::vector<parameter_model> parameters;
+	http_body_mode body_mode {http_body_mode::forbidden};
 };
 
 struct response_model {
+	source_span span {};
+	source_span status_span {};
 	int status_code {200};
 	std::optional<std::string> body_type_name;
+	http_body_mode body_mode {http_body_mode::forbidden};
 };
 
 struct endpoint_model {
+	source_span span {};
 	std::string resource_name;
 	std::string endpoint_name;
 	std::string request_name;
@@ -71,21 +88,26 @@ struct endpoint_model {
 	std::string handler_name;
 	http_method method {http_method::get};
 	std::string path;
+	warp::common::route_pattern route;
 	request_model request;
 	response_model response;
 };
 
 struct resource_model {
+	source_span span {};
 	std::string name;
-	std::string class_name;
+	std::string routes_class_name;
 	std::vector<endpoint_model> endpoints;
 };
 
 struct api_model {
+	std::string cpp_namespace;
 	std::vector<object_schema_model> schemas;
 	std::vector<resource_model> resources;
 };
 
-[[nodiscard]] api_model build_api_model(const api_spec &spec);
+using ApiModel = api_model;
+
+[[nodiscard]] api_model build_api_model(const spec_ast &spec, std::string_view namespace_override = {});
 
 } // namespace warp::codegen

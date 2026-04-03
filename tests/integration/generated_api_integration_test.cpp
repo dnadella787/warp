@@ -24,7 +24,7 @@ struct observed_request_state {
 	std::optional<std::string> nickname;
 };
 
-class generated_users_resource : public generated::users_api_base<generated_users_resource> {
+class generated_users_resource {
 public:
 	explicit generated_users_resource(std::shared_ptr<observed_request_state> observed)
 	    : observed_(std::move(observed)) {
@@ -53,11 +53,12 @@ private:
 
 TEST(GeneratedApiIntegrationTest, ParsesTypedRequestsAndSerializesTypedResponses) {
 	auto observed = std::make_shared<observed_request_state>();
-	generated_users_resource resource(observed);
+	auto service = std::make_shared<generated_users_resource>(observed);
+	generated::users_api_routes<generated_users_resource> routes(service);
 
 	std::optional<support::server_fixture> fixture;
 	try {
-		fixture.emplace(warp::http::server_builder().register_resource(resource));
+		fixture.emplace(warp::http::server_builder().register_resource(routes));
 	} catch (const std::exception &ex) {
 		if (std::string(ex.what()).find("Operation not permitted") != std::string::npos) {
 			GTEST_SKIP() << ex.what();
@@ -104,11 +105,12 @@ TEST(GeneratedApiIntegrationTest, ParsesTypedRequestsAndSerializesTypedResponses
 
 TEST(GeneratedApiIntegrationTest, ReturnsBadRequestForBindingFailures) {
 	auto observed = std::make_shared<observed_request_state>();
-	generated_users_resource resource(observed);
+	auto service = std::make_shared<generated_users_resource>(observed);
+	generated::users_api_routes<generated_users_resource> routes(service);
 
 	std::optional<support::server_fixture> fixture;
 	try {
-		fixture.emplace(warp::http::server_builder().register_resource(resource));
+		fixture.emplace(warp::http::server_builder().register_resource(routes));
 	} catch (const std::exception &ex) {
 		if (std::string(ex.what()).find("Operation not permitted") != std::string::npos) {
 			GTEST_SKIP() << ex.what();
@@ -134,6 +136,41 @@ TEST(GeneratedApiIntegrationTest, ReturnsBadRequestForBindingFailures) {
 
 	EXPECT_EQ(response.result(), http::status::bad_request);
 	EXPECT_EQ(std::string(body.at("error").as_string()), "missing required header 'x-trace-id'");
+}
+
+TEST(GeneratedApiIntegrationTest, ReturnsUnsupportedMediaTypeWhenJsonContentTypeIsMissing) {
+	auto observed = std::make_shared<observed_request_state>();
+	auto service = std::make_shared<generated_users_resource>(observed);
+	generated::users_api_routes<generated_users_resource> routes(service);
+
+	std::optional<support::server_fixture> fixture;
+	try {
+		fixture.emplace(warp::http::server_builder().register_resource(routes));
+	} catch (const std::exception &ex) {
+		if (std::string(ex.what()).find("Operation not permitted") != std::string::npos) {
+			GTEST_SKIP() << ex.what();
+		}
+		throw;
+	}
+
+	auto client = support::connect_client(fixture->port);
+	const std::string request_body = R"({"name":"Alice"})";
+	const std::string payload = "POST /users/alice HTTP/1.1\r\n"
+	                            "Host: 127.0.0.1\r\n"
+	                            "Connection: close\r\n"
+	                            "x-trace-id: trace-123\r\n"
+	                            "Content-Length: " +
+	                            std::to_string(request_body.size()) +
+	                            "\r\n"
+	                            "\r\n" +
+	                            request_body;
+	support::send_requests(*client, payload);
+
+	const auto response = support::read_response(*client);
+	const auto body = support::parse_object_body(response);
+
+	EXPECT_EQ(response.result(), http::status::unsupported_media_type);
+	EXPECT_EQ(std::string(body.at("error").as_string()), "expected Content-Type application/json");
 }
 
 } // namespace warp::tests

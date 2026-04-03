@@ -28,7 +28,8 @@ struct stub_generator_options {
 
 class stub_generator {
 public:
-	[[nodiscard]] generated_stub_set generate(const api_spec &spec, const stub_generator_options &options = {}) const;
+	[[nodiscard]] generated_stub_set generate(const spec_ast &spec, const stub_generator_options &options = {}) const;
+	[[nodiscard]] generated_stub_set generate(const api_model &model, const stub_generator_options &options = {}) const;
 	[[nodiscard]] generated_stub_set generate_from_yaml(std::string_view yaml_text,
 	                                                    const stub_generator_options &options = {}) const;
 	[[nodiscard]] generated_stub_set generate_from_file(const std::filesystem::path &yaml_path,

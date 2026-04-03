@@ -63,6 +63,13 @@ function(warp_generate_stubs)
     get_filename_component(_warp_resource_output_dir "${_warp_resource_output}" DIRECTORY)
 
     _warp_resolve_codegen_cli(_warp_codegen_cli)
+    if (TARGET "${_warp_codegen_cli}")
+        set(_warp_codegen_cli_command "$<TARGET_FILE:${_warp_codegen_cli}>")
+        set(_warp_codegen_cli_dependency "${_warp_codegen_cli}")
+    else ()
+        set(_warp_codegen_cli_command "${_warp_codegen_cli}")
+        set(_warp_codegen_cli_dependency "${_warp_codegen_cli}")
+    endif ()
 
     set(_warp_codegen_args
         --spec "${_warp_spec}"
@@ -78,8 +85,8 @@ function(warp_generate_stubs)
         OUTPUT "${_warp_model_output}" "${_warp_resource_output}"
         COMMAND ${CMAKE_COMMAND} -E make_directory "${_warp_model_output_dir}"
         COMMAND ${CMAKE_COMMAND} -E make_directory "${_warp_resource_output_dir}"
-        COMMAND ${_warp_codegen_cli} ${_warp_codegen_args}
-        DEPENDS "${_warp_spec}" ${WARP_DEPENDS}
+        COMMAND ${_warp_codegen_cli_command} ${_warp_codegen_args}
+        DEPENDS "${_warp_spec}" ${WARP_DEPENDS} ${_warp_codegen_cli_dependency}
         VERBATIM
         COMMENT "Generating warp API stubs from ${_warp_spec}")
 

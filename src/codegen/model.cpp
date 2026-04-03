@@ -2,16 +2,19 @@
 
 #include <algorithm>
 #include <cctype>
-#include <set>
-#include <stdexcept>
 #include <string_view>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
-#include <vector>
 
 namespace warp::codegen {
 
 namespace {
+
+[[noreturn]] void fail(source_span span, std::string code, std::string message) {
+	throw diagnostic_error(diagnostic {
+	    .severity = diagnostic_severity::error, .code = std::move(code), .message = std::move(message), .span = span});
+}
 
 bool is_cpp_keyword(std::string_view value) {
 	static const std::unordered_set<std::string_view> keywords {
@@ -32,7 +35,67 @@ bool is_cpp_keyword(std::string_view value) {
 	return keywords.contains(value);
 }
 
-std::string to_snake_case(std::string_view value, std::string_view fallback = "value") {
+bool is_valid_cpp_identifier(std::string_view value) {
+	if (value.empty()) {
+		return false;
+	}
+	const auto first = static_cast<unsigned char>(value.front());
+	if (std::isalpha(first) == 0 && value.front() != '_') {
+		return false;
+	}
+	for (char c : value) {
+		const auto uc = static_cast<unsigned char>(c);
+		if (std::isalnum(uc) == 0 && c != '_') {
+			return false;
+		}
+	}
+	return !is_cpp_keyword(value);
+}
+
+bool is_valid_cpp_namespace(std::string_view value) {
+	// A C++ namespace definition must be a '::'-separated sequence of identifiers,
+	// without a leading/trailing '::', and without whitespace.
+	if (value.empty()) {
+		return false;
+	}
+	for (char c : value) {
+		if (std::isspace(static_cast<unsigned char>(c)) != 0) {
+			return false;
+		}
+	}
+
+	std::size_t start = 0;
+	while (start < value.size()) {
+		const auto next = value.find("::", start);
+		const auto part = value.substr(start, next == std::string_view::npos ? value.size() - start : next - start);
+		if (!is_valid_cpp_identifier(part)) {
+			return false;
+		}
+		if (next == std::string_view::npos) {
+			break;
+		}
+		start = next + 2;
+		if (start >= value.size()) {
+			return false; // trailing ::
+		}
+	}
+	return true;
+}
+
+bool request_method_forbids_body(http_method method) noexcept {
+	switch (method) {
+	case http_method::get:
+	case http_method::delete_:
+		return true;
+	case http_method::post:
+	case http_method::put:
+	case http_method::patch:
+		return false;
+	}
+	return true;
+}
+
+std::string canonical_identifier(std::string_view value, std::string_view fallback = "value") {
 	std::string out;
 	bool previous_was_separator = true;
 	for (char c : value) {
@@ -70,54 +133,6 @@ std::string to_snake_case(std::string_view value, std::string_view fallback = "v
 	return out;
 }
 
-std::string sanitize_identifier(const std::string &raw, std::set<std::string> &taken) {
-	std::string value;
-	value.reserve(raw.size() + 4);
-
-	bool previous_was_separator = true;
-	for (char c : raw) {
-		const auto uc = static_cast<unsigned char>(c);
-		if (std::isalnum(uc) != 0) {
-			if (std::isupper(uc) != 0 && !value.empty() && value.back() != '_') {
-				value.push_back('_');
-			}
-			value.push_back(static_cast<char>(std::tolower(uc)));
-			previous_was_separator = false;
-			continue;
-		}
-		if (!previous_was_separator && !value.empty() && value.back() != '_') {
-			value.push_back('_');
-		}
-		previous_was_separator = true;
-	}
-
-	while (!value.empty() && value.front() == '_') {
-		value.erase(value.begin());
-	}
-	while (!value.empty() && value.back() == '_') {
-		value.pop_back();
-	}
-
-	if (value.empty()) {
-		value = "value";
-	}
-	if (std::isdigit(static_cast<unsigned char>(value.front())) != 0) {
-		value.insert(value.begin(), '_');
-	}
-	if (is_cpp_keyword(value)) {
-		value.push_back('_');
-	}
-
-	std::string candidate = value;
-	std::size_t suffix = 1;
-	while (taken.contains(candidate)) {
-		candidate = value + "_" + std::to_string(suffix);
-		++suffix;
-	}
-	taken.insert(candidate);
-	return candidate;
-}
-
 schema_type::kind primitive_kind(value_kind kind) {
 	switch (kind) {
 	case value_kind::string_value:
@@ -135,75 +150,62 @@ schema_type::kind primitive_kind(value_kind kind) {
 	throw std::invalid_argument("expected a primitive schema kind");
 }
 
-bool types_equal(const schema_type &lhs, const schema_type &rhs) {
-	if (lhs.type != rhs.type || lhs.object_name != rhs.object_name) {
-		return false;
-	}
-	if (static_cast<bool>(lhs.element_type) != static_cast<bool>(rhs.element_type)) {
-		return false;
-	}
-	if (lhs.element_type && rhs.element_type && !types_equal(*lhs.element_type, *rhs.element_type)) {
-		return false;
-	}
-	return true;
+bool status_forbids_body(int status_code) {
+	return (status_code >= 100 && status_code < 200) || status_code == 204 || status_code == 205 || status_code == 304;
 }
 
-bool schemas_equal(const object_schema_model &lhs, const object_schema_model &rhs) {
-	if (lhs.name != rhs.name || lhs.fields.size() != rhs.fields.size()) {
-		return false;
-	}
-	for (std::size_t index = 0; index < lhs.fields.size(); ++index) {
-		const auto &left = lhs.fields[index];
-		const auto &right = rhs.fields[index];
-		if (left.json_name != right.json_name || left.member_name != right.member_name ||
-		    left.required != right.required || !types_equal(left.type, right.type)) {
-			return false;
+class local_symbol_table {
+public:
+	void reserve(std::string_view raw_name, source_span span, std::string_view scope_description) {
+		const auto canonical = canonical_identifier(raw_name);
+		if (!symbols_.emplace(canonical).second) {
+			fail(span, "model.symbol_collision",
+			     std::string(scope_description) + " contains a colliding symbol '" + canonical + "'");
 		}
 	}
-	return true;
-}
 
-std::vector<std::string> extract_path_parameters(std::string_view path) {
-	std::vector<std::string> parameters;
-	std::size_t cursor = 0;
-	while (cursor < path.size()) {
-		const auto open = path.find('{', cursor);
-		if (open == std::string_view::npos) {
-			break;
+	[[nodiscard]] std::string canonical(std::string_view raw_name, source_span span,
+	                                    std::string_view scope_description) {
+		const auto value = canonical_identifier(raw_name);
+		if (!symbols_.emplace(value).second) {
+			fail(span, "model.symbol_collision",
+			     std::string(scope_description) + " contains a colliding symbol '" + value + "'");
 		}
-		const auto close = path.find('}', open + 1);
-		if (close == std::string_view::npos || close == open + 1) {
-			throw std::invalid_argument("route path contains an invalid path parameter placeholder");
-		}
-		parameters.emplace_back(path.substr(open + 1, close - open - 1));
-		cursor = close + 1;
+		return value;
 	}
-	return parameters;
-}
+
+private:
+	std::unordered_set<std::string> symbols_;
+};
+
+class global_symbol_table {
+public:
+	[[nodiscard]] std::string reserve(std::string_view raw_name, source_span span, std::string_view description) {
+		const auto canonical = canonical_identifier(raw_name, "generated_type");
+		if (!symbols_.emplace(canonical, span).second) {
+			fail(span, "model.symbol_collision",
+			     "symbol collision for '" + canonical + "' while defining " + std::string(description));
+		}
+		return canonical;
+	}
+
+private:
+	std::unordered_map<std::string, source_span> symbols_;
+};
+
+struct route_identity {
+	http_method method {http_method::get};
+	std::string shape_key;
+
+	[[nodiscard]] std::string key() const {
+		return std::string(to_string(method)) + " " + shape_key;
+	}
+};
 
 struct model_builder {
 	api_model model;
-	std::set<std::string> used_type_names;
-
-	[[nodiscard]] std::string unique_type_name(const std::string &raw, bool explicit_name = false) {
-		const auto base = to_snake_case(raw, "generated_type");
-		if (!used_type_names.contains(base)) {
-			used_type_names.insert(base);
-			return base;
-		}
-		if (explicit_name) {
-			return base;
-		}
-		std::size_t suffix = 2;
-		for (;;) {
-			auto candidate = base + std::to_string(suffix);
-			if (!used_type_names.contains(candidate)) {
-				used_type_names.insert(candidate);
-				return candidate;
-			}
-			++suffix;
-		}
-	}
+	global_symbol_table global_symbols;
+	std::unordered_set<std::string> route_identities;
 
 	[[nodiscard]] std::string cpp_type_name(const schema_type &type) const {
 		switch (type.type) {
@@ -229,9 +231,22 @@ struct model_builder {
 		throw std::invalid_argument("unsupported schema type");
 	}
 
-	[[nodiscard]] schema_type normalize_schema_type(const schema &input, const std::string &hint) {
+	[[nodiscard]] std::string reserve_public_type(std::string_view raw_name, source_span span,
+	                                              std::string_view description) {
+		return global_symbols.reserve(raw_name, span, description);
+	}
+
+	void reserve_route_identity(http_method method, const warp::common::route_pattern &route, source_span span) {
+		const route_identity identity {.method = method, .shape_key = route.shape_key};
+		if (!route_identities.insert(identity.key()).second) {
+			fail(span, "model.duplicate_route",
+			     "duplicate route shape '" + route.shape_key + "' for method " + std::string(to_string(method)));
+		}
+	}
+
+	[[nodiscard]] schema_type normalize_schema_type(const schema &input, std::string_view hint) {
 		if (input.nullable) {
-			throw std::invalid_argument("nullable schemas are not supported yet");
+			fail(input.span, "model.nullable_unsupported", "nullable schemas are not supported");
 		}
 
 		switch (input.kind) {
@@ -242,99 +257,104 @@ struct model_builder {
 			return schema_type {primitive_kind(input.kind)};
 		case value_kind::object_value: {
 			schema_type type(schema_type::kind::object_value);
-			type.object_name =
-			    normalize_object_schema(input, input.name.empty() ? hint : input.name, !input.name.empty());
+			type.object_name = normalize_object_schema(input, input.name.empty() ? std::string(hint) : input.name);
 			return type;
 		}
 		case value_kind::array_value: {
 			if (input.element_type == nullptr) {
-				throw std::invalid_argument("array schema is missing an element type");
+				fail(input.span, "model.missing_array_item", "array schema is missing an item schema");
 			}
 			schema_type type(schema_type::kind::array_value);
 			type.element_type =
-			    std::make_unique<schema_type>(normalize_schema_type(*input.element_type, hint + "_item"));
+			    std::make_unique<schema_type>(normalize_schema_type(*input.element_type, std::string(hint) + "_item"));
 			return type;
 		}
 		}
 		throw std::invalid_argument("unsupported schema kind");
 	}
 
-	[[nodiscard]] std::string normalize_object_schema(const schema &input, const std::string &hint,
-	                                                  bool explicit_name) {
+	[[nodiscard]] std::string normalize_object_schema(const schema &input, const std::string &hint) {
 		if (input.kind != value_kind::object_value) {
-			throw std::invalid_argument("object schema expected");
+			fail(input.span, "model.expected_object", "object schema expected");
 		}
 
 		object_schema_model object;
-		object.name = unique_type_name(hint, explicit_name);
-		std::set<std::string> member_names;
+		object.span = input.span;
+		object.name = reserve_public_type(hint, input.span, "schema");
+
+		local_symbol_table member_symbols;
 		for (const auto &field : input.fields) {
 			if (field.value == nullptr) {
-				throw std::invalid_argument("field '" + field.name + "' is missing a schema");
+				fail(field.span, "model.missing_field_schema", "field '" + field.name + "' is missing a schema");
 			}
 			object.fields.push_back(field_model {
+			    .span = field.span,
 			    .json_name = field.name,
-			    .member_name = sanitize_identifier(field.name, member_names),
+			    .member_name = member_symbols.canonical(field.name, field.span, "schema '" + object.name + "'"),
 			    .type = normalize_schema_type(*field.value, object.name + "_" + field.name),
 			    .required = field.required,
 			});
-		}
-
-		if (explicit_name) {
-			for (const auto &existing : model.schemas) {
-				if (existing.name == object.name) {
-					if (!schemas_equal(existing, object)) {
-						throw std::invalid_argument("conflicting schema definition for type '" + object.name + "'");
-					}
-					return existing.name;
-				}
-			}
 		}
 
 		model.schemas.push_back(std::move(object));
 		return model.schemas.back().name;
 	}
 
-	[[nodiscard]] request_model build_request_model(const endpoint_spec &endpoint, const std::string &request_name) {
+	[[nodiscard]] request_model build_request_model(const endpoint_spec &endpoint, const std::string &request_name,
+	                                                const warp::common::route_pattern &route) {
 		request_model request;
+		request.span = endpoint.request.span;
 		request.name = request_name;
+		request.body_mode = endpoint.request.body.has_value() ? http_body_mode::required : http_body_mode::forbidden;
 
-		std::set<std::string> member_names;
+		local_symbol_table member_symbols;
 		if (endpoint.request.body.has_value()) {
-			member_names.insert("body");
+			if (request_method_forbids_body(endpoint.method)) {
+				fail(endpoint.request.body->span, "model.request_body_forbidden",
+				     "request body is not allowed for " + std::string(to_string(endpoint.method)) + " endpoints");
+			}
+			member_symbols.reserve("body", endpoint.request.body->span, "request '" + request_name + "'");
 		}
 
-		std::set<std::string> declared_path_parameters;
+		std::unordered_set<std::string> declared_path_parameters;
 		for (const auto &parameter : endpoint.request.parameters) {
-			if (parameter.kind == value_kind::object_value || parameter.kind == value_kind::array_value) {
-				throw std::invalid_argument("request parameters must use primitive schema kinds");
+			if (!is_primitive(parameter.kind)) {
+				fail(parameter.span, "model.invalid_parameter_kind", "request parameters must be primitive scalars");
 			}
 			if (parameter.location == parameter_location::path && !parameter.required) {
-				throw std::invalid_argument("path parameters cannot be optional");
+				fail(parameter.span, "model.optional_path_parameter", "path parameters cannot be optional");
 			}
 			if (parameter.location == parameter_location::path) {
-				declared_path_parameters.insert(parameter.name);
+				if (!declared_path_parameters.insert(parameter.name).second) {
+					fail(parameter.span, "model.duplicate_path_parameter",
+					     "duplicate path parameter declaration '" + parameter.name + "'");
+				}
 			}
 			request.parameters.push_back(parameter_model {
+			    .span = parameter.span,
 			    .source_name = parameter.name,
-			    .member_name = sanitize_identifier(parameter.name, member_names),
+			    .member_name =
+			        member_symbols.canonical(parameter.name, parameter.span, "request '" + request_name + "'"),
 			    .location = parameter.location,
 			    .type = schema_type {primitive_kind(parameter.kind)},
 			    .required = parameter.required,
 			});
 		}
 
-		const auto path_parameters = extract_path_parameters(endpoint.path);
-		for (const auto &path_parameter : path_parameters) {
-			if (!declared_path_parameters.contains(path_parameter)) {
-				throw std::invalid_argument("route path parameter '" + path_parameter +
-				                            "' is missing from the request parameter list");
+		std::unordered_set<std::string> route_path_parameters;
+		for (const auto &segment : route.segments) {
+			if (segment.kind == warp::common::route_segment_kind::parameter) {
+				route_path_parameters.insert(segment.text);
+				if (!declared_path_parameters.contains(segment.text)) {
+					fail(endpoint.path_span, "model.missing_path_parameter",
+					     "route path parameter '" + segment.text + "' is missing from the request parameter list");
+				}
 			}
 		}
 		for (const auto &declared : declared_path_parameters) {
-			if (std::find(path_parameters.begin(), path_parameters.end(), declared) == path_parameters.end()) {
-				throw std::invalid_argument("path parameter '" + declared +
-				                            "' is declared but not present in route path");
+			if (!route_path_parameters.contains(declared)) {
+				fail(endpoint.path_span, "model.unused_path_parameter",
+				     "path parameter '" + declared + "' is declared but not present in route path");
 			}
 		}
 
@@ -347,16 +367,67 @@ struct model_builder {
 
 	[[nodiscard]] response_model build_response_model(const endpoint_spec &endpoint, const std::string &response_name) {
 		if (endpoint.response.status_code < 100 || endpoint.response.status_code > 599) {
-			throw std::invalid_argument("response status code must be in the range [100, 599]");
+			fail(endpoint.response.status_span.line == 0 ? endpoint.response.span : endpoint.response.status_span,
+			     "model.invalid_status", "response status code must be in the range [100, 599]");
 		}
 
 		response_model response;
+		response.span = endpoint.response.span;
+		response.status_span = endpoint.response.status_span;
 		response.status_code = endpoint.response.status_code;
+		response.body_mode = endpoint.response.body.has_value() ? http_body_mode::required : http_body_mode::forbidden;
+
+		if (status_forbids_body(response.status_code) && endpoint.response.body.has_value()) {
+			fail(endpoint.response.status_span.line == 0 ? endpoint.response.span : endpoint.response.status_span,
+			     "model.status_body_forbidden",
+			     "response status " + std::to_string(response.status_code) + " must not declare a body");
+		}
+
 		if (endpoint.response.body.has_value()) {
 			response.body_type_name =
 			    cpp_type_name(normalize_schema_type(*endpoint.response.body, response_name + "_body"));
 		}
 		return response;
+	}
+
+	resource_model build_resource_model(const resource_spec &resource) {
+		resource_model resource_model;
+		resource_model.span = resource.span;
+		resource_model.name = resource.name;
+		resource_model.routes_class_name =
+		    reserve_public_type(resource.name + "_api_routes", resource.name_span, "resource routes");
+
+		local_symbol_table handler_symbols;
+		for (const auto &endpoint : resource.endpoints) {
+			warp::common::route_pattern route;
+			try {
+				route = warp::common::parse_route_pattern(endpoint.path);
+			} catch (const std::invalid_argument &ex) {
+				fail(endpoint.path_span, "model.invalid_route", ex.what());
+			}
+			reserve_route_identity(endpoint.method, route, endpoint.path_span);
+
+			endpoint_model endpoint_model;
+			endpoint_model.span = endpoint.span;
+			endpoint_model.resource_name = resource.name;
+			endpoint_model.endpoint_name = endpoint.name;
+			endpoint_model.method = endpoint.method;
+			endpoint_model.path = endpoint.path;
+			endpoint_model.route = std::move(route);
+
+			const auto prefix = resource.name + "_" + endpoint.name;
+			endpoint_model.request_name = reserve_public_type(prefix + "_request", endpoint.span, "request contract");
+			endpoint_model.result_name = reserve_public_type(prefix + "_response", endpoint.span, "response contract");
+			endpoint_model.handler_name = handler_symbols.canonical(
+			    endpoint.name, endpoint.name_span.line == 0 ? endpoint.span : endpoint.name_span,
+			    "resource '" + resource.name + "'");
+			endpoint_model.request = build_request_model(endpoint, endpoint_model.request_name, endpoint_model.route);
+			endpoint_model.response = build_response_model(endpoint, endpoint_model.result_name);
+
+			resource_model.endpoints.push_back(std::move(endpoint_model));
+		}
+
+		return resource_model;
 	}
 };
 
@@ -381,57 +452,20 @@ schema_type &schema_type::operator=(const schema_type &other) {
 	return *this;
 }
 
-api_model build_api_model(const api_spec &spec) {
+api_model build_api_model(const spec_ast &spec, std::string_view namespace_override) {
 	model_builder builder;
-
-	std::vector<const resource_spec *> resources;
-	resources.reserve(spec.resources.size());
-	for (const auto &resource : spec.resources) {
-		resources.push_back(&resource);
+	builder.model.cpp_namespace = namespace_override.empty() ? spec.cpp_namespace : std::string(namespace_override);
+	if (builder.model.cpp_namespace.empty()) {
+		fail(spec.namespace_span.line == 0 ? spec.span : spec.namespace_span, "model.invalid_namespace",
+		     "C++ namespace cannot be empty");
 	}
-	std::sort(resources.begin(), resources.end(),
-	          [](const resource_spec *lhs, const resource_spec *rhs) { return lhs->name < rhs->name; });
+	if (!is_valid_cpp_namespace(builder.model.cpp_namespace)) {
+		fail(spec.namespace_span.line == 0 ? spec.span : spec.namespace_span, "model.invalid_namespace",
+		     "C++ namespace must be a '::'-separated list of valid identifiers");
+	}
 
-	for (const auto *resource : resources) {
-		resource_model resource_model;
-		resource_model.name = resource->name;
-		resource_model.class_name = builder.unique_type_name(resource->name + "_api_base");
-
-		std::vector<const endpoint_spec *> endpoints;
-		endpoints.reserve(resource->endpoints.size());
-		for (const auto &endpoint : resource->endpoints) {
-			endpoints.push_back(&endpoint);
-		}
-		std::sort(endpoints.begin(), endpoints.end(),
-		          [](const endpoint_spec *lhs, const endpoint_spec *rhs) { return lhs->name < rhs->name; });
-
-		std::set<std::string> handler_names;
-		for (const auto *endpoint : endpoints) {
-			if (endpoint->path.empty() || endpoint->path.front() != '/') {
-				throw std::invalid_argument("endpoint path must start with '/'");
-			}
-
-			endpoint_model endpoint_model;
-			endpoint_model.resource_name = resource->name;
-			endpoint_model.endpoint_name = endpoint->name;
-			const auto prefix = resource->name + "_" + endpoint->name;
-			endpoint_model.request_name = builder.unique_type_name(prefix + "_request");
-			endpoint_model.result_name = builder.unique_type_name(prefix + "_response");
-
-			std::set<std::string> local_handler_names;
-			endpoint_model.handler_name = sanitize_identifier(endpoint->name, local_handler_names);
-			if (!handler_names.insert(endpoint_model.handler_name).second) {
-				throw std::invalid_argument("resource '" + resource->name +
-				                            "' contains endpoints that normalize to the same handler name");
-			}
-			endpoint_model.method = endpoint->method;
-			endpoint_model.path = endpoint->path;
-			endpoint_model.request = builder.build_request_model(*endpoint, endpoint_model.request_name);
-			endpoint_model.response = builder.build_response_model(*endpoint, endpoint_model.result_name);
-			resource_model.endpoints.push_back(std::move(endpoint_model));
-		}
-
-		builder.model.resources.push_back(std::move(resource_model));
+	for (const auto &resource : spec.resources) {
+		builder.model.resources.push_back(builder.build_resource_model(resource));
 	}
 
 	return builder.model;

@@ -9,6 +9,7 @@
 #include <vector>
 
 #include <boost/asio/awaitable.hpp>
+#include "warp/common/route_pattern.hpp"
 #include "warp/http/request.hpp"
 #include "warp/http/response.hpp"
 
@@ -30,15 +31,6 @@ public:
 	[[nodiscard]] const async_handler *find(request &req) const;
 
 private:
-	struct segment {
-		enum class kind {
-			literal,
-			parameter
-		};
-		kind type {};
-		std::string value;
-	};
-
 	struct route_parameter {
 		std::size_t index {};
 		std::string name;
@@ -77,7 +69,6 @@ private:
 	};
 
 	static node clone_node(const node &source);
-	static std::vector<segment> compile_pattern(const std::string &pattern);
 	[[nodiscard]] static const route_entry *match_route(const node &root, std::string_view path);
 	static void apply_path_params(request &req, std::string_view path, const route_entry &route);
 

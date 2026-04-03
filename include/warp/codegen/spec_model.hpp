@@ -6,6 +6,8 @@
 #include <string_view>
 #include <vector>
 
+#include "warp/codegen/diagnostics.hpp"
+
 namespace warp::codegen {
 
 enum class value_kind {
@@ -23,12 +25,14 @@ enum class value_kind {
 struct schema;
 
 struct schema_field {
+	source_span span {};
 	std::string name;
 	schema *value {nullptr};
 	bool required {true};
 };
 
 struct schema {
+	source_span span {};
 	value_kind kind {value_kind::object_value};
 	bool nullable {false};
 	std::string name;
@@ -52,7 +56,9 @@ struct schema {
 	[[nodiscard]] static schema object(std::string name = {}, bool nullable = false);
 	[[nodiscard]] static schema array(schema element_type, std::string name = {}, bool nullable = false);
 
+	schema &append_field(source_span field_span, std::string field_name, schema field_schema, bool required = true);
 	schema &append_field(std::string field_name, schema field_schema, bool required = true);
+	schema &set_element(source_span element_span, schema element_schema);
 	schema &set_element(schema element_schema);
 };
 
@@ -75,6 +81,7 @@ enum class http_method {
 [[nodiscard]] std::string_view to_string(http_method method) noexcept;
 
 struct parameter_spec {
+	source_span span {};
 	std::string name;
 	parameter_location location {parameter_location::query};
 	value_kind kind {value_kind::string_value};
@@ -82,16 +89,23 @@ struct parameter_spec {
 };
 
 struct request_spec {
+	source_span span {};
 	std::vector<parameter_spec> parameters;
 	std::optional<schema> body;
 };
 
 struct response_spec {
+	source_span span {};
+	source_span status_span {};
 	int status_code {200};
 	std::optional<schema> body;
 };
 
 struct endpoint_spec {
+	source_span span {};
+	source_span name_span {};
+	source_span method_span {};
+	source_span path_span {};
 	std::string name;
 	http_method method {http_method::get};
 	std::string path;
@@ -100,13 +114,26 @@ struct endpoint_spec {
 };
 
 struct resource_spec {
+	source_span span {};
+	source_span name_span {};
 	std::string name;
 	std::vector<endpoint_spec> endpoints;
 };
 
 struct api_spec {
+	source_span span {};
+	source_span namespace_span {};
 	std::string cpp_namespace {"generated"};
 	std::vector<resource_spec> resources;
 };
+
+using field_ast = schema_field;
+using schema_ast = schema;
+using parameter_ast = parameter_spec;
+using request_ast = request_spec;
+using response_ast = response_spec;
+using endpoint_ast = endpoint_spec;
+using resource_ast = resource_spec;
+using spec_ast = api_spec;
 
 } // namespace warp::codegen

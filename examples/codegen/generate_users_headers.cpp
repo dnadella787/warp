@@ -1,5 +1,6 @@
 #include "warp/codegen/generator.hpp"
 
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -8,15 +9,21 @@
 
 namespace {
 
-void write_file(const std::filesystem::path &path, std::string_view content) {
-	std::ofstream output(path);
+void write_file_atomically(const std::filesystem::path &path, std::string_view content) {
+	const auto temp_path =
+	    path.parent_path() / (path.filename().string() + ".tmp." +
+	                          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+
+	std::ofstream output(temp_path);
 	if (!output.is_open()) {
-		throw std::runtime_error("failed to open output file: " + path.string());
+		throw std::runtime_error("failed to open output file: " + temp_path.string());
 	}
 	output << content;
 	if (!output.good()) {
-		throw std::runtime_error("failed to write output file: " + path.string());
+		throw std::runtime_error("failed to write output file: " + temp_path.string());
 	}
+	output.close();
+	std::filesystem::rename(temp_path, path);
 }
 
 } // namespace
@@ -36,8 +43,8 @@ int main(int argc, char **argv) {
 	                   .resource_header_name = "generated_api_resources.hpp",
 	               });
 
-	write_file(output_dir / "generated_api_types.hpp", generated.model_header);
-	write_file(output_dir / "generated_api_resources.hpp", generated.resource_header);
+	write_file_atomically(output_dir / "generated_api_types.hpp", generated.model_header);
+	write_file_atomically(output_dir / "generated_api_resources.hpp", generated.resource_header);
 	std::cout << "Wrote generated_api_types.hpp and generated_api_resources.hpp to " << output_dir << '\n';
 	return 0;
 }

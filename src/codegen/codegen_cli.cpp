@@ -1,6 +1,7 @@
 #include "warp/codegen/generator.hpp"
 
 #include <cstdlib>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -84,19 +85,25 @@ void require_value(int argc, int index, std::string_view option) {
 	return options;
 }
 
-void write_file(const std::filesystem::path &path, std::string_view content) {
+void write_file_atomically(const std::filesystem::path &path, std::string_view content) {
 	if (!path.parent_path().empty()) {
 		std::filesystem::create_directories(path.parent_path());
 	}
 
-	std::ofstream output(path);
+	const auto temp_path =
+	    path.parent_path() / (path.filename().string() + ".tmp." +
+	                          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+
+	std::ofstream output(temp_path);
 	if (!output.is_open()) {
-		throw std::runtime_error("failed to open output file: " + path.string());
+		throw std::runtime_error("failed to open output file: " + temp_path.string());
 	}
 	output << content;
 	if (!output.good()) {
-		throw std::runtime_error("failed to write output file: " + path.string());
+		throw std::runtime_error("failed to write output file: " + temp_path.string());
 	}
+	output.close();
+	std::filesystem::rename(temp_path, path);
 }
 
 } // namespace
@@ -113,8 +120,8 @@ int main(int argc, char **argv) {
 		                           .resource_header_name = options.resource_header_name,
 		                       });
 
-		write_file(options.output_dir / options.model_header_name, generated.model_header);
-		write_file(options.output_dir / options.resource_header_name, generated.resource_header);
+		write_file_atomically(options.output_dir / options.model_header_name, generated.model_header);
+		write_file_atomically(options.output_dir / options.resource_header_name, generated.resource_header);
 		return 0;
 	} catch (const std::exception &ex) {
 		std::cerr << "warp_codegen: " << ex.what() << '\n';

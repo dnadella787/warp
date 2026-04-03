@@ -12,6 +12,17 @@ using warp::codegen::parse_api_spec;
 using warp::codegen::spec_error;
 using warp::codegen::value_kind;
 
+template <typename Fn>
+warp::codegen::diagnostic capture_spec_diagnostic(Fn &&fn) {
+	try {
+		fn();
+		ADD_FAILURE() << "expected spec_error";
+		return {};
+	} catch (const spec_error &error) {
+		return error.item();
+	}
+}
+
 TEST(SpecParserTest, ParsesNestedResourcesEndpointsAndSchemas) {
 	const auto spec = parse_api_spec(R"(
 resources:
@@ -135,6 +146,72 @@ resources:
             type: uuid
 )")),
 	             spec_error);
+}
+
+TEST(SpecParserTest, RejectsDuplicateKeys) {
+	EXPECT_THROW(static_cast<void>(parse_api_spec(R"(
+resources:
+  - name: users
+    name: duplicate
+    endpoints:
+      - path: /health
+)")),
+	             spec_error);
+}
+
+TEST(SpecParserTest, RejectsUnknownKeys) {
+	EXPECT_THROW(static_cast<void>(parse_api_spec(R"(
+resources:
+  - name: users
+    endpoints:
+      - path: /health
+        typo_key: true
+)")),
+	             spec_error);
+}
+
+TEST(SpecParserTest, RejectsInvalidStatusStrings) {
+	EXPECT_THROW(static_cast<void>(parse_api_spec(R"(
+resources:
+  - name: users
+    endpoints:
+      - path: /health
+        response:
+          status: ok
+)")),
+	             spec_error);
+}
+
+TEST(SpecParserTest, ReportsDuplicateKeysWithStableDiagnostics) {
+	const auto item = capture_spec_diagnostic([&] {
+		static_cast<void>(parse_api_spec(R"(
+resources:
+  - name: users
+    name: duplicate
+    endpoints:
+      - path: /health
+)"));
+	});
+
+	EXPECT_EQ(item.code, "spec.duplicate_key");
+	EXPECT_EQ(item.span.line, 4U);
+	EXPECT_NE(item.message.find("duplicate key 'name'"), std::string::npos);
+}
+
+TEST(SpecParserTest, ReportsUnknownKeysWithStableDiagnostics) {
+	const auto item = capture_spec_diagnostic([&] {
+		static_cast<void>(parse_api_spec(R"(
+resources:
+  - name: users
+    endpoints:
+      - path: /health
+        typo_key: true
+)"));
+	});
+
+	EXPECT_EQ(item.code, "spec.unknown_key");
+	EXPECT_EQ(item.span.line, 6U);
+	EXPECT_NE(item.message.find("unknown key 'typo_key'"), std::string::npos);
 }
 
 } // namespace

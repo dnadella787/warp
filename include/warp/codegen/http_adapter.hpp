@@ -7,6 +7,7 @@
 #include <boost/json/value_from.hpp>
 #include <boost/json/value_to.hpp>
 
+#include <cmath>
 #include <cctype>
 #include <charconv>
 #include <cstdlib>
@@ -23,8 +24,21 @@
 namespace warp::codegen {
 
 struct binding_error {
+	boost::beast::http::status status {boost::beast::http::status::bad_request};
+	std::string code;
 	std::string message;
 };
+
+inline binding_error make_bad_request(std::string code, std::string message) {
+	return binding_error {
+	    .status = boost::beast::http::status::bad_request, .code = std::move(code), .message = std::move(message)};
+}
+
+inline binding_error make_unsupported_media_type(std::string code, std::string message) {
+	return binding_error {.status = boost::beast::http::status::unsupported_media_type,
+	                      .code = std::move(code),
+	                      .message = std::move(message)};
+}
 
 template <typename T>
 class parse_result {
@@ -67,12 +81,16 @@ private:
 	std::variant<T, binding_error> storage_;
 };
 
+inline response to_error_response(const binding_error &error, unsigned version = 11) {
+	auto body = body_builder().set("error", error.message);
+	if (!error.code.empty()) {
+		body.set("code", error.code);
+	}
+	return response_builder().status(error.status).version(version).body(body.build()).build();
+}
+
 inline response to_bad_request_response(const binding_error &error, unsigned version = 11) {
-	return response_builder()
-	    .status(boost::beast::http::status::bad_request)
-	    .version(version)
-	    .body(body_builder().set("error", error.message).build())
-	    .build();
+	return to_error_response(error, version);
 }
 
 template <typename T>
@@ -116,8 +134,9 @@ parse_result<T> parse_scalar_impl(std::string_view value, std::string_view field
 		if (value == "false" || value == "0") {
 			return parse_result<T>::success(false);
 		}
-		return parse_result<T>::failure(binding_error {"invalid " + std::string(location_name) + " '" +
-		                                               std::string(field_name) + "': expected bool"});
+		return parse_result<T>::failure(make_bad_request("invalid_scalar", "invalid " + std::string(location_name) +
+		                                                                       " '" + std::string(field_name) +
+		                                                                       "': expected bool"));
 	} else if constexpr (std::is_integral_v<T>) {
 		T parsed {};
 		const auto *begin = value.data();
@@ -126,18 +145,20 @@ parse_result<T> parse_scalar_impl(std::string_view value, std::string_view field
 		if (ec == std::errc() && ptr == end) {
 			return parse_result<T>::success(parsed);
 		}
-		return parse_result<T>::failure(binding_error {"invalid " + std::string(location_name) + " '" +
-		                                               std::string(field_name) + "': expected " +
-		                                               std::string(scalar_type_name<T>())});
+		return parse_result<T>::failure(make_bad_request(
+		    "invalid_scalar", "invalid " + std::string(location_name) + " '" + std::string(field_name) +
+		                          "': expected " + std::string(scalar_type_name<T>())));
 	} else if constexpr (std::is_same_v<T, double>) {
-		std::string text(value);
-		char *end = nullptr;
-		const double parsed = std::strtod(text.c_str(), &end);
-		if (end != nullptr && *end == '\0') {
+		double parsed {};
+		const auto *begin = value.data();
+		const auto *end = value.data() + value.size();
+		const auto [ptr, ec] = std::from_chars(begin, end, parsed, std::chars_format::general);
+		if (ec == std::errc() && ptr == end && std::isfinite(parsed)) {
 			return parse_result<T>::success(parsed);
 		}
-		return parse_result<T>::failure(binding_error {"invalid " + std::string(location_name) + " '" +
-		                                               std::string(field_name) + "': expected double"});
+		return parse_result<T>::failure(make_bad_request("invalid_scalar", "invalid " + std::string(location_name) +
+		                                                                       " '" + std::string(field_name) +
+		                                                                       "': expected double"));
 	} else {
 		static_assert(always_false_v<T>, "unsupported scalar type");
 	}
@@ -153,35 +174,92 @@ inline std::optional<std::string_view> header_value(const request &req, std::str
 	return std::string_view {it->value().data(), it->value().size()};
 }
 
-inline bool is_json_content_type(std::string_view content_type) {
-	std::string lowered;
-	lowered.reserve(content_type.size());
-	for (char c : content_type) {
-		lowered.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+inline std::optional<binding_error> request_target_binding_error(const request &req) {
+	if (!req.target_error().has_value()) {
+		return std::nullopt;
 	}
-	return lowered.rfind("application/json", 0) == 0 || lowered.find("+json") != std::string::npos;
+	return make_bad_request(req.target_error()->code, req.target_error()->message);
+}
+
+inline bool is_json_content_type(std::string_view content_type) {
+	auto trim_ows = [](std::string_view value) {
+		while (!value.empty() && (value.front() == ' ' || value.front() == '\t')) {
+			value.remove_prefix(1);
+		}
+		while (!value.empty() && (value.back() == ' ' || value.back() == '\t')) {
+			value.remove_suffix(1);
+		}
+		return value;
+	};
+
+	auto lowercase = [](std::string_view value) {
+		std::string lowered;
+		lowered.reserve(value.size());
+		for (char c : value) {
+			lowered.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+		}
+		return lowered;
+	};
+
+	auto value = trim_ows(content_type);
+	if (const auto semicolon = value.find(';'); semicolon != std::string_view::npos) {
+		value = value.substr(0, semicolon);
+	}
+	value = trim_ows(value);
+	const auto slash = value.find('/');
+	if (slash == std::string_view::npos) {
+		return false;
+	}
+	const auto type = lowercase(trim_ows(value.substr(0, slash)));
+	const auto subtype = lowercase(trim_ows(value.substr(slash + 1)));
+	if (type.empty() || subtype.empty() || subtype.find('/') != std::string::npos) {
+		return false;
+	}
+	if (type == "application" && subtype == "json") {
+		return true;
+	}
+	if (subtype.size() <= 5) {
+		return false;
+	}
+	return subtype.ends_with("+json");
+}
+
+inline bool status_forbids_body(boost::beast::http::status status) {
+	const auto code = static_cast<unsigned>(status);
+	return (code >= 100 && code < 200) || code == 204 || code == 205 || code == 304;
 }
 
 template <typename T>
 parse_result<T> required_path_param(const request &req, std::string_view name) {
+	if (const auto target_error = request_target_binding_error(req); target_error.has_value()) {
+		return parse_result<T>::failure(*target_error);
+	}
 	const auto value = req.path_param(name);
 	if (!value.has_value()) {
-		return parse_result<T>::failure(binding_error {"missing required path parameter '" + std::string(name) + "'"});
+		return parse_result<T>::failure(
+		    make_bad_request("missing_path_parameter", "missing required path parameter '" + std::string(name) + "'"));
 	}
 	return detail::parse_scalar_impl<T>(*value, name, "path parameter");
 }
 
 template <typename T>
 parse_result<T> required_query_param(const request &req, std::string_view name) {
+	if (const auto target_error = request_target_binding_error(req); target_error.has_value()) {
+		return parse_result<T>::failure(*target_error);
+	}
 	const auto value = req.query_param(name);
 	if (!value.has_value()) {
-		return parse_result<T>::failure(binding_error {"missing required query parameter '" + std::string(name) + "'"});
+		return parse_result<T>::failure(make_bad_request(
+		    "missing_query_parameter", "missing required query parameter '" + std::string(name) + "'"));
 	}
 	return detail::parse_scalar_impl<T>(*value, name, "query parameter");
 }
 
 template <typename T>
 parse_result<std::optional<T>> optional_query_param(const request &req, std::string_view name) {
+	if (const auto target_error = request_target_binding_error(req); target_error.has_value()) {
+		return parse_result<std::optional<T>>::failure(*target_error);
+	}
 	const auto value = req.query_param(name);
 	if (!value.has_value()) {
 		return parse_result<std::optional<T>>::success(std::nullopt);
@@ -197,7 +275,8 @@ template <typename T>
 parse_result<T> required_header_param(const request &req, std::string_view name) {
 	const auto value = header_value(req, name);
 	if (!value.has_value()) {
-		return parse_result<T>::failure(binding_error {"missing required header '" + std::string(name) + "'"});
+		return parse_result<T>::failure(
+		    make_bad_request("missing_header", "missing required header '" + std::string(name) + "'"));
 	}
 	return detail::parse_scalar_impl<T>(*value, name, "header");
 }
@@ -217,26 +296,31 @@ parse_result<std::optional<T>> optional_header_param(const request &req, std::st
 
 template <typename T>
 parse_result<T> json_body(const request &req) {
-	if (req.body().empty()) {
-		return parse_result<T>::failure(binding_error {"missing JSON request body"});
-	}
 	const auto content_type = header_value(req, "Content-Type");
 	if (!content_type.has_value() || !is_json_content_type(*content_type)) {
-		return parse_result<T>::failure(binding_error {"expected Content-Type application/json"});
+		return parse_result<T>::failure(
+		    make_unsupported_media_type("unsupported_media_type", "expected Content-Type application/json"));
+	}
+	if (req.body().empty()) {
+		return parse_result<T>::failure(make_bad_request("missing_body", "missing JSON request body"));
 	}
 	auto parsed_json = req.try_json_body();
 	if (!parsed_json.has_value()) {
-		return parse_result<T>::failure(binding_error {"invalid JSON request body"});
+		return parse_result<T>::failure(make_bad_request("invalid_json", "invalid JSON request body"));
 	}
 	try {
 		return parse_result<T>::success(boost::json::value_to<T>(*parsed_json));
 	} catch (const std::exception &ex) {
-		return parse_result<T>::failure(binding_error {"JSON body schema mismatch: " + std::string(ex.what())});
+		return parse_result<T>::failure(
+		    make_bad_request("json_schema_mismatch", "JSON body schema mismatch: " + std::string(ex.what())));
 	}
 }
 
 template <typename RequestContract>
 parse_result<RequestContract> parse_http_request(const request &req) {
+	if (const auto target_error = request_target_binding_error(req); target_error.has_value()) {
+		return parse_result<RequestContract>::failure(*target_error);
+	}
 	return request_contract_traits<RequestContract>::parse(req);
 }
 
@@ -253,6 +337,9 @@ struct endpoint_response<void> {
 
 template <typename T>
 response to_http_response(endpoint_response<T> typed, unsigned version = 11) {
+	if (status_forbids_body(typed.status)) {
+		throw std::invalid_argument("response status must not include a body");
+	}
 	return response_builder().status(typed.status).version(version).body(boost::json::value_from(typed.body)).build();
 }
 
@@ -266,6 +353,9 @@ response to_http_response(const ResponseContract &typed, unsigned version = 11) 
 	using traits = response_contract_traits<ResponseContract>;
 
 	if constexpr (traits::has_body) {
+		if (status_forbids_body(static_cast<boost::beast::http::status>(traits::status_code))) {
+			throw std::invalid_argument("response status must not include a body");
+		}
 		return response_builder()
 		    .status(traits::status_code)
 		    .version(version)

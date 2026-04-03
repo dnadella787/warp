@@ -12,9 +12,16 @@
 #include <boost/json/parse.hpp>
 #include <boost/json/value.hpp>
 
+#include "warp/common/route_pattern.hpp"
+
 namespace warp::http {
 
 using beast_request = boost::beast::http::request<boost::beast::http::string_body>;
+
+struct target_parse_error {
+	std::string code;
+	std::string message;
+};
 
 class request : public beast_request {
 public:
@@ -35,18 +42,20 @@ public:
 	void set_path_params(std::unordered_map<std::string, std::string> params);
 	[[nodiscard]] const std::unordered_map<std::string, std::string> &path_params() const noexcept;
 	[[nodiscard]] std::optional<std::string_view> path_param(std::string_view key) const;
+	[[nodiscard]] const std::optional<target_parse_error> &target_error() const noexcept;
+	void set_target_error(target_parse_error error);
+	void clear_target_error() noexcept;
 
 	[[nodiscard]] boost::json::value json_body() const;
 	[[nodiscard]] std::optional<boost::json::value> try_json_body() const noexcept;
 
 private:
-	static int hex_value(char c);
-	static std::string decode_component(std::string_view input);
 	void parse_target();
 
 	std::string path_;
 	std::unordered_map<std::string, std::string> query_params_;
 	std::unordered_map<std::string, std::string> path_params_;
+	std::optional<target_parse_error> target_error_;
 };
 
 inline request::request() {
@@ -112,6 +121,20 @@ inline std::optional<std::string_view> request::path_param(std::string_view key)
 	return std::nullopt;
 }
 
+inline const std::optional<target_parse_error> &request::target_error() const noexcept {
+	return target_error_;
+}
+
+inline void request::set_target_error(target_parse_error error) {
+	if (!target_error_.has_value()) {
+		target_error_ = std::move(error);
+	}
+}
+
+inline void request::clear_target_error() noexcept {
+	target_error_.reset();
+}
+
 inline boost::json::value request::json_body() const {
 	return boost::json::parse(body());
 }
@@ -124,46 +147,10 @@ inline std::optional<boost::json::value> request::try_json_body() const noexcept
 	}
 }
 
-inline int request::hex_value(char c) {
-	if (c >= '0' && c <= '9') {
-		return c - '0';
-	}
-	if (c >= 'A' && c <= 'F') {
-		return 10 + (c - 'A');
-	}
-	if (c >= 'a' && c <= 'f') {
-		return 10 + (c - 'a');
-	}
-	return -1;
-}
-
-inline std::string request::decode_component(std::string_view input) {
-	std::string output;
-	output.reserve(input.size());
-	for (std::size_t i = 0; i < input.size(); ++i) {
-		const char c = input[i];
-		if (c == '%') {
-			if (i + 2 < input.size()) {
-				const int hi = hex_value(input[i + 1]);
-				const int lo = hex_value(input[i + 2]);
-				if (hi >= 0 && lo >= 0) {
-					output.push_back(static_cast<char>((hi << 4) | lo));
-					i += 2;
-					continue;
-				}
-			}
-			output.push_back(c);
-		} else if (c == '+') {
-			output.push_back(' ');
-		} else {
-			output.push_back(c);
-		}
-	}
-	return output;
-}
-
 inline void request::parse_target() {
 	query_params_.clear();
+	path_params_.clear();
+	target_error_.reset();
 	path_.assign(target());
 
 	const std::string_view target_view = target();
@@ -180,10 +167,35 @@ inline void request::parse_target() {
 		const auto token = query.substr(start, end == std::string_view::npos ? std::string_view::npos : end - start);
 		if (!token.empty()) {
 			const auto eq = token.find('=');
-			const auto key = decode_component(token.substr(0, eq));
-			const auto value = eq == std::string_view::npos ? std::string {} : decode_component(token.substr(eq + 1));
-			if (!key.empty()) {
-				query_params_[key] = value;
+			const auto key = warp::common::try_decode_query_component(token.substr(0, eq));
+			if (!key.has_value()) {
+				query_params_.clear();
+				target_error_ = target_parse_error {
+				    .code = "malformed_query_parameter",
+				    .message = "malformed percent-encoding in query parameter name",
+				};
+				return;
+			}
+			const auto value = eq == std::string_view::npos
+			                       ? std::optional<std::string>(std::string {})
+			                       : warp::common::try_decode_query_component(token.substr(eq + 1));
+			if (!value.has_value()) {
+				query_params_.clear();
+				target_error_ = target_parse_error {
+				    .code = "malformed_query_parameter",
+				    .message = "malformed percent-encoding in query parameter '" + *key + "'",
+				};
+				return;
+			}
+			if (!key->empty()) {
+				if (!query_params_.emplace(*key, *value).second) {
+					query_params_.clear();
+					target_error_ = target_parse_error {
+					    .code = "duplicate_query_parameter",
+					    .message = "duplicate query parameter '" + *key + "'",
+					};
+					return;
+				}
 			}
 		}
 		if (end == std::string_view::npos) {

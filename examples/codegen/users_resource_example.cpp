@@ -1,6 +1,7 @@
 #include "warp/http/server.hpp"
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 
@@ -38,15 +39,16 @@ struct users_health_response {
 	static constexpr unsigned status_code = 204;
 };
 
-template <typename Derived>
-class users_api_base {
+template <typename Service>
+class users_api_routes {
 public:
-	void register_routes(warp::http::server_builder &builder);
+	explicit users_api_routes(std::shared_ptr<Service> service);
+	void register_routes(warp::http::server_builder &builder) const;
 };
 
 } // namespace generated_api
 
-class users_resource : public generated_api::users_api_base<users_resource> {
+class users_resource {
 public:
 	generated_api::users_create_user_response create_user(generated_api::users_create_user_request request) {
 		generated_api::users_create_user_response response;
@@ -61,8 +63,9 @@ public:
 };
 
 int main() {
-	users_resource resource;
-	auto server = warp::http::server_builder().address("127.0.0.1").port(8080).register_resource(resource).build();
+	auto service = std::make_shared<users_resource>();
+	generated_api::users_api_routes<users_resource> routes(service);
+	auto server = warp::http::server_builder().address("127.0.0.1").port(8080).register_resource(routes).build();
 	server.run();
 	return 0;
 }

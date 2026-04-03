@@ -2,26 +2,25 @@
 
 #include <cstddef>
 #include <filesystem>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 
+#include "warp/codegen/diagnostics.hpp"
 #include "warp/codegen/spec_model.hpp"
 
 namespace warp::codegen {
 
-class spec_error : public std::runtime_error {
+class spec_error : public diagnostic_error {
 public:
+	spec_error(source_span span, std::string code, std::string message);
 	spec_error(std::size_t line, std::size_t column, std::string message);
 
 	[[nodiscard]] std::size_t line() const noexcept;
 	[[nodiscard]] std::size_t column() const noexcept;
-
-private:
-	std::size_t line_ {0};
-	std::size_t column_ {0};
 };
 
+[[nodiscard]] spec_ast parse_spec_ast(std::string_view yaml_text);
+[[nodiscard]] spec_ast load_spec_ast(const std::filesystem::path &yaml_path);
 [[nodiscard]] api_spec parse_api_spec(std::string_view yaml_text);
 [[nodiscard]] api_spec load_api_spec(const std::filesystem::path &yaml_path);
 

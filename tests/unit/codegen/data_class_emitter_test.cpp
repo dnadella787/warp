@@ -1,4 +1,5 @@
 #include "warp/codegen/data_class_emitter.hpp"
+#include "warp/codegen/model.hpp"
 #include "warp/codegen/spec_parser.hpp"
 
 #include <gtest/gtest.h>
@@ -7,6 +8,7 @@
 
 namespace {
 
+using warp::codegen::build_api_model;
 using warp::codegen::data_class_emitter;
 using warp::codegen::parse_api_spec;
 
@@ -66,7 +68,7 @@ resources:
                 type: int64
 )");
 
-	const auto output = data_class_emitter().emit_header(spec);
+	const auto output = data_class_emitter().emit_header(build_api_model(spec));
 	EXPECT_NE(output.find("namespace generated_api {"), std::string::npos);
 	EXPECT_NE(output.find("struct users_create_user_request_body_addresses_item"), std::string::npos);
 	EXPECT_NE(output.find("struct users_create_user_request_body_profile"), std::string::npos);
@@ -92,7 +94,7 @@ resources:
           status: 204
 )");
 
-	const auto output = data_class_emitter().emit_header(spec);
+	const auto output = data_class_emitter().emit_header(build_api_model(spec));
 
 	EXPECT_NE(output.find("struct system_health_request {\n};"), std::string::npos);
 	EXPECT_NE(output.find("struct system_health_response {\n\tstatic constexpr unsigned status_code = 204;\n};"),

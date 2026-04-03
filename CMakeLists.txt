@@ -17,6 +17,7 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/WarpCodegen.cmake)
 option(warp_BUILD_EXAMPLES "Build warp HTTP framework examples" ON)
 option(warp_BUILD_TESTS "Build warp test suite" ON)
 option(warp_BUILD_BENCHMARKS "Build warp benchmark suite" OFF)
+option(warp_BUILD_DB "Build optional PostgreSQL module" ON)
 cmake_dependent_option(warp_FETCH_BOOST "Fetch Boost via FetchContent if not available" OFF
     "NOT DEFINED ENV{BOOST_ROOT}" OFF)
 
@@ -24,26 +25,29 @@ if (warp_FETCH_BOOST)
     set(BOOST_ENABLE_CMAKE ON CACHE BOOL "" FORCE)
     FetchContent_Declare(boost
         GIT_REPOSITORY https://github.com/boostorg/boost.git
-        GIT_TAG boost-1.84.0
+        # Keep the fetched Boost version aligned with the required find_package() version below.
+        GIT_TAG boost-1.90.0
         UPDATE_DISCONNECTED ON
         FIND_PACKAGE_ARGS COMPONENTS beast asio json)
     FetchContent_MakeAvailable(boost)
 endif ()
 
-set(LIBPQXX_BUILD_TEST OFF CACHE BOOL "" FORCE)
-set(LIBPQXX_TEST OFF CACHE BOOL "" FORCE)
-set(SKIP_BUILD_TEST ON CACHE BOOL "" FORCE)
-set(BUILD_TEST OFF CACHE BOOL "" FORCE)
+if (warp_BUILD_DB)
+    set(LIBPQXX_BUILD_TEST OFF CACHE BOOL "" FORCE)
+    set(LIBPQXX_TEST OFF CACHE BOOL "" FORCE)
+    set(SKIP_BUILD_TEST ON CACHE BOOL "" FORCE)
+    set(BUILD_TEST OFF CACHE BOOL "" FORCE)
 
-FetchContent_Declare(libpqxx
-    GIT_REPOSITORY https://github.com/jtv/libpqxx.git
-    GIT_TAG 8.0.0
-    UPDATE_DISCONNECTED ON)
-FetchContent_MakeAvailable(libpqxx)
+    FetchContent_Declare(libpqxx
+        GIT_REPOSITORY https://github.com/jtv/libpqxx.git
+        GIT_TAG 8.0.0
+        UPDATE_DISCONNECTED ON)
+    FetchContent_MakeAvailable(libpqxx)
 
-if (APPLE AND TARGET pqxx)
-    target_compile_options(pqxx PRIVATE -Wno-c++11-narrowing)
-endif()
+    if (APPLE AND TARGET pqxx)
+        target_compile_options(pqxx PRIVATE -Wno-c++11-narrowing)
+    endif()
+endif ()
 
 if (warp_BUILD_BENCHMARKS)
     set(BENCHMARK_ENABLE_GTEST_TESTS OFF CACHE BOOL "" FORCE)
@@ -69,8 +73,10 @@ if (warp_BUILD_TESTS)
 endif ()
 
 find_package(Boost 1.90 REQUIRED COMPONENTS json)
-find_package(PostgreSQL REQUIRED)
 find_package(Threads REQUIRED)
+if (warp_BUILD_DB)
+    find_package(PostgreSQL REQUIRED)
+endif ()
 
 set(warp_codegen_sources
     src/codegen/data_class_emitter.cpp
@@ -82,25 +88,45 @@ set(warp_codegen_sources
     src/codegen/spec_parser.cpp
     src/codegen/stub_generator.cpp)
 
-add_library(
-    warp_http SHARED
-        ${warp_codegen_sources}
+set(warp_http_sources
         src/http/server.cpp
         src/http/server_impl.cpp
         src/http/session/http_session.cpp
         src/http/session/coroutine_http_session.cpp
         src/http/listener/listener.cpp
         src/http/listener/coroutine_listener.cpp
-        src/http/router/registry.cpp
+        src/http/router/registry.cpp)
+
+set(warp_db_postgres_sources
         src/db/postgres/connection_config.cpp
         src/db/postgres/connection_pool.cpp
         src/db/postgres/detail/connection_pool_impl.cpp
         src/db/postgres/result.cpp)
 
+add_library(
+    warp_codegen_core STATIC
+        ${warp_codegen_sources})
+
+target_include_directories(
+    warp_codegen_core
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>)
+
+target_link_libraries(
+    warp_codegen_core
+    PUBLIC
+        Boost::json
+        Boost::headers)
+
+add_library(
+    warp_http SHARED
+        ${warp_http_sources})
+
 target_include_directories(
     warp_http
     PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include> 
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>)
 
 target_link_libraries(
@@ -109,13 +135,45 @@ target_link_libraries(
         Boost::json
         Boost::headers
     PRIVATE
-        Threads::Threads
-        libpqxx::pqxx)
+        Threads::Threads)
+
+add_library(warp_codegen_runtime INTERFACE)
+target_include_directories(
+    warp_codegen_runtime
+    INTERFACE
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>)
+target_link_libraries(
+    warp_codegen_runtime
+    INTERFACE
+        warp_http
+        Boost::json
+        Boost::headers)
+
+if (warp_BUILD_DB)
+    add_library(
+        warp_db_postgres SHARED
+            ${warp_db_postgres_sources})
+
+    target_include_directories(
+        warp_db_postgres
+        PUBLIC
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+            $<INSTALL_INTERFACE:include>)
+
+    target_link_libraries(
+        warp_db_postgres
+        PUBLIC
+            Boost::json
+            Boost::headers
+        PRIVATE
+            Threads::Threads
+            libpqxx::pqxx)
+endif ()
 
 add_executable(
     warp_codegen_cli
-        src/codegen/codegen_cli.cpp
-        ${warp_codegen_sources})
+        src/codegen/codegen_cli.cpp)
 
 set_target_properties(warp_codegen_cli PROPERTIES OUTPUT_NAME warp_codegen)
 
@@ -123,8 +181,31 @@ target_include_directories(
     warp_codegen_cli
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(
+    warp_codegen_cli
+    PRIVATE
+        warp_codegen_core)
 
-install(TARGETS warp_http warp_codegen_cli
+if (APPLE)
+    find_program(WARP_CODESIGN_EXECUTABLE codesign REQUIRED)
+    add_custom_command(
+        TARGET warp_codegen_cli
+        POST_BUILD
+        COMMAND "${WARP_CODESIGN_EXECUTABLE}" --force --sign - "$<TARGET_FILE:warp_codegen_cli>"
+        VERBATIM
+        COMMENT "Ad hoc signing warp_codegen for local execution")
+endif ()
+
+set(warp_install_targets
+    warp_codegen_core
+    warp_codegen_runtime
+    warp_http
+    warp_codegen_cli)
+if (warp_BUILD_DB)
+    list(APPEND warp_install_targets warp_db_postgres)
+endif ()
+
+install(TARGETS ${warp_install_targets}
     EXPORT warpTargets
     ARCHIVE DESTINATION lib
     LIBRARY DESTINATION lib

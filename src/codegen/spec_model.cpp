@@ -8,6 +8,7 @@ namespace {
 
 schema clone_schema(const schema &source) {
 	schema copy(source.kind);
+	copy.span = source.span;
 	copy.nullable = source.nullable;
 	copy.name = source.name;
 
@@ -23,6 +24,7 @@ schema clone_schema(const schema &source) {
 
 	for (const auto &field : source.fields) {
 		schema_field field_copy;
+		field_copy.span = field.span;
 		field_copy.name = field.name;
 		field_copy.required = field.required;
 		for (std::size_t i = 0; i < source.owned_children.size(); ++i) {
@@ -111,15 +113,25 @@ schema schema::array(schema element_type, std::string name, bool nullable) {
 }
 
 schema &schema::append_field(std::string field_name, schema field_schema, bool required) {
+	return append_field({}, std::move(field_name), std::move(field_schema), required);
+}
+
+schema &schema::append_field(source_span field_span, std::string field_name, schema field_schema, bool required) {
 	auto child = std::make_unique<schema>(std::move(field_schema));
 	schema *field_ptr = child.get();
 	owned_children.push_back(std::move(child));
-	fields.push_back(schema_field {.name = std::move(field_name), .value = field_ptr, .required = required});
+	fields.push_back(
+	    schema_field {.span = field_span, .name = std::move(field_name), .value = field_ptr, .required = required});
 	return *this;
 }
 
 schema &schema::set_element(schema element_schema) {
+	return set_element({}, std::move(element_schema));
+}
+
+schema &schema::set_element(source_span element_span, schema element_schema) {
 	auto child = std::make_unique<schema>(std::move(element_schema));
+	child->span = element_span;
 	element_type = child.get();
 	owned_children.push_back(std::move(child));
 	return *this;

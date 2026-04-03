@@ -1,13 +1,25 @@
 include(GoogleTest)
 
-function(add_warp_gtest_suite target)
+function(add_warp_runtime_gtest_suite target)
     add_executable(${target})
     target_sources(${target} PRIVATE ${ARGN})
     target_include_directories(${target} PRIVATE
         ${PROJECT_SOURCE_DIR}/src
         ${PROJECT_SOURCE_DIR}/tests
     )
+    # Runtime-only tests should not pull in codegen implementation or optional DB libs.
     target_link_libraries(${target} PRIVATE warp_http GTest::gtest_main)
+    gtest_discover_tests(${target})
+endfunction()
+
+function(add_warp_codegen_gtest_suite target)
+    add_executable(${target})
+    target_sources(${target} PRIVATE ${ARGN})
+    target_include_directories(${target} PRIVATE
+        ${PROJECT_SOURCE_DIR}/src
+        ${PROJECT_SOURCE_DIR}/tests
+    )
+    target_link_libraries(${target} PRIVATE warp_http warp_codegen_core GTest::gtest_main)
     gtest_discover_tests(${target})
 endfunction()
 
@@ -21,11 +33,10 @@ warp_generate_stubs(
     RESOURCE_HEADER "generated_users_api_resources.hpp"
 )
 
-add_warp_gtest_suite(warp_http_unit_tests
+set(warp_http_unit_test_sources
     unit/request_test.cpp
     unit/response_test.cpp
     unit/registry_test.cpp
-    unit/connection_config_test.cpp
     unit/codegen/model_test.cpp
     unit/codegen/spec_parser_test.cpp
     unit/codegen/data_class_emitter_test.cpp
@@ -33,19 +44,41 @@ add_warp_gtest_suite(warp_http_unit_tests
     unit/codegen/resource_emitter_test.cpp
 )
 
-add_warp_gtest_suite(warp_http_smoke_tests
+add_warp_codegen_gtest_suite(warp_http_unit_tests
+    ${warp_http_unit_test_sources}
+)
+
+add_warp_runtime_gtest_suite(warp_http_smoke_tests
     smoke/body_and_response_builder_smoke_test.cpp
     smoke/server_builder_smoke_test.cpp
 )
 
-add_warp_gtest_suite(warp_http_integration_tests
+set(warp_http_integration_test_sources
     support/integration/http_integration_harness.cpp
     integration/http_pipelining_integration_test.cpp
     integration/http_connection_and_error_integration_test.cpp
-    integration/http_db_integration_test.cpp
     integration/generated_api_integration_test.cpp
+)
+
+add_warp_runtime_gtest_suite(warp_http_integration_tests
+    ${warp_http_integration_test_sources}
 )
 add_dependencies(warp_http_integration_tests generated_users_api_headers)
 target_include_directories(warp_http_integration_tests PRIVATE
     "${GENERATED_CODEGEN_DIR}"
 )
+target_link_libraries(warp_http_integration_tests PRIVATE warp_codegen_runtime)
+
+if (TARGET warp_db_postgres)
+    add_warp_runtime_gtest_suite(warp_http_db_unit_tests
+        unit/connection_config_test.cpp
+    )
+    target_link_libraries(warp_http_db_unit_tests PRIVATE warp_db_postgres)
+
+    add_warp_runtime_gtest_suite(warp_http_db_integration_tests
+        support/integration/http_integration_harness.cpp
+        support/integration/http_db_test_support.cpp
+        integration/http_db_integration_test.cpp
+    )
+    target_link_libraries(warp_http_db_integration_tests PRIVATE warp_db_postgres)
+endif ()

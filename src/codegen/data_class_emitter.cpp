@@ -185,13 +185,10 @@ void emit_result_contract(std::string &output, const endpoint_model &endpoint) {
 
 } // namespace
 
-std::string data_class_emitter::emit_header(const api_spec &spec, const data_class_emitter_options &options) const {
-	const std::string namespace_name = options.namespace_name.empty() ? spec.cpp_namespace : options.namespace_name;
-	if (namespace_name.empty()) {
+std::string data_class_emitter::emit_header(const api_model &model) const {
+	if (model.cpp_namespace.empty()) {
 		throw std::invalid_argument("namespace_name cannot be empty");
 	}
-
-	const auto model = build_api_model(spec);
 
 	std::string output;
 	output.reserve(8192);
@@ -210,7 +207,7 @@ std::string data_class_emitter::emit_header(const api_spec &spec, const data_cla
 	append_line(output, "#include <utility>");
 	append_line(output, "#include <vector>");
 	append_line(output);
-	append_line(output, "namespace " + namespace_name + " {");
+	append_line(output, "namespace " + model.cpp_namespace + " {");
 	append_line(output);
 
 	std::set<std::string> emitted_schemas;
@@ -225,7 +222,7 @@ std::string data_class_emitter::emit_header(const api_spec &spec, const data_cla
 		}
 	}
 
-	append_line(output, "} // namespace " + namespace_name);
+	append_line(output, "} // namespace " + model.cpp_namespace);
 	return output;
 }
 

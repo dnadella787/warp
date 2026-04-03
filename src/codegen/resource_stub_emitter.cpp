@@ -1,7 +1,5 @@
 #include "warp/codegen/resource_stub_emitter.hpp"
 
-#include "warp/codegen/model.hpp"
-
 #include <stdexcept>
 #include <string>
 
@@ -12,6 +10,47 @@ namespace {
 void append_line(std::string &output, const std::string &line = {}) {
 	output.append(line);
 	output.push_back('\n');
+}
+
+std::string escape_cpp_string_literal_contents(std::string_view value) {
+	std::string out;
+	out.reserve(value.size());
+	for (char c : value) {
+		switch (c) {
+		case '\\':
+			out.append("\\\\");
+			break;
+		case '"':
+			out.append("\\\"");
+			break;
+		case '\n':
+			out.append("\\n");
+			break;
+		case '\r':
+			out.append("\\r");
+			break;
+		case '\t':
+			out.append("\\t");
+			break;
+		default: {
+			const auto uc = static_cast<unsigned char>(c);
+			if (uc < 0x20) {
+				static constexpr char hex[] = "0123456789ABCDEF";
+				out.append("\\x");
+				out.push_back(hex[(uc >> 4) & 0xF]);
+				out.push_back(hex[uc & 0xF]);
+			} else {
+				out.push_back(c);
+			}
+			break;
+		}
+		}
+	}
+	return out;
+}
+
+std::string cpp_string_literal(std::string_view value) {
+	return "\"" + escape_cpp_string_literal_contents(value) + "\"";
 }
 
 std::string method_expression(http_method method) {
@@ -51,16 +90,16 @@ std::string cpp_type(const schema_type &type) {
 	throw std::invalid_argument("unsupported schema type");
 }
 
-std::string request_type_name(const std::string &ns, const endpoint_model &endpoint) {
-	return ns + "::" + endpoint.request.name;
+std::string request_type_name(const api_model &model, const endpoint_model &endpoint) {
+	return model.cpp_namespace + "::" + endpoint.request.name;
 }
 
-std::string response_type_name(const std::string &ns, const endpoint_model &endpoint) {
-	return ns + "::" + endpoint.result_name;
+std::string response_type_name(const api_model &model, const endpoint_model &endpoint) {
+	return model.cpp_namespace + "::" + endpoint.result_name;
 }
 
-void emit_request_contract_traits(std::string &output, const std::string &ns, const endpoint_model &endpoint) {
-	const auto request_type = request_type_name(ns, endpoint);
+void emit_request_contract_traits(std::string &output, const api_model &model, const endpoint_model &endpoint) {
+	const auto request_type = request_type_name(model, endpoint);
 	append_line(output, "template <>");
 	append_line(output, "struct request_contract_traits<" + request_type + "> {");
 	append_line(output, "\tstatic parse_result<" + request_type + "> parse(const request &req) {");
@@ -72,8 +111,8 @@ void emit_request_contract_traits(std::string &output, const std::string &ns, co
 		                               ? (parameter.required ? "required_query_param" : "optional_query_param")
 		                               : (parameter.required ? "required_header_param" : "optional_header_param");
 		const std::string parsed_name = "parsed_" + parameter.member_name;
-		append_line(output, "\t\tauto " + parsed_name + " = " + parser + "<" + cpp_type(parameter.type) + ">(req, \"" +
-		                        parameter.source_name + "\");");
+		append_line(output, "\t\tauto " + parsed_name + " = " + parser + "<" + cpp_type(parameter.type) + ">(req, " +
+		                        cpp_string_literal(parameter.source_name) + ");");
 		append_line(output, "\t\tif (!" + parsed_name + ".has_value()) {");
 		append_line(output, "\t\t\treturn parse_result<" + request_type + ">::failure(" + parsed_name + ".error());");
 		append_line(output, "\t\t}");
@@ -81,8 +120,8 @@ void emit_request_contract_traits(std::string &output, const std::string &ns, co
 	}
 
 	if (endpoint.request.body_type_name.has_value()) {
-		append_line(output,
-		            "\t\tauto parsed_body = json_body<" + ns + "::" + *endpoint.request.body_type_name + ">(req);");
+		append_line(output, "\t\tauto parsed_body = json_body<" + model.cpp_namespace +
+		                        "::" + *endpoint.request.body_type_name + ">(req);");
 		append_line(output, "\t\tif (!parsed_body.has_value()) {");
 		append_line(output, "\t\t\treturn parse_result<" + request_type + ">::failure(parsed_body.error());");
 		append_line(output, "\t\t}");
@@ -95,15 +134,15 @@ void emit_request_contract_traits(std::string &output, const std::string &ns, co
 	append_line(output);
 }
 
-void emit_response_contract_traits(std::string &output, const std::string &ns, const endpoint_model &endpoint) {
-	const auto response_type = response_type_name(ns, endpoint);
+void emit_response_contract_traits(std::string &output, const api_model &model, const endpoint_model &endpoint) {
+	const auto response_type = response_type_name(model, endpoint);
 	append_line(output, "template <>");
 	append_line(output, "struct response_contract_traits<" + response_type + "> {");
 	append_line(output, "\tstatic constexpr unsigned status_code = " + response_type + "::status_code;");
 	if (endpoint.response.body_type_name.has_value()) {
 		append_line(output, "\tstatic constexpr bool has_body = true;");
-		append_line(output, "\tstatic const " + ns + "::" + *endpoint.response.body_type_name + " &body(const " +
-		                        response_type + " &value) {");
+		append_line(output, "\tstatic const " + model.cpp_namespace + "::" + *endpoint.response.body_type_name +
+		                        " &body(const " + response_type + " &value) {");
 		append_line(output, "\t\treturn value.body;");
 		append_line(output, "\t}");
 	} else {
@@ -113,28 +152,36 @@ void emit_response_contract_traits(std::string &output, const std::string &ns, c
 	append_line(output);
 }
 
-void emit_resource_base(std::string &output, const std::string &ns, const resource_model &resource) {
-	append_line(output, "template <typename Derived>");
-	append_line(output, "class " + resource.class_name + " {");
+void emit_resource_routes(std::string &output, const api_model &model, const resource_model &resource) {
+	append_line(output, "template <typename Service>");
+	append_line(output, "class " + resource.routes_class_name + " {");
 	append_line(output, "public:");
-	append_line(output, "\tvoid register_routes(warp::http::server_builder &builder) {");
+	append_line(output, "\texplicit " + resource.routes_class_name + "(std::shared_ptr<Service> service)");
+	append_line(output, "\t    : service_(std::move(service)) {");
+	append_line(output, "\t\tif (!service_) {");
+	append_line(output, "\t\t\tthrow std::invalid_argument(\"service must not be null\");");
+	append_line(output, "\t\t}");
+	append_line(output, "\t}");
+	append_line(output);
+	append_line(output, "\tvoid register_routes(warp::http::server_builder &builder) const {");
 	for (const auto &endpoint : resource.endpoints) {
-		const auto request_type = request_type_name(ns, endpoint);
-		const auto response_type = response_type_name(ns, endpoint);
-		append_line(output, "\t\tbuilder.route(" + method_expression(endpoint.method) + ", \"" + endpoint.path +
-		                        "\", [this](warp::request req) -> warp::awaitable<warp::response> {");
+		const auto request_type = request_type_name(model, endpoint);
+		const auto response_type = response_type_name(model, endpoint);
+		append_line(output, "\t\tbuilder.route(" + method_expression(endpoint.method) + ", " +
+		                        cpp_string_literal(endpoint.path) +
+		                        ", [service = service_](warp::request req) -> warp::awaitable<warp::response> {");
 		append_line(output, "\t\t\tconst auto version = req.version();");
 		append_line(output, "\t\t\tconst auto keep_alive = req.keep_alive();");
 		append_line(output, "\t\t\tauto typed_request = warp::codegen::parse_http_request<" + request_type + ">(req);");
 		append_line(output, "\t\t\tif (!typed_request.has_value()) {");
 		append_line(output,
-		            "\t\t\t\tauto response = warp::codegen::to_bad_request_response(typed_request.error(), version);");
+		            "\t\t\t\tauto response = warp::codegen::to_error_response(typed_request.error(), version);");
 		append_line(output, "\t\t\t\tresponse.keep_alive(keep_alive);");
 		append_line(output, "\t\t\t\tco_return response;");
 		append_line(output, "\t\t\t}");
 		append_line(output, "\t\t\tauto typed_response = co_await warp::codegen::invoke_user_handler<" + response_type +
-		                        ">([this, typed_request = std::move(typed_request).value()]() mutable {");
-		append_line(output, "\t\t\t\treturn derived()." + endpoint.handler_name + "(std::move(typed_request));");
+		                        ">([service, typed_request = std::move(typed_request).value()]() mutable {");
+		append_line(output, "\t\t\t\treturn service->" + endpoint.handler_name + "(std::move(typed_request));");
 		append_line(output, "\t\t\t});");
 		append_line(output, "\t\t\tauto response = warp::codegen::to_http_response(typed_response, version);");
 		append_line(output, "\t\t\tresponse.keep_alive(keep_alive);");
@@ -144,26 +191,21 @@ void emit_resource_base(std::string &output, const std::string &ns, const resour
 	append_line(output, "\t}");
 	append_line(output);
 	append_line(output, "private:");
-	append_line(output, "\t[[nodiscard]] Derived &derived() noexcept {");
-	append_line(output, "\t\treturn static_cast<Derived &>(*this);");
-	append_line(output, "\t}");
+	append_line(output, "\tstd::shared_ptr<Service> service_;");
 	append_line(output, "};");
 	append_line(output);
 }
 
 } // namespace
 
-std::string resource_stub_emitter::emit_header(const api_spec &spec,
+std::string resource_stub_emitter::emit_header(const api_model &model,
                                                const resource_stub_emitter_options &options) const {
-	const std::string namespace_name = options.namespace_name.empty() ? spec.cpp_namespace : options.namespace_name;
-	if (namespace_name.empty()) {
+	if (model.cpp_namespace.empty()) {
 		throw std::invalid_argument("namespace_name cannot be empty");
 	}
 	if (options.include_data_header && options.data_header_include.empty()) {
 		throw std::invalid_argument("data_header_include cannot be empty");
 	}
-
-	const auto model = build_api_model(spec);
 
 	std::string output;
 	output.reserve(8192);
@@ -175,26 +217,30 @@ std::string resource_stub_emitter::emit_header(const api_spec &spec,
 	}
 	append_line(output, "#include \"warp/codegen/http_adapter.hpp\"");
 	append_line(output);
+	append_line(output, "#include <memory>");
+	append_line(output, "#include <stdexcept>");
+	append_line(output, "#include <utility>");
+	append_line(output);
 	append_line(output, "namespace warp::codegen {");
 	append_line(output);
 
 	for (const auto &resource : model.resources) {
 		for (const auto &endpoint : resource.endpoints) {
-			emit_request_contract_traits(output, namespace_name, endpoint);
-			emit_response_contract_traits(output, namespace_name, endpoint);
+			emit_request_contract_traits(output, model, endpoint);
+			emit_response_contract_traits(output, model, endpoint);
 		}
 	}
 
 	append_line(output, "} // namespace warp::codegen");
 	append_line(output);
-	append_line(output, "namespace " + namespace_name + " {");
+	append_line(output, "namespace " + model.cpp_namespace + " {");
 	append_line(output);
 
 	for (const auto &resource : model.resources) {
-		emit_resource_base(output, namespace_name, resource);
+		emit_resource_routes(output, model, resource);
 	}
 
-	append_line(output, "} // namespace " + namespace_name);
+	append_line(output, "} // namespace " + model.cpp_namespace);
 	return output;
 }
 
