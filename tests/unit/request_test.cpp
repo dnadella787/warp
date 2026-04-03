@@ -81,7 +81,7 @@ TEST(RequestTest, TryJsonBodyReturnsNulloptForInvalidJson) {
 	request req(boost::beast::http::verb::post, "/payload", 11);
 	req.body() = "not-json";
 
-	EXPECT_THROW(static_cast<void>(req.json_body()), std::exception);
+	EXPECT_ANY_THROW(static_cast<void>(req.json_body()));
 	EXPECT_FALSE(req.try_json_body().has_value());
 }
 

@@ -141,8 +141,8 @@ inline boost::json::value request::json_body() const {
 
 inline std::optional<boost::json::value> request::try_json_body() const noexcept {
 	try {
-		return boost::json::parse(body());
-	} catch (const std::exception &) {
+		return json_body();
+	} catch (...) {
 		return std::nullopt;
 	}
 }
