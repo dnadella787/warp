@@ -26,6 +26,7 @@ template <typename T>
 using awaitable = boost::asio::awaitable<T>;
 using handler = std::function<response(const request &)>;
 using async_handler = std::function<awaitable<response>(request &&)>;
+class server_builder;
 
 namespace detail {
 
@@ -61,6 +62,10 @@ inline constexpr bool is_async_route_handler =
 template <typename H>
 concept route_handler = is_async_route_handler<H> || is_sync_route_handler<H>;
 
+template <typename T>
+concept resource_registrable = std::is_lvalue_reference_v<T> &&
+                               requires(T resource, server_builder &builder) { resource.register_routes(builder); };
+
 } // namespace detail
 
 class server;
@@ -73,6 +78,24 @@ public:
 	server_builder &port(std::uint16_t port);
 	server_builder &worker_threads(std::size_t count);
 	server_builder &event_loop(event_loop_mode mode);
+
+	template <typename Resource>
+	    requires detail::resource_registrable<Resource &>
+	server_builder &register_resource(Resource &resource) {
+		resource.register_routes(*this);
+		return *this;
+	}
+
+	template <typename Resource>
+	    requires detail::resource_registrable<const Resource &>
+	server_builder &register_resource(const Resource &resource) {
+		resource.register_routes(*this);
+		return *this;
+	}
+
+	template <typename Resource>
+	    requires(!std::is_lvalue_reference_v<Resource &&>)
+	server_builder &register_resource(Resource &&) = delete;
 
 	template <typename H>
 	    requires detail::route_handler<H>

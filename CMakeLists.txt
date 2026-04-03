@@ -10,7 +10,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 include(CMakeDependentOption)
+include(CMakePackageConfigHelpers)
 include(FetchContent)
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/WarpCodegen.cmake)
 
 option(warp_BUILD_EXAMPLES "Build warp HTTP framework examples" ON)
 option(warp_BUILD_TESTS "Build warp test suite" ON)
@@ -70,8 +72,19 @@ find_package(Boost 1.90 REQUIRED COMPONENTS json)
 find_package(PostgreSQL REQUIRED)
 find_package(Threads REQUIRED)
 
+set(warp_codegen_sources
+    src/codegen/data_class_emitter.cpp
+    src/codegen/generator.cpp
+    src/codegen/model.cpp
+    src/codegen/resource_emitter.cpp
+    src/codegen/resource_stub_emitter.cpp
+    src/codegen/spec_model.cpp
+    src/codegen/spec_parser.cpp
+    src/codegen/stub_generator.cpp)
+
 add_library(
     warp_http SHARED
+        ${warp_codegen_sources}
         src/http/server.cpp
         src/http/server_impl.cpp
         src/http/session/http_session.cpp
@@ -99,7 +112,19 @@ target_link_libraries(
         Threads::Threads
         libpqxx::pqxx)
 
-install(TARGETS warp_http
+add_executable(
+    warp_codegen_cli
+        src/codegen/codegen_cli.cpp
+        ${warp_codegen_sources})
+
+set_target_properties(warp_codegen_cli PROPERTIES OUTPUT_NAME warp_codegen)
+
+target_include_directories(
+    warp_codegen_cli
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+install(TARGETS warp_http warp_codegen_cli
     EXPORT warpTargets
     ARCHIVE DESTINATION lib
     LIBRARY DESTINATION lib
@@ -108,7 +133,26 @@ install(TARGETS warp_http
 
 install(DIRECTORY include/ DESTINATION include)
 
-install(EXPORT warpTargets NAMESPACE warp:: DESTINATION lib/cmake/warp)
+configure_package_config_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/warpConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/warpConfig.cmake
+    INSTALL_DESTINATION lib/cmake/warp)
+
+write_basic_package_version_file(
+    ${CMAKE_CURRENT_BINARY_DIR}/warpConfigVersion.cmake
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMajorVersion)
+
+install(FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/warpConfig.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/warpConfigVersion.cmake
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/WarpCodegen.cmake
+    DESTINATION lib/cmake/warp)
+
+install(EXPORT warpTargets
+    FILE warpTargets.cmake
+    NAMESPACE warp::
+    DESTINATION lib/cmake/warp)
 
 if (warp_BUILD_EXAMPLES)
     add_subdirectory(examples)

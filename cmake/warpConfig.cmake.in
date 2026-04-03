@@ -1,0 +1,10 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+find_dependency(Boost 1.90 REQUIRED COMPONENTS json)
+
+include("${CMAKE_CURRENT_LIST_DIR}/warpTargets.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/WarpCodegen.cmake")
+
+check_required_components(warp)

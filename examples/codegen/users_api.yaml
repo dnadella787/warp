@@ -1,0 +1,41 @@
+cpp_namespace: generated_api
+resources:
+  - name: users
+    endpoints:
+      - name: create_user
+        method: POST
+        path: /users/{user_id}
+        request:
+          parameters:
+            - name: user_id
+              in: path
+              type: string
+            - name: verbose
+              in: query
+              type: bool
+              required: false
+            - name: x-trace-id
+              in: header
+              type: string
+          body:
+            type: object
+            fields:
+              - name: name
+                type: string
+              - name: nickname
+                type: string
+                required: false
+        response:
+          status: 201
+          body:
+            type: object
+            fields:
+              - name: id
+                type: int64
+              - name: active
+                type: bool
+      - name: health
+        method: GET
+        path: /health
+        response:
+          status: 204

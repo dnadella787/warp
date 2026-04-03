@@ -98,5 +98,19 @@ clang-format -i $(git ls-files '*.cpp' '*.hpp')
 - Request/response interceptors
 - Return output as JSON
 - Tag with request-id in header
-- Code generation from YAML (using Jinja?) and allow registration of classes
+- YAML stub generation for typed request/response models and CRTP resource bases.
 - Add benchmark suite (Google Benchmark) and fuzz targets for parser hardening.
+
+### Code generation
+
+Warp can generate typed request/response models and CRTP resource bases from a YAML API description. The generator surface lives under `warp::codegen`.
+
+Two supported workflows:
+
+- ahead of time with the `warp_codegen` CLI
+- during the build with the `warp_generate_stubs(...)` CMake function
+
+- Docs: [docs/codegen.md](/Users/dnadella/Projects/warp/docs/codegen.md)
+- Example YAML: [examples/codegen/users_api.yaml](/Users/dnadella/Projects/warp/examples/codegen/users_api.yaml)
+- Header generation example: [examples/codegen/generate_users_headers.cpp](/Users/dnadella/Projects/warp/examples/codegen/generate_users_headers.cpp)
+- Example usage: [examples/codegen/users_resource_example.cpp](/Users/dnadella/Projects/warp/examples/codegen/users_resource_example.cpp)
