@@ -2,10 +2,10 @@
 
 Warp includes a Google Benchmark target for comparing the callback-based event loop with the coroutine-based event loop.
 
-The benchmark binary now contains two scenarios:
+The benchmark binary contains:
 
 - a minimal in-memory `GET /ping` round trip
-- a PostgreSQL-backed `GET /db/exchanges/nyse` round trip that queries `exchanges` for `exchange_code = 'NYSE'`
+- when `warp_BUILD_DB=ON`, a PostgreSQL-backed `GET /db/exchanges/nyse` round trip that queries `exchanges` for `exchange_code = 'NYSE'`
 
 ## Benchmark Target
 
@@ -15,6 +15,7 @@ Enable benchmarks at configure time:
 cmake -S . -B build-bench \
   -DCMAKE_OSX_ARCHITECTURES=arm64 \
   -DCMAKE_BUILD_TYPE=Release \
+  -Dwarp_BUILD_DB=ON \
   -Dwarp_BUILD_BENCHMARKS=ON \
   -Dwarp_BUILD_TESTS=OFF \
   -Dwarp_BUILD_EXAMPLES=OFF
@@ -39,6 +40,8 @@ Run it:
 The benchmark sources live in [benchmarks/](/Users/dnadella/Projects/warp/benchmarks), with shared support code in
 [http_event_loop_benchmark_support.cpp](/Users/dnadella/Projects/warp/benchmarks/http_event_loop_benchmark_support.cpp)
 and separate scenario files for the in-memory and DB-backed cases.
+
+If you configure with `warp_BUILD_DB=OFF`, the benchmark target still builds, but only the non-DB `/ping` scenario is compiled into the binary.
 
 ## PostgreSQL Benchmark Setup
 
@@ -81,7 +84,7 @@ The `/db/exchanges/nyse` route includes the PostgreSQL connection pool and one S
 ### Minimal `/ping` Round Trip
 
 Measured on this machine with:
-
+- 2021 M1 Macbook Pro 32 GB  
 - `arm64`
 - `Release` build
 - `--benchmark_min_time=60s`
@@ -91,23 +94,13 @@ Measured on this machine with:
 Observed aggregates:
 
 | Mode | Mean round-trip time | Median round-trip time | Mean throughput | Median throughput | Mean proc CPU / req | Peak RSS |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Callbacks | 79.8 us | 79.6 us | 12.54k req/s | 12.56k req/s | 82.0 us | 7.57 MiB |
-| Coroutines | 80.2 us | 80.1 us | 12.46k req/s | 12.49k req/s | 80.7 us | 7.66 MiB |
+| --- |---------------------:|-----------------------:|----------------:|------------------:|--------------------:|---------:|
+| Callbacks |              77.9 us |                77.3 us |    12.84k req/s |      12.94k req/s |            76.33 us | 8.45 MiB |
+| Coroutines |              89.8 us |                79.6 us |    12.54k req/s |      12.56k req/s |             78.1 us | 8.69 MiB |
 
 In this run, the callback event loop remained slightly faster on raw `/ping` round-trip latency, but the gap was under 1%.
 
 The exact Google Benchmark aggregates captured were:
-
-```text
-BM_CallbackEventLoop_RoundTrip/0/min_time:60.000/real_time_mean    79.8 us   bytes_per_second=771.484Ki/s items_per_second=12.5397k/s proc_cpu_pct=102.761 proc_cpu_us_per_req=81.9719 rss_peak_mib=7.56563
-BM_CallbackEventLoop_RoundTrip/0/min_time:60.000/real_time_median  79.6 us   bytes_per_second=772.488Ki/s items_per_second=12.556k/s  proc_cpu_pct=102.823 proc_cpu_us_per_req=82.9718 rss_peak_mib=7.39062
-BM_CallbackEventLoop_RoundTrip/0/min_time:60.000/real_time_stddev  1.73 us   bytes_per_second=16.6878Ki/s items_per_second=271.243/s proc_cpu_pct=2.21112 proc_cpu_us_per_req=2.14672 rss_peak_mib=0.422077
-
-BM_CoroutineEventLoop_RoundTrip/1/min_time:60.000/real_time_mean   80.2 us   bytes_per_second=766.884Ki/s items_per_second=12.4649k/s proc_cpu_pct=100.518 proc_cpu_us_per_req=80.6526 rss_peak_mib=7.6625
-BM_CoroutineEventLoop_RoundTrip/1/min_time:60.000/real_time_median 80.1 us   bytes_per_second=768.326Ki/s items_per_second=12.4883k/s proc_cpu_pct=100.169 proc_cpu_us_per_req=79.7039 rss_peak_mib=7.65625
-BM_CoroutineEventLoop_RoundTrip/1/min_time:60.000/real_time_stddev 0.812 us  bytes_per_second=7.69416Ki/s items_per_second=125.061/s proc_cpu_pct=1.02245 proc_cpu_us_per_req=1.57709 rss_peak_mib=8.55816m
-```
 
 ### PostgreSQL `NYSE` Round Trip
 
@@ -121,23 +114,44 @@ Measured with the same machine and build tree, plus:
 
 Observed aggregates for `GET /db/exchanges/nyse`:
 
-| Mode | Mean round-trip time | Median round-trip time | Mean throughput | Median throughput | Mean proc CPU / req | Peak RSS |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Callbacks | 2164 us | 2167 us | 462.109 req/s | 461.362 req/s | 193.5 us | 18.75 MiB |
-| Coroutines | 2105 us | 2094 us | 475.321 req/s | 477.583 req/s | 196.4 us | 18.72 MiB |
+| Mode | Mean round-trip time | Median round-trip time | Mean throughput | Median throughput | Mean proc CPU / req |  Peak RSS |
+| --- |---------------------:|-----------------------:|----------------:|------------------:|--------------------:|----------:|
+| Callbacks |              2135 us |                2136 us |    468.49 req/s |      468.14 req/s |            187.5 us | 19.38 MiB |
+| Coroutines |              2308 us |                2195 us |    437.61 req/s |      455.55 req/s |            206.74 us | 19.45 MiB |
 
-In this run, the coroutine event loop was about 3% faster on the DB-backed benchmark.
+In this run, the coroutine event loop was also slower than the callbacks by about 8%. 
 
+As your request handlers perform more I/O and make greater use of coroutines, the cost of the initial heap allocation for the coroutine stack becomes increasingly amortized.
+
+### Exact Results
 The exact Google Benchmark output captured was:
 
 ```text
-BM_CallbackEventLoop_DbRoundTrip/0/min_time:60.000/real_time_mean    2164 us   bytes_per_second=34.2971Ki/s items_per_second=462.109/s proc_cpu_pct=8.94046 proc_cpu_us_per_req=193.49 rss_peak_mib=18.7469
-BM_CallbackEventLoop_DbRoundTrip/0/min_time:60.000/real_time_median  2167 us   bytes_per_second=34.2417Ki/s items_per_second=461.362/s proc_cpu_pct=8.92785 proc_cpu_us_per_req=192.977 rss_peak_mib=18.75
-BM_CallbackEventLoop_DbRoundTrip/0/min_time:60.000/real_time_stddev  21.1 us   bytes_per_second=343.829/s items_per_second=4.52406/s proc_cpu_pct=0.0622825 proc_cpu_us_per_req=2.70193 rss_peak_mib=0.0356305
-
-BM_CoroutineEventLoop_DbRoundTrip/1/min_time:60.000/real_time_mean   2105 us   bytes_per_second=35.2777Ki/s items_per_second=475.321/s proc_cpu_pct=9.33099 proc_cpu_us_per_req=196.391 rss_peak_mib=18.7188
-BM_CoroutineEventLoop_DbRoundTrip/1/min_time:60.000/real_time_median 2094 us   bytes_per_second=35.4456Ki/s items_per_second=477.583/s proc_cpu_pct=9.29202 proc_cpu_us_per_req=195.461 rss_peak_mib=18.7188
-BM_CoroutineEventLoop_DbRoundTrip/1/min_time:60.000/real_time_stddev 44.6 us   bytes_per_second=760.558/s items_per_second=10.0073/s proc_cpu_pct=0.139151 proc_cpu_us_per_req=5.65371 rss_peak_mib=0
+Run on (8 X 24 MHz CPU s)
+CPU Caches:
+  L1 Data 64 KiB
+  L1 Instruction 128 KiB
+  L2 Unified 4096 KiB (x8)
+Load Average: 3.70, 6.97, 8.23
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+Benchmark                                                                     Time             CPU   Iterations bytes_per_second items_per_second proc_cpu_pct proc_cpu_us_per_req rss_peak_mib
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+BM_CallbackEventLoop_RoundTrip/0/min_time:60.000/real_time_mean            77.9 us         19.5 us            5      790.235Ki/s       12.8445k/s      98.0379             76.3336      8.45312
+BM_CallbackEventLoop_RoundTrip/0/min_time:60.000/real_time_median          77.3 us         19.5 us            5      795.897Ki/s       12.9365k/s      97.4233             76.5594      8.46875
+BM_CallbackEventLoop_RoundTrip/0/min_time:60.000/real_time_stddev          1.00 us        0.200 us            5      10.0788Ki/s        163.821/s       1.1295             1.02539    0.0455543
+BM_CallbackEventLoop_RoundTrip/0/min_time:60.000/real_time_cv              1.29 %          1.03 %             5            1.28%            1.28%        1.15%               1.34%        0.54%
+BM_CoroutineEventLoop_RoundTrip/1/min_time:60.000/real_time_mean           79.8 us         19.0 us            5      771.443Ki/s        12.539k/s       97.926             78.0985      8.69063
+BM_CoroutineEventLoop_RoundTrip/1/min_time:60.000/real_time_median         79.6 us         18.9 us            5      772.566Ki/s       12.5573k/s      97.9283             78.0155       8.6875
+BM_CoroutineEventLoop_RoundTrip/1/min_time:60.000/real_time_stddev        0.351 us        0.073 us            5      3.38785Ki/s         55.066/s     0.297282            0.471207     6.98771m
+BM_CoroutineEventLoop_RoundTrip/1/min_time:60.000/real_time_cv             0.44 %          0.38 %             5            0.44%            0.44%        0.30%               0.60%        0.08%
+BM_CallbackEventLoop_DbRoundTrip/0/min_time:60.000/real_time_mean          2135 us         25.1 us            5      34.7709Ki/s        468.493/s      8.78429             187.505      19.3813
+BM_CallbackEventLoop_DbRoundTrip/0/min_time:60.000/real_time_median        2136 us         25.1 us            5      34.7445Ki/s        468.137/s      8.79303             186.675       19.375
+BM_CallbackEventLoop_DbRoundTrip/0/min_time:60.000/real_time_stddev        16.3 us        0.156 us            5        272.508/s        3.58563/s    0.0991743             2.06627    0.0178152
+BM_CallbackEventLoop_DbRoundTrip/0/min_time:60.000/real_time_cv            0.76 %          0.62 %             5            0.77%            0.77%        1.13%               1.10%        0.09%
+BM_CoroutineEventLoop_DbRoundTrip/1/min_time:60.000/real_time_mean         2308 us         25.8 us            5      32.4788Ki/s        437.609/s      8.98274              206.74      19.3531
+BM_CoroutineEventLoop_DbRoundTrip/1/min_time:60.000/real_time_median       2195 us         25.5 us            5        33.81Ki/s        455.546/s       9.0811             202.509      19.4531
+BM_CoroutineEventLoop_DbRoundTrip/1/min_time:60.000/real_time_stddev        276 us         1.35 us            5      3.39482Ki/s        45.7408/s     0.287168             17.6833     0.223607
+BM_CoroutineEventLoop_DbRoundTrip/1/min_time:60.000/real_time_cv          11.94 %          5.22 %             5           10.45%           10.45%        3.20%               8.55%        1.16%
 ```
 
 ## Interpretation

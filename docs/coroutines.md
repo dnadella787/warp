@@ -26,7 +26,7 @@ This is valid Warp code:
          }
 
          try {
-             auto result = co_await db_pool->async_query(
+             auto result = co_await db_pool->query(
                  std::string("select ") + std::string(id) +
                  "::int as requested_id, current_database() as database_name");
 
@@ -137,12 +137,12 @@ The main gain is better thread utilization and throughput under I/O-heavy load.
 
 ## Database Example
 
-`warp::db::postgres::connection_pool::async_query(...)` is a good fit for coroutine routes.
+`warp::db::postgres::connection_pool::query(...)` is a good fit for coroutine routes.
 
 When a route does:
 
 ```cpp
-auto result = co_await db_pool->async_query(sql);
+auto result = co_await db_pool->query(sql);
 ```
 
 the behavior is:

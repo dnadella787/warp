@@ -140,7 +140,7 @@ Because of that, concurrent route lookup is fine as long as the route table is n
 - synchronous queries package work onto the database pool and block the caller until that work completes
 - asynchronous queries package work onto the database pool and resume the awaiting coroutine on the configured completion executor
 
-The result is that a route which reaches `co_await db_pool->async_query(...)` does not keep an HTTP worker blocked while the database round trip is in progress.
+The result is that a route which reaches `co_await db_pool->query(...)` does not keep an HTTP worker blocked while the database round trip is in progress.
 
 ## Practical Consequences
 
