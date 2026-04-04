@@ -10,6 +10,8 @@
 #include <optional>
 #include <string>
 
+#include "warp/warp.hpp"
+
 namespace warp::tests {
 
 namespace http = boost::beast::http;
@@ -43,7 +45,7 @@ public:
 		return response;
 	}
 
-	warp::awaitable<generated::users_health_response> health(generated::users_health_request) {
+	awaitable<generated::users_health_response> health(generated::users_health_request) {
 		co_return generated::users_health_response {};
 	}
 

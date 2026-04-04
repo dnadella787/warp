@@ -11,6 +11,7 @@
 #include <boost/beast/http.hpp>
 
 #include "../router/registry.hpp"
+#include "warp/warp.hpp"
 #include "warp/http/server.hpp"
 
 namespace warp::http {

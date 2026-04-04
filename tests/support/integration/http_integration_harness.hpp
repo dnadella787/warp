@@ -10,12 +10,12 @@
 #include <boost/json/object.hpp>
 
 #include <chrono>
-#include <cstdint>
 #include <functional>
 #include <memory>
-#include <optional>
 #include <string>
 #include <string_view>
+
+#include "warp/warp.hpp"
 
 namespace warp::tests::integration_support {
 
@@ -55,9 +55,8 @@ http_response read_response(client_connection &client);
 bool read_until_eof(client_connection &client);
 boost::json::object parse_object_body(const http_response &response);
 
-asio::awaitable<warp::response> delayed_ok_response(std::chrono::milliseconds delay,
-                                                    std::function<std::string()> body_fn);
+asio::awaitable<response> delayed_ok_response(std::chrono::milliseconds delay, std::function<std::string()> body_fn);
 
-const char *event_loop_mode_name(warp::event_loop_mode mode);
+const char *event_loop_mode_name(event_loop_mode mode);
 
 } // namespace warp::tests::integration_support

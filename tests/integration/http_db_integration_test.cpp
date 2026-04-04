@@ -1,5 +1,6 @@
 #include "support/integration/http_integration_harness.hpp"
 #include "support/integration/http_db_test_support.hpp"
+#include "warp/http/server_builder.hpp"
 
 #include "warp/db/postgres/connection_pool.hpp"
 

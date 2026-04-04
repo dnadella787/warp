@@ -1,4 +1,4 @@
-# pragma once
+#pragma once
 #include <boost/beast/core.hpp>
 
 #include "listener_base.hpp"

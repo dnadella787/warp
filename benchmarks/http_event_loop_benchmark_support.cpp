@@ -1,4 +1,5 @@
 #include "http_event_loop_benchmark_support.hpp"
+#include "warp/http/server_builder.hpp"
 
 #include <boost/asio/write.hpp>
 

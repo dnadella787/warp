@@ -7,6 +7,9 @@
 #include <string>
 #include <string_view>
 
+#include "warp/warp.hpp"
+#include "warp/http/server_builder.hpp"
+
 namespace {
 
 warp::db::postgres::connection_config make_db_config() {

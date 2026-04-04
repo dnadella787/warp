@@ -8,18 +8,17 @@
 #include <boost/json/value_to.hpp>
 
 #include <cmath>
-#include <cctype>
 #include <charconv>
-#include <cstdlib>
-#include <cstdint>
 #include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
-#include <system_error>
 #include <type_traits>
 #include <utility>
 #include <variant>
+
+#include "warp/warp.hpp"
+#include "warp/http/server_builder.hpp"
 
 namespace warp::codegen {
 
@@ -381,7 +380,7 @@ awaitable<ResponseType> invoke_user_handler(Invocable &&invocable) {
 }
 
 template <typename... Resources>
-void register_resources(warp::http::server_builder &builder, Resources &...resources) {
+void register_resources(http::server_builder &builder, Resources &...resources) {
 	(builder.register_resource(resources), ...);
 }
 

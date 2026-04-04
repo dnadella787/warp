@@ -4,6 +4,8 @@
 #include "warp/http/body_builder.hpp"
 
 #include <boost/asio/system_executor.hpp>
+#include "warp/warp.hpp"
+#include "warp/http/server_builder.hpp"
 
 namespace {
 

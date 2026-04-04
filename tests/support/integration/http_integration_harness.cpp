@@ -11,6 +11,8 @@
 #include <stdexcept>
 #include <thread>
 
+#include "warp/http/server_builder.hpp"
+
 namespace warp::tests::integration_support {
 
 using namespace std::chrono_literals;

@@ -5,6 +5,7 @@
 
 #include "generated_api_resources.hpp"
 #include "generated_api_types.hpp"
+#include "warp/http/server_builder.hpp"
 
 class users_resource {
 public:

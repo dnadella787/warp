@@ -4,22 +4,18 @@
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/strand.hpp>
 
-#include "listener/coroutine_listener.hpp"
-#include "listener/listener.h"
-#include "warp/http/server.hpp"
 
 namespace warp::http {
 
-server::impl::impl(const std::string &address, unsigned short port, std::size_t workers, event_loop_mode mode,
-                   registry routes)
-    : pool_size_(workers ? workers : 1), io_ctx_(static_cast<int>(pool_size_)), routes_(std::move(routes)),
-      guard_(boost::asio::make_work_guard(io_ctx_)) {
+
+
+
+
+template <event_loop_mode Mode>
+server::server_impl<Mode>::server_impl(const std::string &address, std::uint16_t port, std::size_t workers, registry routes)
+: pool_size_(workers ? workers : 1), io_ctx_(static_cast<int>(pool_size_)), routes_(std::move(routes)),
+	guard_(boost::asio::make_work_guard(io_ctx_)), listener_(std::make_shared<listener_t>(io_ctx_, routes_, address, port)) {
 	threads_.reserve(pool_size_);
-	if (mode == event_loop_mode::coroutines) {
-		listener_ = std::make_shared<coroutine_listener>(io_ctx_, routes_, address, port);
-	} else {
-		listener_ = std::make_shared<listener>(io_ctx_, routes_, address, port);
-	}
 }
 
 /*
@@ -29,8 +25,8 @@ server::impl::impl(const std::string &address, unsigned short port, std::size_t 
 
  TLDR: run/stop are r/w
  */
-
-void server::impl::run(bool blocking) {
+template <event_loop_mode _>
+void server::server_impl<_>::run(bool blocking) {
 	// try to start, if its already running just return early, use acq_rel
 	// b/c we want to acquire the current state and check if it in a non-running
 	// state, and then release it to consumers like listener::run()/stop()
@@ -43,7 +39,8 @@ void server::impl::run(bool blocking) {
 		io_ctx_.run();
 }
 
-void server::impl::stop() {
+template <event_loop_mode Mode>
+void server::server_impl<Mode>::stop() {
 	// try to stop, if its already stopped just return early, use acq_rel
 	// b/c we want to ensure that all previous activity on running_ is
 	// published (i.e. from run() or other stop() threads) before we cancel
@@ -55,7 +52,8 @@ void server::impl::stop() {
 	stop_io_ctx();
 }
 
-void server::impl::start_runner_threads() {
+template <event_loop_mode Mode>
+void server::server_impl<Mode>::start_runner_threads() {
 	for (std::size_t i = 0; i < pool_size_; i++) {
 		threads_.emplace_back([&ctx = io_ctx_]() {
 			for (;;) {
@@ -70,7 +68,8 @@ void server::impl::start_runner_threads() {
 	}
 }
 
-void server::impl::stop_io_ctx() {
+template <event_loop_mode Mode>
+void server::server_impl<Mode>::stop_io_ctx() {
 	guard_.reset();
 	io_ctx_.stop();
 	for (auto &t : threads_) {

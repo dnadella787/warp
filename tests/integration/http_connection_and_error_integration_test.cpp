@@ -11,6 +11,9 @@
 #include <stdexcept>
 #include <thread>
 
+#include "warp/warp.hpp"
+#include "warp/http/server_builder.hpp"
+
 namespace warp::tests {
 
 namespace asio = boost::asio;

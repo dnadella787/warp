@@ -2,23 +2,14 @@
 
 #include <functional>
 #include <memory>
-#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
 #include <vector>
 
-#include <boost/asio/awaitable.hpp>
-#include "warp/common/route_pattern.hpp"
-#include "warp/http/request.hpp"
-#include "warp/http/response.hpp"
+#include "warp/http/http.hpp"
 
 namespace warp::http {
-
-using method = boost::beast::http::verb;
-using handler = std::function<response(const request &)>;
-using async_handler = std::function<boost::asio::awaitable<response>(request &&)>;
-
 class registry {
 public:
 	registry() = default;

@@ -7,6 +7,7 @@
 #include <boost/beast/http/status.hpp>
 
 #include "support/test_helpers.hpp"
+#include "warp/warp.hpp"
 
 namespace {
 

@@ -6,10 +6,12 @@
 #include <memory>
 #include <string>
 
+#include "warp/http/server_builder.hpp"
+
 namespace warp::tests {
 
 namespace http = boost::beast::http;
-namespace support = warp::tests::integration_support;
+namespace support = integration_support;
 using namespace std::chrono_literals;
 
 class HttpPipeliningIntegrationTest : public ::testing::TestWithParam<warp::event_loop_mode> {};

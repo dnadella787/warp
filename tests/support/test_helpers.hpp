@@ -1,6 +1,6 @@
 #pragma once
 
-#include "warp/http/server.hpp"
+#include "warp/http/http.hpp"
 
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/io_context.hpp>
@@ -12,7 +12,7 @@
 
 namespace warp::test {
 
-inline response run_handler(const async_handler &handler, request req) {
+inline http::response run_handler(const http::async_handler &handler, http::request req) {
 	boost::asio::io_context ioc;
 	auto future = boost::asio::co_spawn(ioc, handler(std::move(req)), boost::asio::use_future);
 	ioc.run();

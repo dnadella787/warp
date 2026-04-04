@@ -1,6 +1,6 @@
 #pragma once
 
-#include "api_types.h"
+#include "generated_api_types.hpp"
 #include "warp/codegen/http_adapter.hpp"
 
 #include <memory>

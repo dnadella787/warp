@@ -1,4 +1,6 @@
 #include "http_event_loop_benchmark_support.hpp"
+#include "warp/warp.hpp"
+#include "warp/http/server_builder.hpp"
 
 namespace {
 

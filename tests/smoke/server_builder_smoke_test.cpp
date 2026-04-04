@@ -4,6 +4,9 @@
 
 #include <array>
 
+#include "warp/warp.hpp"
+#include "warp/http/server_builder.hpp"
+
 namespace {
 
 constexpr std::array event_loop_modes {

@@ -4,13 +4,12 @@
 #include <memory>
 #include <optional>
 
-#include <boost/asio/co_spawn.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
 
 #include "../router/registry.hpp"
-#include "warp/http/server.hpp"
+#include "warp/warp.hpp"
 
 namespace warp::http {
 
