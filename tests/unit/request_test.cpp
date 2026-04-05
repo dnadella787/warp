@@ -3,6 +3,7 @@
 
 #include <gtest/gtest.h>
 
+#include <boost/json/src.hpp>
 #include <boost/beast/http/status.hpp>
 #include <boost/beast/http/verb.hpp>
 #include <boost/json/object.hpp>

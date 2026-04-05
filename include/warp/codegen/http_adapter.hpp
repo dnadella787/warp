@@ -5,10 +5,7 @@
 
 #include <boost/beast/http/status.hpp>
 #include <boost/json/value_from.hpp>
-#include <boost/json/value_to.hpp>
 
-#include <cmath>
-#include <charconv>
 #include <functional>
 #include <optional>
 #include <string>
@@ -19,6 +16,16 @@
 
 #include "warp/warp.hpp"
 #include "warp/http/server_builder.hpp"
+
+#if defined(__APPLE__)
+#include "fast_float/fast_float.h"
+#define PARSE_FLOAT(from, to, out)          fast_float::from_chars(from, to, out)
+#define PARSE_FLOAT_FMT(from, to, out, fmt) fast_float::from_chars(from, to, out)
+#else
+#include <charconv>
+#define PARSE_FLOAT(from, to, out)          std::from_chars(from, to, out)
+#define PARSE_FLOAT_FMT(from, to, out, fmt) std::from_chars(from, to, out, fmt)
+#endif
 
 namespace warp::codegen {
 
@@ -140,7 +147,7 @@ parse_result<T> parse_scalar_impl(std::string_view value, std::string_view field
 		T parsed {};
 		const auto *begin = value.data();
 		const auto *end = value.data() + value.size();
-		const auto [ptr, ec] = std::from_chars(begin, end, parsed);
+		const auto [ptr, ec] = PARSE_FLOAT(begin, end, parsed);
 		if (ec == std::errc() && ptr == end) {
 			return parse_result<T>::success(parsed);
 		}
@@ -151,7 +158,7 @@ parse_result<T> parse_scalar_impl(std::string_view value, std::string_view field
 		double parsed {};
 		const auto *begin = value.data();
 		const auto *end = value.data() + value.size();
-		const auto [ptr, ec] = std::from_chars(begin, end, parsed, std::chars_format::general);
+		const auto [ptr, ec] = PARSE_FLOAT_FMT(begin, end, parsed, std::chars_format::general);
 		if (ec == std::errc() && ptr == end && std::isfinite(parsed)) {
 			return parse_result<T>::success(parsed);
 		}

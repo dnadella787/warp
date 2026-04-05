@@ -68,6 +68,16 @@ if (warp_BUILD_TESTS)
     FetchContent_MakeAvailable(googletest)
 endif ()
 
+if (APPLE)
+    FetchContent_Declare(
+            fast_float
+            GIT_REPOSITORY https://github.com/fastfloat/fast_float.git
+            GIT_TAG tags/v8.2.4
+            GIT_SHALLOW TRUE)
+
+    FetchContent_MakeAvailable(fast_float)
+endif ()
+
 find_package(Boost 1.90 REQUIRED COMPONENTS json)
 find_package(Threads REQUIRED)
 if (warp_BUILD_DB)
@@ -101,7 +111,7 @@ set(warp_db_postgres_sources
         src/db/postgres/result.cpp)
 
 add_library(
-    warp_codegen_core STATIC
+    warp_codegen_core
         ${warp_codegen_sources})
 
 target_include_directories(
@@ -115,6 +125,13 @@ target_link_libraries(
     PUBLIC
         Boost::json
         Boost::headers)
+
+if (APPLE)
+    target_link_libraries(
+            warp_codegen_core
+            PUBLIC
+            fast_float)
+endif()
 
 add_library(
     warp_http SHARED
