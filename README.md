@@ -152,7 +152,7 @@ Two supported workflows:
 
 ### Benchmarking
 
-Warp includes a Google Benchmark target for event-loop round-trip measurements.
+Warp includes a Google Benchmark target for event-loop round-trip measurements under sustained concurrent load.
 
 ```bash
 cmake -S . -B build-bench \
@@ -163,10 +163,15 @@ cmake -S . -B build-bench \
   -Dwarp_BUILD_EXAMPLES=OFF
 cmake --build build-bench --target warp_http_event_loop_benchmark -j4
 ./build-bench/benchmarks/warp_http_event_loop_benchmark \
-  --benchmark_min_time=60s \
+  --warp-benchmark-concurrency=1k,5k,10k \
+  --warp-benchmark-client-threads=8 \
+  --warp-benchmark-warmup=5s \
+  --warp-benchmark-duration=60s \
   --benchmark_repetitions=5 \
   --benchmark_report_aggregates_only=true \
   --benchmark_counters_tabular=true
 ```
+
+If your shell is running under Rosetta on Apple Silicon, prefix configure, build, and run with `arch -arm64`.
 
 See [docs/benchmarking.md](/Users/dnadella/Projects/warp/docs/benchmarking.md) for DB setup and interpretation notes.

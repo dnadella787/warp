@@ -11,4 +11,5 @@ if (TARGET warp_db_postgres)
         http_event_loop_db_benchmark.cpp
     )
     target_link_libraries(warp_http_event_loop_benchmark PRIVATE warp_db_postgres)
+    target_compile_definitions(warp_http_event_loop_benchmark PRIVATE WARP_BENCHMARK_HAS_DB=1)
 endif ()

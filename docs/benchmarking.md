@@ -1,6 +1,6 @@
 # Benchmarking
 
-Warp includes a Google Benchmark target for comparing the callback-based event loop with the coroutine-based event loop.
+Warp includes a Google Benchmark target for comparing the callback-based event loop with the coroutine-based event loop under sustained concurrent load.
 
 The benchmark binary contains:
 
@@ -13,7 +13,6 @@ Enable benchmarks at configure time:
 
 ```bash
 cmake -S . -B build-bench \
-  -DCMAKE_OSX_ARCHITECTURES=arm64 \
   -DCMAKE_BUILD_TYPE=Release \
   -Dwarp_BUILD_DB=ON \
   -Dwarp_BUILD_BENCHMARKS=ON \
@@ -27,19 +26,50 @@ Build the benchmark:
 cmake --build build-bench --target warp_http_event_loop_benchmark -j4
 ```
 
-Run it:
+If you are on Apple Silicon and your shell is running under Rosetta, use `arch -arm64` for configure, build, and run steps so the benchmark links against the native Homebrew libraries.
+
+## Running The Load Test
+
+Example:
 
 ```bash
 ./build-bench/benchmarks/warp_http_event_loop_benchmark \
-  --benchmark_min_time=60s \
+  --warp-benchmark-concurrency=1k,5k,10k \
+  --warp-benchmark-client-threads=8 \
+  --warp-benchmark-warmup=5s \
+  --warp-benchmark-duration=60s \
   --benchmark_repetitions=5 \
   --benchmark_report_aggregates_only=true \
   --benchmark_counters_tabular=true
 ```
 
-The benchmark sources live in [benchmarks/](/Users/dnadella/Projects/warp/benchmarks), with shared support code in
-[http_event_loop_benchmark_support.cpp](/Users/dnadella/Projects/warp/benchmarks/http_event_loop_benchmark_support.cpp)
-and separate scenario files for the in-memory and DB-backed cases.
+Useful options:
+
+- `--warp-benchmark-concurrency=...`
+  - Single value: `1024`
+  - List: `1k,5k,10k`
+  - Range: `1k-5k:1k`
+- `--warp-benchmark-client-threads=8`
+  - Number of async load-generator shards. Keep this low enough to avoid client-side scheduling overhead.
+- `--warp-benchmark-warmup=5s`
+  - Warm-up interval before measurements start.
+- `--warp-benchmark-duration=60s`
+  - Measured interval for each repetition.
+- `--warp-benchmark-connect-timeout=5s`
+  - Connection establishment timeout.
+- `--warp-benchmark-request-timeout=5s`
+  - Per-request read/write timeout.
+
+The shorter `--warp-bench-*` aliases are also accepted.
+
+The same settings can also be supplied through environment variables:
+
+- `WARP_BENCH_CONCURRENCY`
+- `WARP_BENCH_CLIENT_THREADS`
+- `WARP_BENCH_WARMUP`
+- `WARP_BENCH_DURATION`
+- `WARP_BENCH_CONNECT_TIMEOUT`
+- `WARP_BENCH_REQUEST_TIMEOUT`
 
 If you configure with `warp_BUILD_DB=OFF`, the benchmark target still builds, but only the non-DB `/ping` scenario is compiled into the binary.
 
@@ -57,115 +87,67 @@ export WARP_DB_NAME=...
 
 Only `WARP_DB_USER`, `WARP_DB_PASSWORD`, and `WARP_DB_NAME` are required. If they are not set, the DB benchmark entries are skipped.
 
-## What It Measures
+## Methodology
 
-The benchmark starts a real Warp server on `127.0.0.1` and uses a real TCP client over a keep-alive connection.
+The benchmark keeps the original intent of comparing Warp event-loop overhead with a real TCP client and a real in-process Warp server on `127.0.0.1`, but it now drives the server with a high-concurrency constant-concurrency load instead of one serialized client connection.
 
-Each benchmark iteration:
+Each virtual client:
 
-1. Sends either `GET /ping` or `GET /db/exchanges/nyse`
-2. Reads the full HTTP response
-3. Measures real wall-clock round-trip time
+1. Opens a keep-alive TCP connection to the benchmark server.
+2. Keeps at most one request in flight on that connection.
+3. Immediately sends the next request after the previous response completes.
+4. Continues until the measured duration ends.
 
-Each benchmark run also reports three resource counters for the Warp benchmark process itself:
+The load generator is asynchronous and sharded across a configurable number of client threads so the benchmark can sustain thousands of concurrent clients without the benchmark client becoming a single-threaded bottleneck.
 
-- `proc_cpu_us_per_req`: total process CPU time divided by completed requests
-- `proc_cpu_pct`: total process CPU time divided by wall-clock runtime
-- `rss_peak_mib`: peak resident set size observed while the timed benchmark loop was running
+Each benchmark registration runs one warm-up phase plus one measured phase. Use Google Benchmark repetitions to collect multiple comparable runs with the same load shape.
 
-These counters include the benchmark client and the in-process Warp server. The DB-backed benchmark does not include the external PostgreSQL server's own CPU or RAM usage.
+## Metrics
 
-The `/ping` route is intentionally simple so the comparison stays focused on the event-loop implementation rather than application logic.
+Each run reports:
 
-The `/db/exchanges/nyse` route includes the PostgreSQL connection pool and one SQL query so you can see how the two event-loop modes behave when the handler suspends on database I/O.
+- `throughput_req_per_s`
+  - Completed requests per second across the measured interval.
+- `successful_requests`
+  - Successful measured requests.
+- `failed_requests`
+  - Measured failures across connection, write, read, and HTTP status errors.
+- `error_rate_pct`
+  - `failed_requests / (successful_requests + failed_requests) * 100`.
+- `latency_p50_us`, `latency_p90_us`, `latency_p99_us`, `latency_max_us`
+  - End-to-end request latency for measured responses.
+- `connect_errors`, `write_errors`, `read_errors`, `response_status_errors`
+  - Failure breakdown.
+- `connected_min`, `connected_max`, `steady_concurrency_pct`
+  - Whether the benchmark actually held the requested concurrency during the measured window.
+- `proc_cpu_us_per_req`, `proc_cpu_pct`, `rss_peak_mib`
+  - Benchmark-process resource usage, including both the client load generator and the in-process Warp server.
 
-## Results
+Latency percentiles are computed from the exact measured latencies for each run. That maximizes accuracy, at the cost of keeping one latency sample per completed measured request in memory until the run finishes.
 
-### Minimal `/ping` Round Trip
+## Example Output
 
-Measured on this machine with:
-- 2021 M1 Macbook Pro 32 GB  
-- `arm64`
-- `Release` build
-- `--benchmark_min_time=60s`
-- 5 repetitions
-- aggregate-only Google Benchmark reporting
-
-Observed aggregates:
-
-| Mode | Mean round-trip time | Median round-trip time | Mean throughput | Median throughput | Mean proc CPU / req | Peak RSS |
-| --- |---------------------:|-----------------------:|----------------:|------------------:|--------------------:|---------:|
-| Callbacks |              77.9 us |                77.3 us |    12.84k req/s |      12.94k req/s |            76.33 us | 8.45 MiB |
-| Coroutines |              89.8 us |                79.6 us |    12.54k req/s |      12.56k req/s |             78.1 us | 8.69 MiB |
-
-In this run, the callback event loop remained slightly faster on raw `/ping` round-trip latency, but the gap was under 1%.
-
-The exact Google Benchmark aggregates captured were:
-
-### PostgreSQL `NYSE` Round Trip
-
-Measured with the same machine and build tree, plus:
-
-- `WARP_DB_HOST=localhost`
-- `WARP_DB_PORT=5432`
-- `WARP_DB_USER=localdbusr`
-- `WARP_DB_PASSWORD=localdbpwd`
-- `WARP_DB_NAME=api-db`
-
-Observed aggregates for `GET /db/exchanges/nyse`:
-
-| Mode | Mean round-trip time | Median round-trip time | Mean throughput | Median throughput | Mean proc CPU / req |  Peak RSS |
-| --- |---------------------:|-----------------------:|----------------:|------------------:|--------------------:|----------:|
-| Callbacks |              2135 us |                2136 us |    468.49 req/s |      468.14 req/s |            187.5 us | 19.38 MiB |
-| Coroutines |              2308 us |                2195 us |    437.61 req/s |      455.55 req/s |            206.74 us | 19.45 MiB |
-
-In this run, the coroutine event loop was also slower than the callbacks by about 8%. 
-
-As your request handlers perform more I/O and make greater use of coroutines, the cost of the initial heap allocation for the coroutine stack becomes increasingly amortized.
-
-### Exact Results
-The exact Google Benchmark output captured was:
+Short `/ping` validation run on this machine:
 
 ```text
-Run on (8 X 24 MHz CPU s)
-CPU Caches:
-  L1 Data 64 KiB
-  L1 Instruction 128 KiB
-  L2 Unified 4096 KiB (x8)
-Load Average: 3.70, 6.97, 8.23
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-Benchmark                                                                     Time             CPU   Iterations bytes_per_second items_per_second proc_cpu_pct proc_cpu_us_per_req rss_peak_mib
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-BM_CallbackEventLoop_RoundTrip/0/min_time:60.000/real_time_mean            77.9 us         19.5 us            5      790.235Ki/s       12.8445k/s      98.0379             76.3336      8.45312
-BM_CallbackEventLoop_RoundTrip/0/min_time:60.000/real_time_median          77.3 us         19.5 us            5      795.897Ki/s       12.9365k/s      97.4233             76.5594      8.46875
-BM_CallbackEventLoop_RoundTrip/0/min_time:60.000/real_time_stddev          1.00 us        0.200 us            5      10.0788Ki/s        163.821/s       1.1295             1.02539    0.0455543
-BM_CallbackEventLoop_RoundTrip/0/min_time:60.000/real_time_cv              1.29 %          1.03 %             5            1.28%            1.28%        1.15%               1.34%        0.54%
-BM_CoroutineEventLoop_RoundTrip/1/min_time:60.000/real_time_mean           79.8 us         19.0 us            5      771.443Ki/s        12.539k/s       97.926             78.0985      8.69063
-BM_CoroutineEventLoop_RoundTrip/1/min_time:60.000/real_time_median         79.6 us         18.9 us            5      772.566Ki/s       12.5573k/s      97.9283             78.0155       8.6875
-BM_CoroutineEventLoop_RoundTrip/1/min_time:60.000/real_time_stddev        0.351 us        0.073 us            5      3.38785Ki/s         55.066/s     0.297282            0.471207     6.98771m
-BM_CoroutineEventLoop_RoundTrip/1/min_time:60.000/real_time_cv             0.44 %          0.38 %             5            0.44%            0.44%        0.30%               0.60%        0.08%
-BM_CallbackEventLoop_DbRoundTrip/0/min_time:60.000/real_time_mean          2135 us         25.1 us            5      34.7709Ki/s        468.493/s      8.78429             187.505      19.3813
-BM_CallbackEventLoop_DbRoundTrip/0/min_time:60.000/real_time_median        2136 us         25.1 us            5      34.7445Ki/s        468.137/s      8.79303             186.675       19.375
-BM_CallbackEventLoop_DbRoundTrip/0/min_time:60.000/real_time_stddev        16.3 us        0.156 us            5        272.508/s        3.58563/s    0.0991743             2.06627    0.0178152
-BM_CallbackEventLoop_DbRoundTrip/0/min_time:60.000/real_time_cv            0.76 %          0.62 %             5            0.77%            0.77%        1.13%               1.10%        0.09%
-BM_CoroutineEventLoop_DbRoundTrip/1/min_time:60.000/real_time_mean         2308 us         25.8 us            5      32.4788Ki/s        437.609/s      8.98274              206.74      19.3531
-BM_CoroutineEventLoop_DbRoundTrip/1/min_time:60.000/real_time_median       2195 us         25.5 us            5        33.81Ki/s        455.546/s       9.0811             202.509      19.4531
-BM_CoroutineEventLoop_DbRoundTrip/1/min_time:60.000/real_time_stddev        276 us         1.35 us            5      3.39482Ki/s        45.7408/s     0.287168             17.6833     0.223607
-BM_CoroutineEventLoop_DbRoundTrip/1/min_time:60.000/real_time_cv          11.94 %          5.22 %             5           10.45%           10.45%        3.20%               8.55%        1.16%
+Benchmark                                                                         Time             CPU   Iterations bytes_per_second completed_responses connect_errors connected_max connected_min error_rate_pct failed_requests items_per_second latency_max_us latency_p50_us latency_p90_us latency_p99_us latency_samples_kept latency_samples_observed proc_cpu_pct proc_cpu_us_per_req read_errors response_status_errors rss_peak_mib steady_concurrency_pct successful_requests target_concurrency throughput_req_per_s write_errors
+BM_CallbackEventLoop_RoundTrip/concurrency:128/iterations:1/manual_time        2000 ms         2.76 ms            1      3.07012Mi/s            102.199k              0           128           128              0               0       51.0992k/s         5.495k         2.496k           2.6k         2.917k             102.199k                 102.199k      462.295               90.47           0                      0       11.375                    100            102.199k                128             51.0995k            0
+BM_CoroutineEventLoop_RoundTrip/concurrency:128/iterations:1/manual_time       2005 ms         2.39 ms            1      3.07279Mi/s            102.518k              0           128           128              0               0       51.1437k/s          3.46k         2.494k         2.608k         2.754k             102.518k                 102.518k      478.986             93.6549           0                      0      12.9531                    100            102.518k                128              51.259k            0
 ```
 
-## Interpretation
+This sample is only a sanity check. Re-run on an otherwise idle machine with longer durations and multiple repetitions before treating the numbers as representative.
 
-This benchmark measures the overhead of the HTTP event loop itself under a very small handler.
+## Design Notes
 
-- The callback path is currently the faster default for raw round-trip latency.
-- The coroutine path is now very close on the minimal `/ping` benchmark and used slightly less process CPU time per request in this run.
-- These numbers are directional, not universal. The DB-backed benchmark shows that once the handler spends most of its time waiting on PostgreSQL, event-loop overhead becomes a much smaller part of total request time.
+- Constant concurrency was chosen over constant request rate because it preserves the original round-trip comparison while removing the single-client serialization bottleneck.
+- Each connection keeps one in-flight request instead of using deep HTTP pipelining. That avoids benchmarking a single socket's pipeline behavior instead of the server's ability to serve many concurrent clients.
+- The benchmark registers a separate case per configured concurrency level, so `--benchmark_filter` can target specific scenarios and load levels after runtime argument parsing.
+- `steady_concurrency_pct` should stay close to `100`. If it drops materially, the server or the client load generator could not sustain the requested concurrency for the full measured interval.
 
 ## Notes
 
-- The benchmark uses real sockets on localhost, so it needs an environment where binding local ports is allowed.
+- The benchmark uses real localhost sockets, so it must run in an environment where binding local ports is allowed.
+- Very high concurrency values can exceed the process file-descriptor limit. If connection setup fails before the run starts, raise `ulimit -n`.
 - The DB-backed benchmark also requires a reachable PostgreSQL instance with an `exchanges` table and a row for `exchange_code = 'NYSE'` if you want a successful `200 OK` response.
-- Google Benchmark on this macOS setup could not determine CPU frequency metadata correctly. That warning does not affect the measured wall-clock results above.
-- Google Benchmark rejected `--benchmark_min_time=1m` on this setup; `60s` is the accepted one-minute form.
+- Google Benchmark on this macOS setup could not determine CPU frequency metadata correctly. That warning does not affect the measured wall-clock results.
 - Re-run the benchmark on an otherwise idle machine if you want cleaner absolute numbers.
