@@ -1,5 +1,71 @@
 # Benchmarking
 
+## Benchmark Results
+Run on 2023 M3 Macbook pro 36GB RAM 12 core
+
+### RPS Results
+
+Run with:
+```c++
+warp_benchmark_client_threads: 8
+warp_benchmark_concurrency_levels: 1000
+warp_benchmark_connect_timeout: 5s
+warp_benchmark_duration: 60s
+warp_benchmark_request_timeout: 5s
+warp_benchmark_warmup: 15s
+```
+
+| Mode       | Concurrency | /ping Mean RPS | /db/NYSE Mean RPS |
+|------------|-------------|----------------|-------------------|
+| Callback   | 1000        | 157.718k/s     | 2.26k/s           |
+| Coroutine  | 1000        | 148.554k/s     | 2.35k/s           |
+
+### Latency results
+
+Run with:
+```c++
+warp_benchmark_client_threads: 4
+warp_benchmark_concurrency_levels: 12
+warp_benchmark_connect_timeout: 5s
+warp_benchmark_duration: 30s
+warp_benchmark_request_timeout: 5s
+warp_benchmark_warmup: 5s
+```
+
+| Mode       | /ping p99 latency (us) | /db/NYSE p99 latency (ms) |
+|------------|------------------------|---------------------------|
+| Callback   | 139.8                  | 8.04                      |
+| Coroutine  | 146.4                  | 7.73                      |
+
+### Example output:
+
+```text
+Running ./build/benchmarks/warp_http_event_loop_benchmark
+Run on (12 X 24 MHz CPU s)
+CPU Caches:
+  L1 Data 64 KiB
+  L1 Instruction 128 KiB
+  L2 Unified 4096 KiB (x12)
+Load Average: 3.33, 2.71, 2.41
+warp_benchmark_client_threads: 4
+warp_benchmark_concurrency_levels: 12
+warp_benchmark_connect_timeout: 5s
+warp_benchmark_duration: 30s
+warp_benchmark_request_timeout: 5s
+warp_benchmark_warmup: 5s
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+Benchmark                                                                                 Time             CPU   Iterations bytes_per_second completed_responses connect_errors connected_max connected_min error_rate_pct failed_requests items_per_second latency_max_us latency_p50_us latency_p90_us latency_p99_us latency_samples_kept latency_samples_observed proc_cpu_pct proc_cpu_us_per_req read_errors response_status_errors rss_peak_mib steady_concurrency_pct successful_requests target_concurrency throughput_req_per_s write_errors
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+BM_CallbackEventLoop_RoundTrip/concurrency:12/iterations:1/manual_time_mean           30001 ms         50.2 ms            5      10.4697Mi/s            5.22782M              0            12            12              0               0       174.258k/s        1.4698k           64.4           96.4          139.8             5.22782M                 5.22782M       523.39              30.084           0                      0      131.519                    100            5.22782M                 12             174.261k            0 concurrency_levels=12, client_threads=4, warmup=5s, duration=30s, connect_timeout=5s, request_timeout=5s
+BM_CallbackEventLoop_RoundTrip/concurrency:12/iterations:1/manual_time_median         30000 ms         50.7 ms            5       10.634Mi/s            5.31024M              0            12            12              0               0       176.993k/s         1.156k             64             92            130             5.31024M                 5.31024M      524.858             29.4681           0                      0      147.922                    100            5.31024M                 12             177.008k            0 concurrency_levels=12, client_threads=4, warmup=5s, duration=30s, connect_timeout=5s, request_timeout=5s
+BM_CallbackEventLoop_RoundTrip/concurrency:12/iterations:1/manual_time_stddev          1.14 ms         1.87 ms            5      523.513Ki/s            255.313k              0             0             0              0               0       8.50917k/s       1.28073k        2.30217        8.17313        21.8449             255.313k                 255.313k      7.00599             1.27507           0                      0      36.2201                      0            255.313k                  0             8.51043k            0 concurrency_levels=12, client_threads=4, warmup=5s, duration=30s, connect_timeout=5s, request_timeout=5s
+BM_CallbackEventLoop_RoundTrip/concurrency:12/iterations:1/manual_time_cv              0.00 %          3.71 %             5            4.88%               4.88%          0.00%         0.00%         0.00%          0.00%           0.00%            4.88%         87.14%          3.57%          8.48%         15.63%                4.88%                    4.88%        1.34%               4.24%       0.00%                  0.00%       27.54%                  0.00%               4.88%              0.00%                4.88%        0.00% concurrency_levels=12, client_threads=4, warmup=5s, duration=30s, connect_timeout=5s, request_timeout=5s
+BM_CoroutineEventLoop_RoundTrip/concurrency:12/iterations:1/manual_time_mean          30003 ms         45.9 ms            5      9.61707Mi/s            4.80249M              0            12            12              0               0       160.067k/s        1.7634k             71          103.2          146.4             4.80249M                 4.80249M      511.554             32.0904           0                      0      182.681                    100            4.80249M                 12             160.083k            0 concurrency_levels=12, client_threads=4, warmup=5s, duration=30s, connect_timeout=5s, request_timeout=5s
+BM_CoroutineEventLoop_RoundTrip/concurrency:12/iterations:1/manual_time_median        30004 ms         46.3 ms            5      9.90693Mi/s            4.94754M              0            12            12              0               0       164.892k/s         1.685k             69            100            149             4.94754M                 4.94754M      511.299             30.7377           0                      0      187.859                    100            4.94754M                 12             164.918k            0 concurrency_levels=12, client_threads=4, warmup=5s, duration=30s, connect_timeout=5s, request_timeout=5s
+BM_CoroutineEventLoop_RoundTrip/concurrency:12/iterations:1/manual_time_stddev         2.60 ms         1.46 ms            5      620.002Ki/s            302.546k              0             0             0              0               0       10.0775k/s       1.54563k        5.09902        8.58487        13.1453             302.546k                 302.546k      8.81502             2.65502           0                      0      9.63518                      0            302.546k                  0             10.0849k            0 concurrency_levels=12, client_threads=4, warmup=5s, duration=30s, connect_timeout=5s, request_timeout=5s
+BM_CoroutineEventLoop_RoundTrip/concurrency:12/iterations:1/manual_time_cv             0.01 %          3.19 %             5            6.30%               6.30%          0.00%         0.00%         0.00%          0.00%           0.00%            6.30%         87.65%          7.18%          8.32%          8.98%                6.30%                    6.30%        1.72%               8.27%       0.00%                  0.00%        5.27%                  0.00%               6.30%              0.00%                6.30%        0.00% concurrency_levels=12, client_threads=4, warmup=5s, duration=30s, connect_timeout=5s, request_timeout=5s
+```
+
 Warp includes a Google Benchmark target for comparing the callback-based event loop with the coroutine-based event loop under sustained concurrent load.
 
 The benchmark binary contains:
@@ -124,16 +190,6 @@ Each run reports:
   - Benchmark-process resource usage, including both the client load generator and the in-process Warp server.
 
 Latency percentiles are computed from the exact measured latencies for each run. That maximizes accuracy, at the cost of keeping one latency sample per completed measured request in memory until the run finishes.
-
-## Example Output
-
-Short `/ping` validation run on this machine:
-
-```text
-Benchmark                                                                         Time             CPU   Iterations bytes_per_second completed_responses connect_errors connected_max connected_min error_rate_pct failed_requests items_per_second latency_max_us latency_p50_us latency_p90_us latency_p99_us latency_samples_kept latency_samples_observed proc_cpu_pct proc_cpu_us_per_req read_errors response_status_errors rss_peak_mib steady_concurrency_pct successful_requests target_concurrency throughput_req_per_s write_errors
-BM_CallbackEventLoop_RoundTrip/concurrency:128/iterations:1/manual_time        2000 ms         2.76 ms            1      3.07012Mi/s            102.199k              0           128           128              0               0       51.0992k/s         5.495k         2.496k           2.6k         2.917k             102.199k                 102.199k      462.295               90.47           0                      0       11.375                    100            102.199k                128             51.0995k            0
-BM_CoroutineEventLoop_RoundTrip/concurrency:128/iterations:1/manual_time       2005 ms         2.39 ms            1      3.07279Mi/s            102.518k              0           128           128              0               0       51.1437k/s          3.46k         2.494k         2.608k         2.754k             102.518k                 102.518k      478.986             93.6549           0                      0      12.9531                    100            102.518k                128              51.259k            0
-```
 
 This sample is only a sanity check. Re-run on an otherwise idle machine with longer durations and multiple repetitions before treating the numbers as representative.
 
