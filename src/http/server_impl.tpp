@@ -1,3 +1,4 @@
+#pragma once
 #include "server_impl.hpp"
 
 #include <iostream>
@@ -6,10 +7,6 @@
 
 
 namespace warp::http {
-
-
-
-
 
 template <event_loop_mode Mode>
 server::server_impl<Mode>::server_impl(const std::string &address, std::uint16_t port, std::size_t workers, registry routes)

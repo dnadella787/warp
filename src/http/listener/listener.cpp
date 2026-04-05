@@ -11,41 +11,14 @@
 
 namespace warp::http {
 
-listener::listener(boost::asio::io_context &ioc, registry &registry, const std::string &address,
-                   const unsigned short port)
-    : ioc_(ioc), registry_(registry), acceptor_(boost::asio::make_strand(ioc)) {
-	auto const addr = boost::asio::ip::make_address(address);
-	auto const endpoint = boost::asio::ip::tcp::endpoint {addr, port};
-	boost::beast::error_code ec;
-
-	// Open the acceptor
-	acceptor_.open(endpoint.protocol(), ec);
-	if (ec) {
-		util::fail_except(ec, COMPONENT, "open");
-	}
-
-	// Allow address reuse
-	acceptor_.set_option(boost::asio::socket_base::reuse_address(true), ec);
-	if (ec) {
-		util::fail_except(ec, COMPONENT, "set_option{reuse_address=true}");
-	}
-
-	// Bind to the server address
-	acceptor_.bind(endpoint, ec);
-	if (ec) {
-		util::fail_except(ec, COMPONENT, "bind");
-	}
-
-	// Start listening for connections
-	acceptor_.listen(boost::asio::socket_base::max_listen_connections, ec);
-	if (ec)
-		util::fail_except(ec, COMPONENT, "listen");
+listener::listener(boost::asio::io_context &ioc, registry &registry, const std::string &address, unsigned short port)
+    : base_listener(ioc, registry, address, port) {
 }
 
 void listener::run() {
 	// We need to be executing within a strand to perform async operations
 	// on the I/O objects in this session.
-	boost::asio::dispatch(acceptor_.get_executor(),
+	boost::asio::dispatch(this->acceptor_.get_executor(),
 	                      boost::beast::bind_front_handler(&listener::do_accept, this->shared_from_this()));
 }
 
