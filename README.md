@@ -129,6 +129,7 @@ clang-format -i $(git ls-files '*.cpp' '*.hpp')
 
 ### TODO 
 - AuthN/Z 
+- throttling based on available socket FDs on system
 - robust Router
 - metrics 
 - (m)TLS support
