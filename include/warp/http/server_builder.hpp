@@ -55,17 +55,9 @@ public:
 	server_builder &worker_threads(std::size_t count);
 	server_builder &event_loop(event_loop_mode mode);
 
-	template <typename Resource>
-	    requires resource_registrable<Resource &>
-	server_builder &register_resource(Resource &resource) {
-		resource.register_routes(*this);
-		return *this;
-	}
-
-	template <typename Resource>
-	    requires resource_registrable<const Resource &>
-	server_builder &register_resource(const Resource &resource) {
-		resource.register_routes(*this);
+	template <resource_registrable Resource>
+	server_builder &register_resource(Resource &&resource) {
+		std::forward<Resource>(resource).register_routes(*this);
 		return *this;
 	}
 
@@ -73,38 +65,32 @@ public:
 	    requires(!std::is_lvalue_reference_v<Resource &&>)
 	server_builder &register_resource(Resource &&) = delete;
 
-	template <typename H>
-	    requires route_handler<H>
+	template <route_handler H>
 	server_builder &route(method verb, std::string path, H &&handler) {
 		return route(verb, std::move(path), make_route_handler(std::forward<H>(handler)));
 	}
 
-	template <typename H>
-	    requires route_handler<H>
+	template <route_handler H>
 	server_builder &route(std::string path, H &&handler) {
 		return route(method::get, std::move(path), std::forward<H>(handler));
 	}
 
-	template <typename H>
-	    requires route_handler<H>
+	template <route_handler H>
 	server_builder &get(std::string path, H &&handler) {
 		return route(method::get, std::move(path), std::forward<H>(handler));
 	}
 
-	template <typename H>
-	    requires route_handler<H>
+	template <route_handler H>
 	server_builder &post(std::string path, H &&handler) {
 		return route(method::post, std::move(path), std::forward<H>(handler));
 	}
 
-	template <typename H>
-	    requires route_handler<H>
+	template <route_handler H>
 	server_builder &put(std::string path, H &&handler) {
 		return route(method::put, std::move(path), std::forward<H>(handler));
 	}
 
-	template <typename H>
-	    requires route_handler<H>
+	template <route_handler H>
 	server_builder &delete_(std::string path, H &&handler) {
 		return route(method::delete_, std::move(path), std::forward<H>(handler));
 	}

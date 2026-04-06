@@ -12,16 +12,6 @@
 
 namespace warp::http {
 
-namespace {
-
-async_handler wrap_sync_handler(sync_handler callback) {
-	return [callback = std::move(callback)](request &&req) -> boost::asio::awaitable<response> {
-		co_return callback(req);
-	};
-}
-
-} // namespace
-
 registry::registry(const registry &other) {
 	for (const auto &[verb, root] : other.method_roots_) {
 		method_roots_.emplace(verb, clone_node(root));
@@ -44,7 +34,7 @@ void registry::add(method verb, std::string path, handler h) {
 }
 
 void registry::add_route(method verb, std::string path, handler h) {
-	const auto pattern = http::parse_route_pattern(path);
+	const auto pattern = parse_route_pattern(path);
 	auto &root = method_roots_[verb];
 	auto *current = &root;
 
@@ -53,7 +43,7 @@ void registry::add_route(method verb, std::string path, handler h) {
 
 	for (std::size_t i = 0; i < pattern.segments.size(); ++i) {
 		const auto &segment = pattern.segments[i];
-		if (segment.kind == warp::http::route_segment_kind::literal) {
+		if (segment.kind == route_segment_kind::literal) {
 			auto [it, inserted] = current->literal_children.try_emplace(segment.text, std::make_unique<node>());
 			boost::ignore_unused(inserted);
 			current = it->second.get();
