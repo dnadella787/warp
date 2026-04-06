@@ -19,5 +19,6 @@ using awaitable = boost::asio::awaitable<T>;
 using sync_handler = std::function<response(request)>; // copy by value so we can just move the req into user handler
 using async_handler =
     std::function<awaitable<response>(request)>; // copy by value so we can just move the req into user handler
+using handler = std::variant<sync_handler, async_handler>;
 
 } // namespace warp::http

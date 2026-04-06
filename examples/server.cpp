@@ -43,6 +43,7 @@ int main() {
 	        .address("127.0.0.1")
 	        .worker_threads(4)
 	        .port(8080)
+	        .event_loop(warp::event_loop_mode::coroutines)
 	        .get("/hello/{name}",
 	             [](const warp::request &req) -> warp::http::response {
 		             auto name = req.path_param("name").value_or("world");

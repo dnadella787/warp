@@ -42,8 +42,6 @@ inline constexpr bool is_async_route_handler =
 template <typename H>
 concept route_handler = is_async_route_handler<H> || is_sync_route_handler<H>;
 
-using handler = std::variant<sync_handler, async_handler>;
-
 template <typename T>
 concept resource_registrable = std::is_lvalue_reference_v<T> &&
                                requires(T resource, server_builder &builder) { resource.register_routes(builder); };
