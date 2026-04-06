@@ -42,6 +42,8 @@ inline constexpr bool is_async_route_handler =
 template <typename H>
 concept route_handler = is_async_route_handler<H> || is_sync_route_handler<H>;
 
+using handler = std::variant<sync_handler, async_handler>;
+
 template <typename T>
 concept resource_registrable = std::is_lvalue_reference_v<T> &&
                                requires(T resource, server_builder &builder) { resource.register_routes(builder); };
@@ -76,7 +78,7 @@ public:
 	template <typename H>
 	    requires route_handler<H>
 	server_builder &route(method verb, std::string path, H &&handler) {
-		return route_async(verb, std::move(path), make_async_handler(std::forward<H>(handler)));
+		return route(verb, std::move(path), make_route_handler(std::forward<H>(handler)));
 	}
 
 	template <typename H>
@@ -120,29 +122,28 @@ private:
 	[[nodiscard]] std::shared_ptr<server::impl_base> make_impl() const;
 
 	template <typename H>
-	static async_handler make_async_handler(H &&handler) {
+	static handler make_route_handler(H &&handler) {
 		using fn_type = std::decay_t<H>;
 		auto fn = fn_type(std::forward<H>(handler));
 
 		if constexpr (is_sync_route_handler<fn_type>) {
-			return [fn = std::move(fn)](request &&req) mutable -> awaitable<response> {
-				co_return std::invoke(fn, std::move(req));
-			};
+			return sync_handler {
+			    [fn = std::move(fn)](request req) mutable -> response { return std::invoke(fn, std::move(req)); }};
 		} else {
 			static_assert(is_async_route_handler<fn_type>,
 			              "route handler must return warp::response or warp::awaitable<warp::response>");
-			return [fn = std::move(fn)](request &&req) mutable -> awaitable<response> {
+			return async_handler {[fn = std::move(fn)](request &&req) mutable -> awaitable<response> {
 				co_return co_await std::invoke(fn, std::move(req));
-			};
+			}};
 		}
 	}
 
-	server_builder &route_async(method verb, std::string path, async_handler handler);
+	server_builder &route(method verb, std::string path, handler handler);
 
 	struct route_definition {
 		method verb;
 		std::string path;
-		async_handler callback;
+		handler callback;
 	};
 
 	std::string address_ {"0.0.0.0"};

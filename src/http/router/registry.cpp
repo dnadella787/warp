@@ -39,12 +39,8 @@ registry &registry::operator=(const registry &other) {
 	return *this;
 }
 
-void registry::add(method verb, std::string path, async_handler h) {
-	add_route(verb, std::move(path), handler {std::move(h)});
-}
-
-void registry::add(method verb, std::string path, sync_handler h) {
-	add_route(verb, std::move(path), handler {std::move(h)});
+void registry::add(method verb, std::string path, handler h) {
+	add_route(verb, std::move(path), std::move(h));
 }
 
 void registry::add_route(method verb, std::string path, handler h) {

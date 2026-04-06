@@ -29,7 +29,7 @@ server_builder &server_builder::event_loop(event_loop_mode mode) {
 	return *this;
 }
 
-server_builder &server_builder::route_async(method verb, std::string path, async_handler handler) {
+server_builder &server_builder::route(method verb, std::string path, handler handler) {
 	routes_.push_back(route_definition {.verb = verb, .path = std::move(path), .callback = std::move(handler)});
 	return *this;
 }

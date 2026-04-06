@@ -16,7 +16,8 @@ using headers = request::fields_type;
 using method = boost::beast::http::verb;
 template <typename T>
 using awaitable = boost::asio::awaitable<T>;
-using sync_handler = std::function<response(const request &)>;
-using async_handler = std::function<awaitable<response>(request &&)>;
+using sync_handler = std::function<response(request)>; // copy by value so we can just move the req into user handler
+using async_handler =
+    std::function<awaitable<response>(request)>; // copy by value so we can just move the req into user handler
 
 } // namespace warp::http
