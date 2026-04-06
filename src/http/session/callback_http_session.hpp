@@ -1,5 +1,6 @@
 #pragma once
 
+#include <iostream>
 #include <map>
 #include <memory>
 #include <optional>
@@ -13,9 +14,9 @@
 
 namespace warp::http {
 
-class http_session : public std::enable_shared_from_this<http_session> {
+class callback_http_session : public std::enable_shared_from_this<callback_http_session> {
 public:
-	http_session(boost::asio::ip::tcp::socket &&socket, registry &routes);
+	callback_http_session(boost::asio::ip::tcp::socket &&socket, registry &routes);
 
 	void start();
 
@@ -25,10 +26,10 @@ private:
 	void on_handler_complete(std::size_t sequence, unsigned version, bool keep_alive, std::exception_ptr eptr,
 	                         warp::response response);
 	void do_write();
-	void on_write(std::size_t sequence, bool keep_alive, boost::beast::error_code ec, std::size_t bytes_transferred);
+	void on_write(std::size_t sequence, boost::beast::error_code ec, std::size_t bytes_transferred);
 	void maybe_read();
 	void maybe_write();
-	void shutdown();
+	void shutdown(bool force = false);
 
 	boost::beast::tcp_stream stream_;
 	boost::beast::flat_buffer buffer_;
@@ -45,7 +46,6 @@ private:
 	bool write_in_progress_ {false};        // true while an async_write is currently active on this session
 	bool stop_reading_ {false};             // stop accepting new requests, but still drain already accepted ones
 	bool shutdown_started_ {false};         // session shutdown has begun; do not start more reads or writes
-
 	static constexpr std::size_t pipeline_limit_ {8};
 	static constexpr std::string_view COMPONENT {"http_session"};
 };

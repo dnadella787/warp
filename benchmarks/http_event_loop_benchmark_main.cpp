@@ -1,3 +1,4 @@
+#include <fstream>
 #include <benchmark/benchmark.h>
 
 #include "http_event_loop_benchmark_support.hpp"

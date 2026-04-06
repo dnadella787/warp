@@ -6,7 +6,7 @@
 #include <boost/asio/use_awaitable.hpp>
 #include <boost/beast/http.hpp>
 
-#include "http_session.hpp"
+#include "callback_http_session.hpp"
 #include "../../common/util/fail.h"
 #include "../../common/util/lambda.h"
 
