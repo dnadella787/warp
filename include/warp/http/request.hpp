@@ -12,7 +12,7 @@
 #include <boost/json/parse.hpp>
 #include <boost/json/value.hpp>
 
-#include "warp/common/route_pattern.hpp"
+#include "../../../src/http/router/route_pattern.hpp"
 
 namespace warp::http {
 
@@ -167,7 +167,7 @@ inline void request::parse_target() {
 		const auto token = query.substr(start, end == std::string_view::npos ? std::string_view::npos : end - start);
 		if (!token.empty()) {
 			const auto eq = token.find('=');
-			const auto key = warp::common::try_decode_query_component(token.substr(0, eq));
+			const auto key = warp::http::try_decode_query_component(token.substr(0, eq));
 			if (!key.has_value()) {
 				query_params_.clear();
 				target_error_ = target_parse_error {
@@ -178,7 +178,7 @@ inline void request::parse_target() {
 			}
 			const auto value = eq == std::string_view::npos
 			                       ? std::optional<std::string>(std::string {})
-			                       : warp::common::try_decode_query_component(token.substr(eq + 1));
+			                       : warp::http::try_decode_query_component(token.substr(eq + 1));
 			if (!value.has_value()) {
 				query_params_.clear();
 				target_error_ = target_parse_error {

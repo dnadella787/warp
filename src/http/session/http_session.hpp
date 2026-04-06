@@ -47,7 +47,7 @@ private:
 	bool shutdown_started_ {false};         // session shutdown has begun; do not start more reads or writes
 
 	static constexpr std::size_t pipeline_limit_ {8};
-	static constexpr std::string component {"http_session"};
+	static constexpr std::string_view COMPONENT {"http_session"};
 };
 
 } // namespace warp::http

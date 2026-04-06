@@ -12,7 +12,6 @@
 
 #include "../router/registry.hpp"
 #include "warp/warp.hpp"
-#include "warp/http/server.hpp"
 
 namespace warp::http {
 
@@ -27,8 +26,10 @@ private:
 	boost::asio::awaitable<void> write_loop();
 	boost::asio::awaitable<void> wait_for_read_ready();
 	boost::asio::awaitable<void> wait_for_write_ready();
-	boost::asio::awaitable<void> execute_handler(std::size_t sequence, unsigned version, bool keep_alive,
-	                                             const async_handler &handler, request req);
+	void execute_sync_handler(std::size_t sequence, unsigned version, bool keep_alive, const sync_handler &handler,
+	                          request req);
+	boost::asio::awaitable<void> execute_async_handler(std::size_t sequence, unsigned version, bool keep_alive,
+	                                                   const async_handler &handler, request req);
 	void complete_request(std::size_t sequence, unsigned version, bool keep_alive, response response);
 	void notify_read_loop();
 	void notify_write_loop();
@@ -48,7 +49,7 @@ private:
 	bool shutdown_started_ {false};
 
 	static constexpr std::size_t pipeline_limit_ {8};
-	static constexpr std::string component {"coroutine_http_session"};
+	static constexpr std::string_view COMPONENT {"coroutine_http_session"};
 };
 
 } // namespace warp::http

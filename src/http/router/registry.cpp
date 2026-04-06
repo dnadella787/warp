@@ -14,7 +14,7 @@ namespace warp::http {
 
 namespace {
 
-async_handler wrap_sync_handler(handler callback) {
+async_handler wrap_sync_handler(sync_handler callback) {
 	return [callback = std::move(callback)](request &&req) -> boost::asio::awaitable<response> {
 		co_return callback(req);
 	};
@@ -40,7 +40,15 @@ registry &registry::operator=(const registry &other) {
 }
 
 void registry::add(method verb, std::string path, async_handler h) {
-	const auto pattern = warp::common::parse_route_pattern(path);
+	add_route(verb, std::move(path), handler {std::move(h)});
+}
+
+void registry::add(method verb, std::string path, sync_handler h) {
+	add_route(verb, std::move(path), handler {std::move(h)});
+}
+
+void registry::add_route(method verb, std::string path, handler h) {
+	const auto pattern = http::parse_route_pattern(path);
 	auto &root = method_roots_[verb];
 	auto *current = &root;
 
@@ -49,7 +57,7 @@ void registry::add(method verb, std::string path, async_handler h) {
 
 	for (std::size_t i = 0; i < pattern.segments.size(); ++i) {
 		const auto &segment = pattern.segments[i];
-		if (segment.kind == warp::common::route_segment_kind::literal) {
+		if (segment.kind == warp::http::route_segment_kind::literal) {
 			auto [it, inserted] = current->literal_children.try_emplace(segment.text, std::make_unique<node>());
 			boost::ignore_unused(inserted);
 			current = it->second.get();
@@ -72,11 +80,7 @@ void registry::add(method verb, std::string path, async_handler h) {
 	current->route->parameters = std::move(parameters);
 }
 
-void registry::add(method verb, std::string path, handler h) {
-	add(verb, std::move(path), wrap_sync_handler(std::move(h)));
-}
-
-const async_handler *registry::find(request &req) const {
+const handler *registry::find(request &req) const {
 	req.set_path_params({});
 	const auto it = method_roots_.find(req.method());
 	if (it == method_roots_.end()) {
@@ -136,7 +140,7 @@ registry::node registry::clone_node(const node &source) {
 const registry::route_entry *registry::match_route(const node &root, std::string_view path) {
 	std::vector<std::string> segments;
 	try {
-		segments = warp::common::split_route_path(path);
+		segments = warp::http::split_route_path(path);
 	} catch (const std::invalid_argument &) {
 		return nullptr;
 	}
@@ -164,12 +168,12 @@ void registry::apply_path_params(request &req, std::string_view path, const rout
 	params.reserve(route.parameters.size());
 
 	if (!route.parameters.empty()) {
-		const auto segments = warp::common::split_route_path(path);
+		const auto segments = warp::http::split_route_path(path);
 		for (const auto &parameter : route.parameters) {
 			if (parameter.index >= segments.size()) {
 				break;
 			}
-			const auto decoded = warp::common::try_decode_url_component(segments[parameter.index]);
+			const auto decoded = warp::http::try_decode_url_component(segments[parameter.index]);
 			if (!decoded.has_value()) {
 				req.set_target_error(warp::http::target_parse_error {
 				    .code = "malformed_path_parameter",

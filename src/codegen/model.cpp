@@ -236,7 +236,7 @@ struct model_builder {
 		return global_symbols.reserve(raw_name, span, description);
 	}
 
-	void reserve_route_identity(http_method method, const warp::common::route_pattern &route, source_span span) {
+	void reserve_route_identity(http_method method, const warp::http::route_pattern &route, source_span span) {
 		const route_identity identity {.method = method, .shape_key = route.shape_key};
 		if (!route_identities.insert(identity.key()).second) {
 			fail(span, "model.duplicate_route",
@@ -301,7 +301,7 @@ struct model_builder {
 	}
 
 	[[nodiscard]] request_model build_request_model(const endpoint_spec &endpoint, const std::string &request_name,
-	                                                const warp::common::route_pattern &route) {
+	                                                const warp::http::route_pattern &route) {
 		request_model request;
 		request.span = endpoint.request.span;
 		request.name = request_name;
@@ -343,7 +343,7 @@ struct model_builder {
 
 		std::unordered_set<std::string> route_path_parameters;
 		for (const auto &segment : route.segments) {
-			if (segment.kind == warp::common::route_segment_kind::parameter) {
+			if (segment.kind == warp::http::route_segment_kind::parameter) {
 				route_path_parameters.insert(segment.text);
 				if (!declared_path_parameters.contains(segment.text)) {
 					fail(endpoint.path_span, "model.missing_path_parameter",
@@ -399,9 +399,9 @@ struct model_builder {
 
 		local_symbol_table handler_symbols;
 		for (const auto &endpoint : resource.endpoints) {
-			warp::common::route_pattern route;
+			warp::http::route_pattern route;
 			try {
-				route = warp::common::parse_route_pattern(endpoint.path);
+				route = warp::http::parse_route_pattern(endpoint.path);
 			} catch (const std::invalid_argument &ex) {
 				fail(endpoint.path_span, "model.invalid_route", ex.what());
 			}

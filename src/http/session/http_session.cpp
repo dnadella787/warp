@@ -4,7 +4,7 @@
 #include <boost/beast/http.hpp>
 
 #include "../../common/util/fail.h"
-#include "warp/http/server.hpp"
+#include "../../common/util/lambda.h"
 
 namespace beast = boost::beast;   // from <boost/beast.hpp>
 using tcp = boost::asio::ip::tcp; // from <boost/asio/ip/tcp.hpp>
@@ -61,7 +61,7 @@ void http_session::on_read(beast::error_code ec, std::size_t) {
 	}
 
 	if (ec) {
-		util::fail(ec, component, "on_read");
+		util::fail(ec, COMPONENT, "on_read");
 		return shutdown();
 	}
 
@@ -74,9 +74,22 @@ void http_session::on_read(beast::error_code ec, std::size_t) {
 		stop_reading_ = true;
 
 	if (const auto *handler = routes_.find(request)) {
-		boost::asio::co_spawn(stream_.get_executor(), (*handler)(std::move(request)),
-		                      beast::bind_front_handler(&http_session::on_handler_complete, shared_from_this(),
-		                                                sequence, version, keep_alive));
+		std::visit(common::overloaded {
+		               [&](const sync_handler &h) {
+			               try {
+				               auto resp = h(std::move(request));
+				               on_handler_complete(sequence, version, keep_alive, nullptr, std::move(resp));
+			               } catch (const std::exception &e) {
+				               on_handler_complete(sequence, version, keep_alive, std::current_exception(), {});
+			               }
+		               },
+		               [&](const async_handler &h) {
+			               boost::asio::co_spawn(stream_.get_executor(), h(std::move(request)),
+			                                     beast::bind_front_handler(&http_session::on_handler_complete,
+			                                                               shared_from_this(), sequence, version,
+			                                                               keep_alive));
+		               }},
+		           *handler);
 	} else {
 		on_handler_complete(sequence, version, keep_alive, nullptr, response::not_found());
 	}
@@ -129,7 +142,7 @@ void http_session::on_write(std::size_t sequence, bool keep_alive, beast::error_
 	write_in_progress_ = false;
 
 	if (ec) {
-		util::fail(ec, component, "on_write");
+		util::fail(ec, COMPONENT, "on_write");
 		return shutdown();
 	}
 
@@ -160,7 +173,7 @@ void http_session::shutdown() {
 	boost::system::error_code ec;
 	stream_.socket().shutdown(tcp::socket::shutdown_send, ec);
 	if (ec)
-		util::fail(ec, component, "shutdown");
+		util::fail(ec, COMPONENT, "shutdown");
 }
 
 } // namespace warp::http

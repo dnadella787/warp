@@ -9,7 +9,7 @@
 #include <utility>
 #include <vector>
 
-namespace warp::common {
+namespace warp::http {
 
 enum class route_segment_kind {
 	literal,
@@ -186,4 +186,4 @@ inline route_pattern parse_route_pattern(std::string_view pattern) {
 	return parsed;
 }
 
-} // namespace warp::common
+} // namespace warp::http

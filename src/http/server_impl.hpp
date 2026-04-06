@@ -35,6 +35,7 @@ private:
 
 	using listener_t = typename listener_traits<Mode>::type;
 };
+
 } // namespace warp::http
 
 #include "server_impl.tpp"

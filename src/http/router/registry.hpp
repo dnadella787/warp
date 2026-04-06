@@ -10,6 +10,9 @@
 #include "warp/http/http.hpp"
 
 namespace warp::http {
+
+using handler = std::variant<sync_handler, async_handler>;
+
 class registry {
 public:
 	registry() = default;
@@ -18,8 +21,9 @@ public:
 	registry(registry &&) noexcept = default;
 	registry &operator=(registry &&) noexcept = default;
 	void add(method verb, std::string path, async_handler h);
-	void add(method verb, std::string path, handler h);
-	[[nodiscard]] const async_handler *find(request &req) const;
+	void add(method verb, std::string path, sync_handler h);
+	void add_route(method verb, std::string path, handler h);
+	[[nodiscard]] const handler *find(request &req) const;
 
 private:
 	struct route_parameter {
@@ -28,7 +32,7 @@ private:
 	};
 
 	struct route_entry {
-		async_handler handler;
+		handler handler;
 		std::vector<route_parameter> parameters;
 	};
 

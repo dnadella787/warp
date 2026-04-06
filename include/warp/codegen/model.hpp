@@ -6,7 +6,7 @@
 #include <string_view>
 #include <vector>
 
-#include "warp/common/route_pattern.hpp"
+#include "../../../src/http/router/route_pattern.hpp"
 #include "warp/codegen/spec_model.hpp"
 
 namespace warp::codegen {
@@ -88,7 +88,7 @@ struct endpoint_model {
 	std::string handler_name;
 	http_method method {http_method::get};
 	std::string path;
-	warp::common::route_pattern route;
+	warp::http::route_pattern route;
 	request_model request;
 	response_model response;
 };

@@ -16,7 +16,7 @@ using headers = http::headers;
 using method = http::method;
 template <typename T>
 using awaitable = http::awaitable<T>;
-using handler = http::handler;
+using handler = http::sync_handler;
 using async_handler = http::async_handler;
 using event_loop_mode = http::event_loop_mode;
 } // namespace warp

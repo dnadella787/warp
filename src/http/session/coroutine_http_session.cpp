@@ -6,7 +6,9 @@
 #include <boost/asio/use_awaitable.hpp>
 #include <boost/beast/http.hpp>
 
+#include "http_session.hpp"
 #include "../../common/util/fail.h"
+#include "../../common/util/lambda.h"
 
 namespace beast = boost::beast;
 using tcp = boost::asio::ip::tcp;
@@ -60,7 +62,7 @@ boost::asio::awaitable<void> coroutine_http_session::read_loop() {
 		}
 
 		if (ec) {
-			util::fail(ec, component, "read_loop");
+			util::fail(ec, COMPONENT, "read_loop");
 			shutdown();
 			co_return;
 		}
@@ -76,13 +78,17 @@ boost::asio::awaitable<void> coroutine_http_session::read_loop() {
 		}
 
 		if (const auto *handler = routes_.find(req)) {
-			boost::asio::co_spawn(
-			    stream_.get_executor(),
-			    [self = shared_from_this(), sequence, version, keep_alive, handler,
-			     req = std::move(req)]() mutable -> boost::asio::awaitable<void> {
-				    co_await self->execute_handler(sequence, version, keep_alive, *handler, std::move(req));
-			    },
-			    boost::asio::detached);
+			std::visit(common::overloaded {[&](const sync_handler &h) {
+				                               execute_sync_handler(sequence, version, keep_alive, h, std::move(req));
+			                               },
+			                               [&](const async_handler &h) {
+				                               boost::asio::co_spawn(stream_.get_executor(),
+				                                                     execute_async_handler(sequence, version,
+				                                                                           keep_alive, h,
+				                                                                           std::move(req)),
+				                                                     boost::asio::detached);
+			                               }},
+			           *handler);
 		} else {
 			complete_request(sequence, version, keep_alive, response::not_found());
 		}
@@ -117,7 +123,7 @@ boost::asio::awaitable<void> coroutine_http_session::write_loop() {
 		co_await beast::http::async_write(stream_, it->second,
 		                                  boost::asio::redirect_error(boost::asio::use_awaitable, ec));
 		if (ec) {
-			util::fail(ec, component, "write_loop");
+			util::fail(ec, COMPONENT, "write_loop");
 			shutdown();
 			co_return;
 		}
@@ -154,9 +160,19 @@ boost::asio::awaitable<void> coroutine_http_session::wait_for_write_ready() {
 	co_await write_signal_.async_wait(boost::asio::redirect_error(boost::asio::use_awaitable, ec));
 }
 
-boost::asio::awaitable<void> coroutine_http_session::execute_handler(std::size_t sequence, unsigned version,
-                                                                     bool keep_alive, const async_handler &handler,
-                                                                     request req) {
+void coroutine_http_session::execute_sync_handler(std::size_t sequence, unsigned version, bool keep_alive,
+                                                  const sync_handler &handler, request req) {
+	try {
+		auto resp = handler(std::move(req));
+		complete_request(sequence, version, keep_alive, std::move(resp));
+	} catch (const std::exception &) {
+		complete_request(sequence, version, keep_alive, response::server_error());
+	}
+}
+
+boost::asio::awaitable<void> coroutine_http_session::execute_async_handler(std::size_t sequence, unsigned version,
+                                                                           bool keep_alive,
+                                                                           const async_handler &handler, request req) {
 	try {
 		auto resp = co_await handler(std::move(req));
 		complete_request(sequence, version, keep_alive, std::move(resp));
@@ -197,7 +213,7 @@ void coroutine_http_session::shutdown() {
 	boost::system::error_code ec;
 	stream_.socket().shutdown(tcp::socket::shutdown_send, ec);
 	if (ec && ec != boost::asio::error::not_connected) {
-		util::fail(ec, component, "shutdown");
+		util::fail(ec, COMPONENT, "shutdown");
 	}
 }
 
