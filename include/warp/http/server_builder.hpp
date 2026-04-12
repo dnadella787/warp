@@ -105,7 +105,7 @@ private:
 	template <event_loop_mode Mode>
 	[[nodiscard]] std::shared_ptr<server::impl_base> make_impl() const;
 
-	template <typename H>
+	template <route_handler H>
 	static handler make_route_handler(H &&handler) {
 		using fn_type = std::decay_t<H>;
 		auto fn = fn_type(std::forward<H>(handler));
@@ -114,8 +114,6 @@ private:
 			return sync_handler {
 			    [fn = std::move(fn)](request req) mutable -> response { return std::invoke(fn, std::move(req)); }};
 		} else {
-			static_assert(is_async_route_handler<fn_type>,
-			              "route handler must return warp::response or warp::awaitable<warp::response>");
 			return async_handler {[fn = std::move(fn)](request &&req) mutable -> awaitable<response> {
 				co_return co_await std::invoke(fn, std::move(req));
 			}};
