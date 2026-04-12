@@ -3,17 +3,18 @@
 #include <boost/asio/awaitable.hpp>
 #include <boost/beast/core.hpp>
 
-#include "base_listener.hpp"
+#include "http_listener.h"
 #include "../router/registry.hpp"
 
 namespace warp::http {
 
-class coroutine_listener final : public base_listener, public std::enable_shared_from_this<coroutine_listener> {
+class coroutine_listener final : public http_listener<coroutine_listener>,
+                                 public std::enable_shared_from_this<coroutine_listener> {
 public:
 	coroutine_listener(boost::asio::io_context &ioc, registry &registry, const std::string &address,
 	                   unsigned short port);
 
-	void run() override;
+	void execute();
 
 private:
 	boost::asio::awaitable<void> accept_loop();

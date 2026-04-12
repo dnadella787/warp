@@ -1,17 +1,18 @@
 #pragma once
 #include <boost/beast/core.hpp>
 
-#include "base_listener.hpp"
+#include "http_listener.h"
 #include "../router/registry.hpp"
 
 namespace warp::http {
 
-class callback_listener final : public base_listener, public std::enable_shared_from_this<callback_listener> {
+class callback_listener final : public http_listener<callback_listener>,
+                                public std::enable_shared_from_this<callback_listener> {
 public:
 	callback_listener(boost::asio::io_context &ioc, registry &registry, const std::string &address,
 	                  unsigned short port);
 
-	void run() override;
+	void execute();
 
 private:
 	void do_accept();

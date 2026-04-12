@@ -13,14 +13,14 @@ namespace warp::http {
 
 callback_listener::callback_listener(boost::asio::io_context &ioc, registry &registry, const std::string &address,
                                      unsigned short port)
-    : base_listener(ioc, registry, address, port) {
+    : http_listener(ioc, registry, address, port) {
 }
 
-void callback_listener::run() {
+void callback_listener::execute() {
 	// We need to be executing within a strand to perform async operations
 	// on the I/O objects in this session.
 	boost::asio::dispatch(this->acceptor_.get_executor(),
-	                      boost::beast::bind_front_handler(&callback_listener::do_accept, this->shared_from_this()));
+	                      boost::beast::bind_front_handler(&callback_listener::do_accept, shared_from_this()));
 }
 
 void callback_listener::do_accept() {

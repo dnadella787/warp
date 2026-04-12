@@ -100,7 +100,6 @@ set(warp_http_sources
         src/http/server_impl.hpp
         src/http/session/callback_http_session.cpp
         src/http/session/coroutine_http_session.cpp
-        src/http/listener/base_listener.cpp
         src/http/listener/callback_listener.cpp
         src/http/listener/coroutine_listener.cpp
         src/http/router/registry.cpp)

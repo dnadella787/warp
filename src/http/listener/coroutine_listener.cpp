@@ -13,13 +13,15 @@ namespace warp::http {
 
 coroutine_listener::coroutine_listener(boost::asio::io_context &ioc, registry &registry, const std::string &address,
                                        const unsigned short port)
-    : base_listener(ioc, registry, address, port) {
+    : http_listener(ioc, registry, address, port) {
 }
 
-void coroutine_listener::run() {
+void coroutine_listener::execute() {
 	boost::asio::co_spawn(
 	    acceptor_.get_executor(),
-	    [self = shared_from_this()]() -> boost::asio::awaitable<void> { co_await self->accept_loop(); },
+	    [self = std::static_pointer_cast<coroutine_listener>(shared_from_this())]() -> boost::asio::awaitable<void> {
+		    co_await self->accept_loop();
+	    },
 	    boost::asio::detached);
 }
 
