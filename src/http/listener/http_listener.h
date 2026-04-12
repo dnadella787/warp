@@ -15,10 +15,20 @@ concept Executor = requires(T t) {
     { t.execute() } -> std::same_as<void>;
 };
 
+template <typename T, typename... Args>
+concept CanBeBuiltWith = requires(Args&&... args) {
+        T(std::forward<Args>(args)...);
+};
+
+template <typename T>
+concept WarpListener =
+    Executor<T> &&
+    CanBeBuiltWith<T, boost::asio::io_context&, registry&, std::string, unsigned short>;
+
 template<typename T>
 class http_listener : public base_listener  {
 public:
-    http_listener(boost::asio::io_context &ioc, registry &registry, const std::string &address, unsigned short port) requires Executor<T>;
+    http_listener(boost::asio::io_context &ioc, registry &registry, const std::string &address, unsigned short port) requires WarpListener<T>;
 
     void run() override;
 

@@ -10,7 +10,7 @@ namespace warp::http {
 
 template <typename T>
 http_listener<T>::http_listener(boost::asio::io_context &ioc, registry &registry, const std::string &address,
-                                  const unsigned short port) requires Executor<T>
+                                  const unsigned short port) requires WarpListener<T>
     : ioc_(ioc), acceptor_(boost::asio::make_strand(ioc)), registry_(registry) {
     auto const addr = boost::asio::ip::make_address(address);
     auto const endpoint = boost::asio::ip::tcp::endpoint{addr, port};
