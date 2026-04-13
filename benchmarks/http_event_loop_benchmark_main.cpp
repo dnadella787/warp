@@ -11,6 +11,7 @@ namespace warp::benchmarks {
 void register_round_trip_benchmarks();
 #if defined(WARP_BENCHMARK_HAS_DB)
 void register_db_round_trip_benchmarks();
+void register_sync_db_round_trip_benchmarks();
 #endif
 
 } // namespace warp::benchmarks
@@ -25,6 +26,7 @@ int main(int argc, char **argv) {
 	warp::benchmarks::register_round_trip_benchmarks();
 #if defined(WARP_BENCHMARK_HAS_DB)
 	warp::benchmarks::register_db_round_trip_benchmarks();
+	warp::benchmarks::register_sync_db_round_trip_benchmarks();
 #endif
 
 	benchmark::Initialize(&argc, argv);

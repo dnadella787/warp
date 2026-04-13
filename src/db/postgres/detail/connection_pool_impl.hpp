@@ -60,11 +60,12 @@ public:
 		    std::forward<CompletionToken>(token));
 	}
 
+	result execute_query(std::string sql);
+
 private:
 	std::unique_ptr<pqxx::connection> acquire();
 	void release(std::unique_ptr<pqxx::connection> conn);
 	void discard(std::unique_ptr<pqxx::connection> conn);
-	result execute_query(std::string sql);
 
 	executor_type completion_executor_;
 	connection_config config_;

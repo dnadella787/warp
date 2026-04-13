@@ -25,6 +25,7 @@ public:
 	~connection_pool();
 
 	boost::asio::awaitable<result> query(std::string sql) const;
+	result sync_query(std::string sql) const;
 
 	void close();
 	[[nodiscard]] std::size_t size() const noexcept;

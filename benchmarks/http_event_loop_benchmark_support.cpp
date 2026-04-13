@@ -346,6 +346,17 @@ public:
 		return request_payload_.size();
 	}
 
+	void on_connect_attempt() {
+		connect_attempts_.fetch_add(1, std::memory_order_acq_rel);
+	}
+
+	void on_connect_failure(boost::system::error_code ec) {
+		connect_failures_.fetch_add(1, std::memory_order_acq_rel);
+		std::scoped_lock lock(last_connect_error_mutex_);
+		last_connect_error_code_ = ec.value();
+		last_connect_error_message_ = ec.message();
+	}
+
 	void on_connected() {
 		const auto current = current_connected_.fetch_add(1, std::memory_order_acq_rel) + 1;
 		update_connectivity_bounds(current);
@@ -376,6 +387,21 @@ public:
 		max_connected_.store(connected, std::memory_order_release);
 		track_connectivity_bounds_.store(true, std::memory_order_release);
 		measurement_started_.store(true, std::memory_order_release);
+	}
+
+	[[nodiscard]] std::string startup_diagnostics() const {
+		std::string diagnostics =
+		    "connected=" + std::to_string(current_connected_.load(std::memory_order_acquire)) + "/" +
+		    std::to_string(options_.concurrency) +
+		    ", connect_attempts=" + std::to_string(connect_attempts_.load(std::memory_order_acquire)) +
+		    ", connect_failures=" + std::to_string(connect_failures_.load(std::memory_order_acquire));
+
+		std::scoped_lock lock(last_connect_error_mutex_);
+		if (!last_connect_error_message_.empty()) {
+			diagnostics += ", last_connect_error=" + std::to_string(last_connect_error_code_) + " (" +
+			               last_connect_error_message_ + ")";
+		}
+		return diagnostics;
 	}
 
 	[[nodiscard]] std::int64_t measurement_end_ns() const {
@@ -466,11 +492,16 @@ private:
 	std::atomic<std::size_t> min_connected_ {0};
 	std::atomic<std::size_t> max_connected_ {0};
 	std::atomic<std::size_t> remaining_sessions_ {0};
+	std::atomic<std::size_t> connect_attempts_ {0};
+	std::atomic<std::size_t> connect_failures_ {0};
 	std::atomic<bool> measurement_started_ {false};
 	std::atomic<bool> track_connectivity_bounds_ {false};
 	std::atomic<bool> stop_requested_ {false};
 	std::atomic<std::int64_t> measurement_start_ns_ {0};
 	std::atomic<std::int64_t> measurement_end_ns_ {0};
+	mutable std::mutex last_connect_error_mutex_;
+	int last_connect_error_code_ {0};
+	std::string last_connect_error_message_;
 };
 
 class benchmark_client_session : public std::enable_shared_from_this<benchmark_client_session> {
@@ -496,11 +527,13 @@ public:
 
 				const auto request_start_ns = steady_now_ns();
 				stream_.expires_after(controller_->options().request_timeout);
+				controller_->on_connect_attempt();
 
 				beast::error_code ec;
 				co_await asio::async_write(stream_, asio::buffer(controller_->request_payload()),
 				                           asio::redirect_error(asio::use_awaitable, ec));
 				if (ec) {
+					controller_->on_connect_failure(ec);
 					record_transport_failure(steady_now_ns(), metrics_.write_errors);
 					close();
 					continue;
@@ -703,7 +736,8 @@ load_test_run_result execute_load_test(std::uint16_t port, std::string_view requ
 	load_test_run_result result;
 	try {
 		if (!controller->wait_for_target_concurrency()) {
-			throw std::runtime_error("timed out before benchmark clients reached target concurrency");
+			throw std::runtime_error("timed out before benchmark clients reached target concurrency (" +
+			                         controller->startup_diagnostics() + ")");
 		}
 
 		if (options.warmup.count() > 0) {

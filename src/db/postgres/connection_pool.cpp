@@ -29,6 +29,13 @@ boost::asio::awaitable<result> connection_pool::query(std::string sql) const {
 	co_return co_await impl_->query(std::move(sql), boost::asio::use_awaitable);
 }
 
+result connection_pool::sync_query(std::string sql) const {
+	if (!impl_) {
+		throw std::runtime_error("connection pool not initialised");
+	}
+	return impl_->execute_query(std::move(sql));
+}
+
 void connection_pool::close() {
 	if (impl_) {
 		impl_->close();

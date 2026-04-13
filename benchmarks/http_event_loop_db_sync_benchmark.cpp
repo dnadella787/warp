@@ -1,3 +1,8 @@
+//
+// Created by Dhanush Nadella on 4/12/26.
+//
+#include <iostream>
+
 #include "http_event_loop_benchmark_support.hpp"
 
 #include "warp/db/postgres/connection_pool.hpp"
@@ -23,14 +28,14 @@ constexpr std::string_view request_payload = "GET /db/exchanges/nyse HTTP/1.1\r\
 const char *mode_benchmark_name(event_loop_mode mode) {
 	switch (mode) {
 	case event_loop_mode::callbacks:
-		return "BM_CallbackEventLoop_DbRoundTrip";
+		return "BM_CallbackEventLoop_SyncDbRoundTrip";
 	case event_loop_mode::coroutines:
-		return "BM_CoroutineEventLoop_DbRoundTrip";
+		return "BM_CoroutineEventLoop_SyncDbRoundTrip";
 	}
-	return "BM_UnknownEventLoop_DbRoundTrip";
+	return "BM_UnknownEventLoop_SyncDbRoundTrip";
 }
 
-void register_db_round_trip_case(event_loop_mode mode, std::size_t concurrency) {
+void register_sync_db_round_trip_case(event_loop_mode mode, std::size_t concurrency) {
 	const auto options = load_test_options_for_concurrency(concurrency);
 	const auto name = std::string(mode_benchmark_name(mode)) + "/concurrency:" + std::to_string(concurrency);
 	benchmark::RegisterBenchmark(
@@ -45,18 +50,17 @@ void register_db_round_trip_case(event_loop_mode mode, std::size_t concurrency) 
 		    try {
 			    auto db_pool = std::make_shared<db::postgres::connection_pool>(asio::system_executor {},
 			                                                                   make_db_config(*env), 4, 2);
-			    server_fixture server(http::server_builder().event_loop(mode).get(
-			        "/db/exchanges/nyse", [db_pool](request) -> awaitable<response> {
-				        auto result = co_await db_pool->query(
+			    server_fixture server(
+			        http::server_builder().event_loop(mode).get("/db/exchanges/nyse", [db_pool](request) -> response {
+				        auto result = db_pool->sync_query(
 				            "SELECT exchange_code, exchange_name FROM exchanges WHERE exchange_code = 'NYSE' LIMIT 1");
-				        if (result.rows() == 0) {
-					        co_return response::not_found("No exchange with code=NYSE found");
-				        }
+				        if (result.rows() == 0)
+					        response::not_found("No exchange with code=NYSE found");
 
-				        co_return response::ok(body_builder()
-				                                   .set("exchange_code", std::string(result.value(0, 0)))
-				                                   .set("exchange_name", std::string(result.value(0, 1)))
-				                                   .build());
+				        return response::ok(body_builder()
+				                                .set("exchange_code", std::string(result.value(0, 0)))
+				                                .set("exchange_name", std::string(result.value(0, 1)))
+				                                .build());
 			        }));
 			    state.SetLabel(format_load_test_configuration(options.client_threads));
 			    run_load_test_benchmark(state, server.port, request_payload, options);
@@ -72,10 +76,10 @@ void register_db_round_trip_case(event_loop_mode mode, std::size_t concurrency) 
 
 } // namespace
 
-void register_db_round_trip_benchmarks() {
+void register_sync_db_round_trip_benchmarks() {
 	for (const auto concurrency : benchmark_concurrency_levels()) {
-		register_db_round_trip_case(event_loop_mode::callbacks, concurrency);
-		register_db_round_trip_case(event_loop_mode::coroutines, concurrency);
+		register_sync_db_round_trip_case(event_loop_mode::callbacks, concurrency);
+		register_sync_db_round_trip_case(event_loop_mode::coroutines, concurrency);
 	}
 }
 
