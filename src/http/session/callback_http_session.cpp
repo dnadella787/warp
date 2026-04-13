@@ -138,7 +138,7 @@ void callback_http_session::do_write() {
 	const auto it = pending_responses_.find(next_write_sequence_);
 	if (it != pending_responses_.end()) {
 		write_in_progress_ = true;
-		stream_.expires_after(std::chrono::seconds(30)); // uncommenting this makes this work fine
+		stream_.expires_after(std::chrono::seconds(30));
 		beast::http::async_write(
 		    stream_, it->second,
 		    beast::bind_front_handler(&callback_http_session::on_write, shared_from_this(), next_write_sequence_));
