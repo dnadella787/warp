@@ -171,7 +171,7 @@ cmake --build build-bench --target warp_http_event_loop_benchmark -j4
   --benchmark_report_aggregates_only=true \
   --benchmark_counters_tabular=true
 ```
-
+You can optionally enable the sync db query as well (it may error out, read the benchmarking doc for more info) using ``
 If your shell is running under Rosetta on Apple Silicon, prefix configure, build, and run with `arch -arm64`.
 
 See [docs/benchmarking.md](/Users/dnadella/Projects/warp/docs/benchmarking.md) for DB setup and interpretation notes.

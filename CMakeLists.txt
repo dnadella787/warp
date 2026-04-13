@@ -18,6 +18,7 @@ option(warp_BUILD_EXAMPLES "Build warp HTTP framework examples" ON)
 option(warp_BUILD_TESTS "Build warp test suite" ON)
 option(warp_BUILD_BENCHMARKS "Build warp benchmark suite" OFF)
 option(warp_BUILD_DB "Build optional PostgreSQL module" ON)
+option(WARP_BENCHMARK_SYNC_DB "Enable Synchronous DB benchmarks" OFF)
 cmake_dependent_option(warp_FETCH_BOOST "Fetch Boost via FetchContent if not available" OFF
     "NOT DEFINED ENV{BOOST_ROOT}" OFF)
 
