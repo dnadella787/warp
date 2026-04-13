@@ -110,6 +110,10 @@ private:
 		using fn_type = std::decay_t<H>;
 		auto fn = fn_type(std::forward<H>(handler));
 
+		// TODO: Add support for executing sync handlers as coroutines too
+		// so that a long running sync handler does not block the event loop
+		// from reading more requests. User should use async handler for these
+		// but just in case...
 		if constexpr (is_sync_route_handler<fn_type>) {
 			return sync_handler {
 			    [fn = std::move(fn)](request req) mutable -> response { return std::invoke(fn, std::move(req)); }};
