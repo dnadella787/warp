@@ -97,6 +97,18 @@ BM_CoroutineEventLoop_DbRoundTrip/concurrency:1000/iterations:1/manual_time_cv  
 
 ```
 
+You may notice errors like:
+```c++
+ERROR OCCURRED: 'timed out before benchmark clients reached target concurrency (connected=294/500, connect_attempts=18147, connect_failures=0)'
+```
+in the db sync query benchmarks. This happens b/c in these benchmarks the DB query is blocking on the main I/O threads causing throughput issues and connection dropped failures.
+
+The answer is to increase the client side connect timeout (`--warp-benchmark-connect-timeout=10s`). Regardless, this is evidence of how useful a non-blocking DB query can be to achieve throughput. The higher RPS numbers you may achieve with a smaller set of sessions using the sync DB query is misguiding. At a large number of concurrent sessions it is better to use async queries so that you can more aggressively churn through TCP connections instead of letting them queue up. You cannot expect to make clients simply take longer to connect indefinitely as load grows.
+
+
+
+
+
 Warp includes a Google Benchmark target for comparing the callback-based event loop with the coroutine-based event loop under sustained concurrent load.
 
 The benchmark binary contains:
