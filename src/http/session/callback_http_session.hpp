@@ -21,14 +21,14 @@ public:
 	void start();
 
 private:
+	void maybe_read();
 	void do_read();
 	void on_read(boost::beast::error_code ec, std::size_t bytes_transferred);
 	void on_handler_complete(std::size_t sequence, unsigned version, bool keep_alive, std::exception_ptr eptr,
 	                         warp::response response);
+	void maybe_write();
 	void do_write();
 	void on_write(std::size_t sequence, boost::beast::error_code ec, std::size_t bytes_transferred);
-	void maybe_read();
-	void maybe_write();
 	void shutdown(bool force = false);
 
 	boost::beast::tcp_stream stream_;
@@ -41,7 +41,7 @@ private:
 	// Don't need std::atomic bc the session is guaranteed serialization by a strand created by the listener
 	std::size_t next_request_sequence_ {0}; // sequence number assigned to the next request accepted on this connection
 	std::size_t next_write_sequence_ {0};   // sequence number of the next response that must be written
-	std::size_t outstanding_requests_ {0};  // total requests in the pipeline not fully flushed to the client yet
+	std::size_t outstanding_requests_ {0};  // total requests in the pipeline not fully flushed to the client yet (this is not just the writes in queue, it includes in flight request handlers)
 	bool read_in_progress_ {false};         // true while an async_read is currently active on this session
 	bool write_in_progress_ {false};        // true while an async_write is currently active on this session
 	bool stop_reading_ {false};             // stop accepting new requests, but still drain already accepted ones

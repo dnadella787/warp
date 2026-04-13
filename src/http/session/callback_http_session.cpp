@@ -32,6 +32,9 @@ void callback_http_session::maybe_read() {
 		return;
 	}
 
+	// above checks are to prevent reading from a shutdown socket, two in flight async_reads at the same time, or
+	// too much request backpressure. If there is another async_read already in flight then we can rely on its
+	// on_read completion handler to restart the loop
 	do_read();
 }
 
@@ -101,14 +104,6 @@ void callback_http_session::on_read(beast::error_code ec, std::size_t) {
 	maybe_read();
 }
 
-void callback_http_session::maybe_write() {
-	if (shutdown_started_ || write_in_progress_) {
-		return;
-	}
-
-	do_write();
-}
-
 void callback_http_session::on_handler_complete(std::size_t sequence, unsigned version, bool keep_alive,
                                                 std::exception_ptr eptr, warp::response response) {
 	if (shutdown_started_) {
@@ -125,6 +120,16 @@ void callback_http_session::on_handler_complete(std::size_t sequence, unsigned v
 	response.prepare_payload();
 	pending_responses_.emplace(sequence, std::move(response));
 	maybe_write(); // starts the initial write loop on the first handler completion
+}
+
+void callback_http_session::maybe_write() {
+	// if the writes are stopped (either due to error or bc of close semantic + all writes finished)
+	// then we exit the write loop.
+	if (shutdown_started_ || write_in_progress_) {
+		return;
+	}
+
+	do_write();
 }
 
 // Called to start/continue the write-loop. Should not be called when
