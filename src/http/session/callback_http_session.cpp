@@ -160,6 +160,10 @@ void callback_http_session::on_write(std::size_t sequence, beast::error_code ec,
 	++next_write_sequence_;
 	--outstanding_requests_;
 
+	// We just freed up capacity so start the read loop up again.
+	if (outstanding_requests_ == pipeline_limit_ - 1)
+		maybe_read();
+
 	// no more requests to write out and not reading anymore either, just shutdown
 	if (outstanding_requests_ == 0 && stop_reading_)
 		return shutdown();

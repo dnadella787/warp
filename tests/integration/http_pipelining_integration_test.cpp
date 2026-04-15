@@ -130,6 +130,40 @@ TEST_P(HttpPipeliningIntegrationTest, SlowThirdResponseDoesNotAllowLaterFastWrit
 	EXPECT_TRUE(support::read_until_eof(*client));
 }
 
+TEST_P(HttpPipeliningIntegrationTest, PipelineLimitReachedReadContinuesAfterPause) {
+	support::server_fixture fixture(
+	    warp::http::server_builder()
+	        .event_loop(GetParam())
+	        .get("/slow/{id}",
+	             [](request req) -> awaitable<response> {
+		             co_return co_await support::delayed_ok_response(150ms, [id = req.path_param("id").value_or("")]() {
+			             return body_builder().set("id", std::string(id)).build();
+		             });
+	             })
+	        .get("/fast/{id}", [](const request &req) -> response {
+		        return response::ok(body_builder().set("id", std::string(req.path_param("id").value_or(""))).build());
+	        }));
+
+	std::string payload;
+	for (int i = 0; i < 8; ++i) {
+		payload += support::make_get_request("/slow/" + std::to_string(i), "keep-alive");
+	}
+	for (int i = 8; i < 11; ++i) {
+		payload += support::make_get_request("/fast/" + std::to_string(i), i == 10 ? "close" : "keep-alive");
+	}
+
+	auto client = support::connect_client(fixture.port);
+	support::send_requests(*client, payload);
+
+	for (int i = 0; i < 11; ++i) {
+		const auto response = support::read_response(*client);
+		const auto body = support::parse_object_body(response);
+		EXPECT_EQ(response.result(), http::status::ok);
+		EXPECT_EQ(std::string(body.at("id").as_string()), std::to_string(i));
+	}
+	EXPECT_TRUE(support::read_until_eof(*client));
+}
+
 INSTANTIATE_TEST_SUITE_P(EventLoopModes, HttpPipeliningIntegrationTest,
                          ::testing::Values(warp::event_loop_mode::callbacks, warp::event_loop_mode::coroutines),
                          [](const ::testing::TestParamInfo<warp::event_loop_mode> &info) {
