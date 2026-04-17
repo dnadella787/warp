@@ -9,6 +9,7 @@
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
 
+#include "connection_close_policy.h"
 #include "../router/registry.hpp"
 #include "warp/warp.hpp"
 
@@ -24,17 +25,19 @@ private:
 	void maybe_read();
 	void do_read();
 	void on_read(boost::beast::error_code ec, std::size_t bytes_transferred);
-	void on_handler_complete(std::size_t sequence, unsigned version, bool keep_alive, std::exception_ptr eptr,
-	                         warp::response response);
+	void on_handler_complete(std::size_t sequence, std::exception_ptr eptr, warp::response response);
 	void maybe_write();
 	void do_write();
 	void on_write(std::size_t sequence, boost::beast::error_code ec, std::size_t bytes_transferred);
+	void finish_request(std::size_t sequence);
 	void shutdown(bool force = false);
 
 	boost::beast::tcp_stream stream_;
 	boost::beast::flat_buffer buffer_;
 	registry &routes_;
-	std::map<std::size_t, warp::response> pending_responses_;
+	std::map<std::size_t, request_context> request_ctxs_;
+	std::map<std::size_t, pending_write> pending_responses_;
+	connection_close_policy close_policy_;
 	// The parser is stored in an optional container so we can
 	// construct it from scratch it at the beginning of each new message.
 	std::optional<boost::beast::http::request_parser<boost::beast::http::string_body>> parser_;

@@ -11,6 +11,7 @@
 #include <stdexcept>
 #include <thread>
 
+#include "gmock/gmock-matchers.h"
 #include "warp/warp.hpp"
 #include "warp/http/server_builder.hpp"
 
@@ -20,6 +21,8 @@ namespace asio = boost::asio;
 namespace http = boost::beast::http;
 namespace support = integration_support;
 using namespace std::chrono_literals;
+using ::testing::Property;
+using ::testing::Throws;
 
 class HttpConnectionAndErrorIntegrationTest : public ::testing::TestWithParam<event_loop_mode> {};
 
@@ -129,6 +132,76 @@ TEST_P(HttpConnectionAndErrorIntegrationTest, MissingRouteResponseStillKeepsOrde
 	EXPECT_EQ(std::string(third_body.at("route").as_string()), "fast");
 	EXPECT_TRUE(support::read_until_eof(*client));
 }
+
+TEST_P(HttpConnectionAndErrorIntegrationTest, ConnectionClosedServerSideShouldNotContinue) {
+	support::server_fixture fixture(warp::http::server_builder()
+	                                    .event_loop(GetParam())
+	                                    .get("/close",
+	                                         [](const request &) -> response {
+		                                         auto resp = response::ok(body_builder().set("route", "close").build());
+		                                         resp.keep_alive(false);
+		                                         return resp;
+	                                         })
+	                                    .get("/after", [](const request &) -> response {
+		                                    return response::ok(body_builder().set("route", "after").build());
+	                                    }));
+
+	auto client = support::connect_client(fixture.port);
+	const auto payload =
+	    support::make_get_request("/close", "keep-alive") + support::make_get_request("/after", "keep-alive");
+	support::send_requests(*client, payload);
+
+	const auto response = support::read_response(*client);
+	EXPECT_FALSE(response.keep_alive());
+	const auto body = support::parse_object_body(response);
+	EXPECT_EQ(response.result(), http::status::ok);
+	EXPECT_EQ(std::string(body.at("route").as_string()), "close");
+
+	EXPECT_THAT(
+		[&]() { support::read_response(*client); },
+		Throws<boost::system::system_error>(
+			Property(&boost::system::system_error::code, boost::beast::http::error::end_of_stream)
+		)
+	);
+}
+
+// complete once uncaught exception handling is configurable
+// TEST_P(HttpConnectionAndErrorIntegrationTest, UncaughtExceptionShouldCauseConnectionClosedServerSide) {
+// 	support::server_fixture fixture(
+// 		warp::http::server_builder()
+// 			.event_loop(event_loop_mode::callbacks)
+// 			.get("/close",
+// 				 [](const request &) -> response {
+// 				 	 throw std::runtime_error("UncaughtExceptionShouldCauseConnectionClosedServerSide");
+// 					 return response::ok(body_builder().set("status", "good").build());
+// 				 })
+// 			.get("/after", [](const request &) -> response {
+// 				return response::ok(body_builder().set("route", "after").build());
+// 			}));
+//
+// 	auto client = support::connect_client(fixture.port);
+// 	const auto payload = support::make_get_request("/close", "keep-alive") + support::make_get_request("/after",
+// "keep-alive"); 	support::send_requests(*client, payload);
+//
+// 	const auto response = support::read_response(*client);
+// 	EXPECT_FALSE(response.keep_alive());
+// 	const auto body = support::parse_object_body(response);
+// 	EXPECT_EQ(response.result(), http::status::internal_server_error);
+//
+// 	EXPECT_THAT(
+// 		[&]() { body.at("status"); },
+// 		Throws<boost::system::system_error>(
+// 			Property(&boost::system::system_error::code, boost::json::error::not_found)
+// 		)
+// 	);
+//
+// 	EXPECT_THAT(
+// 		[c = client.get()]() { support::read_response(*c); },
+// 		Throws<boost::system::system_error>(
+// 			Property(&boost::system::system_error::code, boost::asio::error::eof)
+// 		)
+// 	);
+// }
 
 INSTANTIATE_TEST_SUITE_P(EventLoopModes, HttpConnectionAndErrorIntegrationTest,
                          ::testing::Values(warp::event_loop_mode::callbacks, warp::event_loop_mode::coroutines),

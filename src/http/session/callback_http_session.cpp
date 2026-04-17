@@ -28,9 +28,8 @@ void callback_http_session::maybe_read() {
 	// 2. stop reading (if connection: close for ex)
 	// 3. read_in_progress another read already executing which will queue another, don't need to queue another here
 	// 4. pipeline limit exceeded, wait till write drains a few out. Write also dequeues reads after finishing each time
-	if (shutdown_started_ || stop_reading_ || read_in_progress_ || outstanding_requests_ >= pipeline_limit_) {
+	if (shutdown_started_ || stop_reading_ || read_in_progress_ || outstanding_requests_ >= pipeline_limit_)
 		return;
-	}
 
 	// above checks are to prevent reading from a shutdown socket, two in flight async_reads at the same time, or
 	// too much request backpressure. If there is another async_read already in flight then we can rely on its
@@ -73,61 +72,83 @@ void callback_http_session::on_read(beast::error_code ec, std::size_t) {
 	}
 
 	warp::request request {parser_->release()};
-	const auto sequence = next_request_sequence_++;
-	const auto version = request.version();
-	const auto keep_alive = request.keep_alive();
+	const std::size_t sequence = next_request_sequence_++;
+	request_ctxs_.emplace(sequence, request_context {.sequence = sequence,
+	                                                 .version = request.version(),
+	                                                 .client_keep_alive = request.keep_alive()});
 	++outstanding_requests_;
-	if (!keep_alive)
+
+	close_policy_.on_request_accepted(sequence, request.keep_alive());
+	if (!close_policy_.accepting_requests())
 		stop_reading_ = true;
 
 	if (const auto *handler = routes_.find(request)) {
-		std::visit(common::overloaded {
-		               [&](const sync_handler &h) {
-			               try {
-				               auto resp = h(std::move(request));
-				               on_handler_complete(sequence, version, keep_alive, nullptr, std::move(resp));
-			               } catch (const std::exception &e) {
-				               on_handler_complete(sequence, version, keep_alive, std::current_exception(), {});
-			               }
-		               },
-		               [&](const async_handler &h) {
-			               boost::asio::co_spawn(stream_.get_executor(), h(std::move(request)),
-			                                     beast::bind_front_handler(&callback_http_session::on_handler_complete,
-			                                                               shared_from_this(), sequence, version,
-			                                                               keep_alive));
-		               }},
+		std::visit(common::overloaded {[&](const sync_handler &h) {
+			                               try {
+				                               auto resp = h(std::move(request));
+				                               on_handler_complete(sequence, nullptr, std::move(resp));
+			                               } catch (const std::exception &e) {
+				                               on_handler_complete(sequence, std::current_exception(), {});
+			                               }
+		                               },
+		                               [&](const async_handler &h) {
+			                               boost::asio::co_spawn(
+			                                   stream_.get_executor(), h(std::move(request)),
+			                                   beast::bind_front_handler(&callback_http_session::on_handler_complete,
+			                                                             shared_from_this(), sequence));
+		                               }},
 		           *handler);
 	} else {
-		on_handler_complete(sequence, version, keep_alive, nullptr, response::not_found());
+		on_handler_complete(sequence, nullptr, response::not_found());
 	}
 
 	maybe_read();
 }
 
-void callback_http_session::on_handler_complete(std::size_t sequence, unsigned version, bool keep_alive,
-                                                std::exception_ptr eptr, warp::response response) {
-	if (shutdown_started_) {
+void callback_http_session::on_handler_complete(std::size_t sequence, std::exception_ptr eptr,
+                                                warp::response response) {
+	if (shutdown_started_)
 		return;
-	}
+
+	auto ctx_it = request_ctxs_.find(sequence);
+	if (ctx_it == request_ctxs_.end())
+		return util::fail(COMPONENT, "on_handler_complete{req_ctx.find}",
+		                  "context could not be found in session map on completion");
 
 	// Unhandled exception is returned to end user as 500
 	if (eptr) {
+		// TODO: set keep alive to false for uncaught exceptions but let user configure that
 		response = warp::response::server_error();
 	}
 
-	response.version(version);
-	response.keep_alive(keep_alive);
+	const auto decision = close_policy_.on_response_ready(ctx_it->second, response);
+	if (!close_policy_.accepting_requests())
+		stop_reading_ = true;
+
+	// drop the response because client or server initiated connection close on or prior to this request
+	if (decision.drop_response) {
+		// erase it from request ctx pool, if we are done just shutdown
+		finish_request(ctx_it->second.sequence);
+		if (outstanding_requests_ == 0 and stop_reading_)
+			return shutdown();
+
+		// otherwise keep writing out any remaining responses
+		// maybe_read();
+		maybe_write();
+		return;
+	}
+
 	response.prepare_payload();
-	pending_responses_.emplace(sequence, std::move(response));
+	pending_responses_.emplace(
+	    sequence, pending_write {.response = std::move(response), .close_after_write = decision.close_after_write});
 	maybe_write(); // starts the initial write loop on the first handler completion
 }
 
 void callback_http_session::maybe_write() {
 	// if the writes are stopped (either due to error or bc of close semantic + all writes finished)
 	// then we exit the write loop.
-	if (shutdown_started_ || write_in_progress_) {
+	if (shutdown_started_ || write_in_progress_)
 		return;
-	}
 
 	do_write();
 }
@@ -140,13 +161,14 @@ void callback_http_session::do_write() {
 		write_in_progress_ = true;
 		stream_.expires_after(std::chrono::seconds(30));
 		beast::http::async_write(
-		    stream_, it->second,
+		    stream_, it->second.response,
 		    beast::bind_front_handler(&callback_http_session::on_write, shared_from_this(), next_write_sequence_));
 	}
+	// else the next write sequence is not available to write out so we stop the write loop.
+	// the completion handler will start the write loop back up later
 }
 
-void callback_http_session::on_write(std::size_t sequence, beast::error_code ec, std::size_t bytes_transferred) {
-	boost::ignore_unused(bytes_transferred);
+void callback_http_session::on_write(std::size_t sequence, beast::error_code ec, std::size_t _) {
 	write_in_progress_ = false;
 
 	if (ec) {
@@ -156,19 +178,40 @@ void callback_http_session::on_write(std::size_t sequence, beast::error_code ec,
 		return shutdown(true);
 	}
 
-	pending_responses_.erase(sequence);
+	auto it = pending_responses_.find(sequence);
+	bool close_after_write {true};
+	if (it != pending_responses_.end()) {
+		pending_responses_.erase(sequence);
+		close_after_write = it->second.close_after_write;
+	} else {
+		util::fail(COMPONENT, "on_write{pending_responses.find}",
+		           "could not find response in pending response map to erase");
+	}
+
+	// increment write sequence so we look to write the next response out next time
 	++next_write_sequence_;
-	--outstanding_requests_;
+	finish_request(sequence);
+
+	// close after this write (b/c client/server said connection close)
+	// we already finished the write so shutdown
+	if (close_after_write)
+		return shutdown();
 
 	// We just freed up capacity so start the read loop up again.
 	if (outstanding_requests_ == pipeline_limit_ - 1)
 		maybe_read();
 
-	// no more requests to write out and not reading anymore either, just shutdown
+	// not reading in anymore and nothing else to process/write out so just shutdown
 	if (outstanding_requests_ == 0 && stop_reading_)
 		return shutdown();
 
+	// keep the loop going
 	maybe_write();
+}
+
+void callback_http_session::finish_request(std::size_t sequence) {
+	request_ctxs_.erase(sequence);
+	--outstanding_requests_;
 }
 
 void callback_http_session::shutdown(bool force) {

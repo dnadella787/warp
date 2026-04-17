@@ -188,7 +188,7 @@ void coroutine_http_session::complete_request(std::size_t sequence, unsigned ver
 	}
 
 	response.version(version);
-	response.keep_alive(keep_alive);
+	response.keep_alive(keep_alive && response.keep_alive());
 	response.prepare_payload();
 	pending_responses_.emplace(sequence, std::move(response));
 	notify_write_loop();

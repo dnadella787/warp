@@ -14,7 +14,7 @@ namespace http = boost::beast::http;
 namespace support = integration_support;
 using namespace std::chrono_literals;
 
-class HttpPipeliningIntegrationTest : public ::testing::TestWithParam<warp::event_loop_mode> {};
+class HttpPipeliningIntegrationTest : public ::testing::TestWithParam<event_loop_mode> {};
 
 TEST_P(HttpPipeliningIntegrationTest, SlowThenFastPipelinedRequestsPreserveWireOrder) {
 	auto slow_started = std::make_shared<std::atomic<bool>>(false);
@@ -24,21 +24,21 @@ TEST_P(HttpPipeliningIntegrationTest, SlowThenFastPipelinedRequestsPreserveWireO
 	    warp::http::server_builder()
 	        .event_loop(GetParam())
 	        .get("/slow",
-	             [slow_started, fast_finished](warp::request) -> warp::awaitable<warp::response> {
+	             [slow_started, fast_finished](request) -> awaitable<response> {
 		             slow_started->store(true, std::memory_order_release);
 		             co_return co_await support::delayed_ok_response(150ms, [fast_finished]() {
-			             return warp::body_builder()
+			             return body_builder()
 			                 .set("route", "slow")
 			                 .set("fast_finished_before_return", fast_finished->load(std::memory_order_acquire))
 			                 .build();
 		             });
 	             })
-	        .get("/fast", [slow_started, fast_finished](const warp::request &) -> warp::response {
+	        .get("/fast", [slow_started, fast_finished](const request &) -> response {
 		        fast_finished->store(true, std::memory_order_release);
-		        return warp::response::ok(warp::body_builder()
-		                                      .set("route", "fast")
-		                                      .set("saw_slow_started", slow_started->load(std::memory_order_acquire))
-		                                      .build());
+		        return response::ok(body_builder()
+		                                .set("route", "fast")
+		                                .set("saw_slow_started", slow_started->load(std::memory_order_acquire))
+		                                .build());
 	        }));
 
 	auto client = support::connect_client(fixture.port);
@@ -61,12 +61,9 @@ TEST_P(HttpPipeliningIntegrationTest, SlowThenFastPipelinedRequestsPreserveWireO
 
 TEST_P(HttpPipeliningIntegrationTest, TenPipelinedRequestsReturnInArrivalOrder) {
 	support::server_fixture fixture(
-	    warp::http::server_builder()
-	        .event_loop(GetParam())
-	        .get("/echo/{id}", [](const warp::request &req) -> warp::response {
-		        return warp::response::ok(
-		            warp::body_builder().set("id", std::string(req.path_param("id").value_or(""))).build());
-	        }));
+	    warp::http::server_builder().event_loop(GetParam()).get("/echo/{id}", [](const request &req) -> response {
+		    return response::ok(body_builder().set("id", std::string(req.path_param("id").value_or(""))).build());
+	    }));
 
 	std::string payload;
 	for (int i = 0; i < 10; ++i) {
@@ -91,12 +88,12 @@ TEST_P(HttpPipeliningIntegrationTest, SlowThirdResponseDoesNotAllowLaterFastWrit
 	support::server_fixture fixture(
 	    warp::http::server_builder()
 	        .event_loop(GetParam())
-	        .get("/item/{id}", [fast_after_three](warp::request req) -> warp::awaitable<warp::response> {
+	        .get("/item/{id}", [fast_after_three](request req) -> awaitable<response> {
 		        const auto id = std::string(req.path_param("id").value_or(""));
 		        if (id == "3") {
 			        // Response #3 sleeps, but still must be emitted before #4-#8.
 			        co_return co_await support::delayed_ok_response(150ms, [fast_after_three, id]() {
-				        return warp::body_builder()
+				        return body_builder()
 				            .set("id", id)
 				            .set("later_fast_finished", fast_after_three->load(std::memory_order_acquire) >= 5)
 				            .build();
@@ -107,13 +104,12 @@ TEST_P(HttpPipeliningIntegrationTest, SlowThirdResponseDoesNotAllowLaterFastWrit
 			        fast_after_three->fetch_add(1, std::memory_order_acq_rel);
 		        }
 
-		        co_return warp::response::ok(warp::body_builder().set("id", id).build());
+		        co_return response::ok(body_builder().set("id", id).build());
 	        }));
 
 	std::string payload;
-	for (int i = 1; i <= 8; ++i) {
+	for (int i = 1; i <= 8; ++i)
 		payload += support::make_get_request("/item/" + std::to_string(i), i == 8 ? "close" : "keep-alive");
-	}
 
 	auto client = support::connect_client(fixture.port);
 	support::send_requests(*client, payload);

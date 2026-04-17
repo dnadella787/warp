@@ -171,12 +171,10 @@ void emit_resource_routes(std::string &output, const api_model &model, const res
 		                        cpp_string_literal(endpoint.path) +
 		                        ", [service = service_](warp::request req) -> warp::awaitable<warp::response> {");
 		append_line(output, "\t\t\tconst auto version = req.version();");
-		append_line(output, "\t\t\tconst auto keep_alive = req.keep_alive();");
 		append_line(output, "\t\t\tauto typed_request = warp::codegen::parse_http_request<" + request_type + ">(req);");
 		append_line(output, "\t\t\tif (!typed_request.has_value()) {");
 		append_line(output,
 		            "\t\t\t\tauto response = warp::codegen::to_error_response(typed_request.error(), version);");
-		append_line(output, "\t\t\t\tresponse.keep_alive(keep_alive);");
 		append_line(output, "\t\t\t\tco_return response;");
 		append_line(output, "\t\t\t}");
 		append_line(output, "\t\t\tauto typed_response = co_await warp::codegen::invoke_user_handler<" + response_type +
@@ -184,7 +182,6 @@ void emit_resource_routes(std::string &output, const api_model &model, const res
 		append_line(output, "\t\t\t\treturn service->" + endpoint.handler_name + "(std::move(typed_request));");
 		append_line(output, "\t\t\t});");
 		append_line(output, "\t\t\tauto response = warp::codegen::to_http_response(typed_response, version);");
-		append_line(output, "\t\t\tresponse.keep_alive(keep_alive);");
 		append_line(output, "\t\t\tco_return response;");
 		append_line(output, "\t\t});");
 	}
