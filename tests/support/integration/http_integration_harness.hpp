@@ -52,6 +52,7 @@ std::string make_get_request(std::string_view path, std::string_view connection 
 std::unique_ptr<client_connection> connect_client(std::uint16_t port);
 void send_requests(client_connection &client, std::string_view payload);
 http_response read_response(client_connection &client);
+bool next_response_is_eof(client_connection &client);
 bool read_until_eof(client_connection &client);
 boost::json::object parse_object_body(const http_response &response);
 

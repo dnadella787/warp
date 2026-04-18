@@ -134,6 +134,7 @@ TEST_P(HttpConnectionAndErrorIntegrationTest, MissingRouteResponseStillKeepsOrde
 }
 
 TEST_P(HttpConnectionAndErrorIntegrationTest, ConnectionClosedServerSideShouldNotContinue) {
+	auto after_processed = std::make_shared<std::atomic<int>>(0);
 	support::server_fixture fixture(warp::http::server_builder()
 	                                    .event_loop(GetParam())
 	                                    .get("/close",
@@ -142,13 +143,13 @@ TEST_P(HttpConnectionAndErrorIntegrationTest, ConnectionClosedServerSideShouldNo
 		                                         resp.keep_alive(false);
 		                                         return resp;
 	                                         })
-	                                    .get("/after", [](const request &) -> response {
+	                                    .get("/after", [after_processed](const request &) -> response {
+		                                    after_processed->fetch_add(1, std::memory_order_acq_rel);
 		                                    return response::ok(body_builder().set("route", "after").build());
 	                                    }));
 
 	auto client = support::connect_client(fixture.port);
-	const auto payload =
-	    support::make_get_request("/close", "keep-alive") + support::make_get_request("/after", "keep-alive");
+	const auto payload = support::make_get_request("/close") + support::make_get_request("/after");
 	support::send_requests(*client, payload);
 
 	const auto response = support::read_response(*client);
@@ -156,16 +157,45 @@ TEST_P(HttpConnectionAndErrorIntegrationTest, ConnectionClosedServerSideShouldNo
 	const auto body = support::parse_object_body(response);
 	EXPECT_EQ(response.result(), http::status::ok);
 	EXPECT_EQ(std::string(body.at("route").as_string()), "close");
+	EXPECT_TRUE(support::next_response_is_eof(*client));
 
-	EXPECT_THAT(
-		[&]() { support::read_response(*client); },
-		Throws<boost::system::system_error>(
-			Property(&boost::system::system_error::code, boost::beast::http::error::end_of_stream)
-		)
-	);
+	std::this_thread::sleep_for(100ms);
+	EXPECT_EQ(after_processed->load(std::memory_order_acquire), 0);
 }
 
-// complete once uncaught exception handling is configurable
+TEST_P(HttpConnectionAndErrorIntegrationTest, AsyncCloseRequestBlocksFasterSyncRequestsAfter) {
+	auto after_processed = std::make_shared<std::atomic<int>>(0);
+	support::server_fixture fixture(warp::http::server_builder()
+	                                    .event_loop(event_loop_mode::callbacks)
+	                                    .get("/close",
+	                                         [](const request &) -> awaitable<response> {
+		                                         auto response = co_await support::delayed_ok_response(100ms, []() {
+			                                         return body_builder().set("route", "close").build();
+		                                         });
+		                                         response.keep_alive(false);
+		                                         co_return response;
+	                                         })
+	                                    .get("/after", [after_processed](const request &) -> response {
+		                                    after_processed->fetch_add(1, std::memory_order_acq_rel);
+		                                    return response::ok(body_builder().set("route", "after").build());
+	                                    }));
+
+	auto client = support::connect_client(fixture.port);
+	const auto payload = support::make_get_request("/close") + support::make_get_request("/after");
+	support::send_requests(*client, payload);
+
+	const auto response = support::read_response(*client);
+	EXPECT_FALSE(response.keep_alive());
+	const auto body = support::parse_object_body(response);
+	EXPECT_EQ(response.result(), http::status::ok);
+	EXPECT_EQ(std::string(body.at("route").as_string()), "close");
+	EXPECT_TRUE(support::next_response_is_eof(*client));
+
+	std::this_thread::sleep_for(150ms);
+	EXPECT_EQ(after_processed->load(std::memory_order_acquire), 1);
+}
+
+// Uncomment once uncaught exception handling is configurable
 // TEST_P(HttpConnectionAndErrorIntegrationTest, UncaughtExceptionShouldCauseConnectionClosedServerSide) {
 // 	support::server_fixture fixture(
 // 		warp::http::server_builder()

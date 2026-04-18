@@ -75,6 +75,14 @@ http_response read_response(client_connection &client) {
 	return response;
 }
 
+bool next_response_is_eof(client_connection &client) {
+	http_response response;
+	client.stream.expires_after(5s);
+	beast::error_code ec;
+	http::read(client.stream, client.buffer, response, ec);
+	return ec == asio::error::eof || ec == beast::http::error::end_of_stream;
+}
+
 bool read_until_eof(client_connection &client) {
 	std::array<char, 512> scratch {};
 	client.stream.expires_after(5s);

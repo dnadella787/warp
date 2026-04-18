@@ -125,7 +125,7 @@ void callback_http_session::on_handler_complete(std::size_t sequence, std::excep
 	if (!close_policy_.accepting_requests())
 		stop_reading_ = true;
 
-	// drop the response because client or server initiated connection close on or prior to this request
+	// drop the response because client or server initiated connection close prior to this request
 	if (decision.drop_response) {
 		// erase it from request ctx pool, if we are done just shutdown
 		finish_request(ctx_it->second.sequence);
@@ -133,7 +133,6 @@ void callback_http_session::on_handler_complete(std::size_t sequence, std::excep
 			return shutdown();
 
 		// otherwise keep writing out any remaining responses
-		// maybe_read();
 		maybe_write();
 		return;
 	}
@@ -181,8 +180,8 @@ void callback_http_session::on_write(std::size_t sequence, beast::error_code ec,
 	auto it = pending_responses_.find(sequence);
 	bool close_after_write {true};
 	if (it != pending_responses_.end()) {
-		pending_responses_.erase(sequence);
 		close_after_write = it->second.close_after_write;
+		pending_responses_.erase(sequence);
 	} else {
 		util::fail(COMPONENT, "on_write{pending_responses.find}",
 		           "could not find response in pending response map to erase");
