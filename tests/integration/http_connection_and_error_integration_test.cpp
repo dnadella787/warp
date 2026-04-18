@@ -166,7 +166,7 @@ TEST_P(HttpConnectionAndErrorIntegrationTest, ConnectionClosedServerSideShouldNo
 TEST_P(HttpConnectionAndErrorIntegrationTest, AsyncCloseRequestBlocksFasterSyncRequestsAfter) {
 	auto after_processed = std::make_shared<std::atomic<int>>(0);
 	support::server_fixture fixture(warp::http::server_builder()
-	                                    .event_loop(event_loop_mode::callbacks)
+	                                    .event_loop(GetParam())
 	                                    .get("/close",
 	                                         [](const request &) -> awaitable<response> {
 		                                         auto response = co_await support::delayed_ok_response(100ms, []() {
