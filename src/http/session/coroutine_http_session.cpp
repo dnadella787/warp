@@ -34,14 +34,12 @@ void coroutine_http_session::start() {
 
 boost::asio::awaitable<void> coroutine_http_session::read_loop() {
 	for (;;) {
-		while (!shutdown_started_ && !stop_reading_ && outstanding_requests_ >= pipeline_limit_) {
+		while (!shutdown_started_ && !stop_reading_ && outstanding_requests_ >= pipeline_limit_)
 			co_await wait_for_read_ready();
-		}
 
 		if (shutdown_started_ || stop_reading_) {
-			if (stop_reading_ && outstanding_requests_ == 0) {
+			if (stop_reading_ && outstanding_requests_ == 0)
 				shutdown();
-			}
 			co_return;
 		}
 
@@ -80,9 +78,11 @@ boost::asio::awaitable<void> coroutine_http_session::read_loop() {
 			std::visit(
 			    common::overloaded {[&](const sync_handler &h) { execute_sync_handler(sequence, h, std::move(req)); },
 			                        [&](const async_handler &h) {
-				                        boost::asio::co_spawn(stream_.get_executor(),
-				                                              execute_async_handler(sequence, h, std::move(req)),
-				                                              boost::asio::detached);
+				                        boost::asio::co_spawn(
+				                            stream_.get_executor(), // little trick to extend http_session lifetime by
+				                                                    // passing it to async coroutine
+				                            execute_async_handler(shared_from_this(), sequence, h, std::move(req)),
+				                            boost::asio::detached);
 			                        }},
 			    *handler);
 		} else {
@@ -115,7 +115,7 @@ boost::asio::awaitable<void> coroutine_http_session::write_loop() {
 			co_return shutdown();
 		}
 
-		bool close_after_write = it->second.close_after_write;
+		const bool close_after_write = it->second.close_after_write;
 		pending_responses_.erase(it);
 		finish_request(next_write_sequence_++);
 		if (close_after_write)
@@ -149,13 +149,14 @@ void coroutine_http_session::execute_sync_handler(std::size_t sequence, const sy
 	}
 }
 
-boost::asio::awaitable<void> coroutine_http_session::execute_async_handler(std::size_t sequence,
+boost::asio::awaitable<void> coroutine_http_session::execute_async_handler(std::shared_ptr<coroutine_http_session> self,
+                                                                           std::size_t sequence,
                                                                            const async_handler &handler, request req) {
 	try {
 		auto resp = co_await handler(std::move(req));
-		complete_request(sequence, std::move(resp));
+		self->complete_request(sequence, std::move(resp));
 	} catch (...) {
-		complete_request(sequence, response::server_error());
+		self->complete_request(sequence, response::server_error());
 	}
 }
 
@@ -168,11 +169,11 @@ void coroutine_http_session::complete_request(std::size_t sequence, response res
 		return util::fail(COMPONENT, "on_handler_complete{req_ctx.find}",
 		                  "context could not be found in session map on completion");
 
-	auto decision = policy_.on_response_ready(ctx_it->second, response);
+	const auto [drop_response, close_after_write] = policy_.on_response_ready(ctx_it->second, response);
 	if (!policy_.accepting_requests())
 		stop_reading_ = true;
 
-	if (decision.drop_response) {
+	if (drop_response) {
 		finish_request(sequence);
 		if (outstanding_requests_ == 0 && stop_reading_)
 			shutdown();
@@ -180,8 +181,8 @@ void coroutine_http_session::complete_request(std::size_t sequence, response res
 	}
 
 	response.prepare_payload();
-	pending_responses_.emplace(
-	    sequence, pending_write {.response = std::move(response), .close_after_write = decision.close_after_write});
+	pending_responses_.emplace(sequence,
+	                           pending_write {.response = std::move(response), .close_after_write = close_after_write});
 	notify_write_loop();
 }
 

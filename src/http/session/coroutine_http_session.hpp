@@ -28,7 +28,9 @@ private:
 	boost::asio::awaitable<void> wait_for_read_ready();
 	boost::asio::awaitable<void> wait_for_write_ready();
 	void execute_sync_handler(std::size_t sequence, const sync_handler &handler, request req);
-	boost::asio::awaitable<void> execute_async_handler(std::size_t sequence, const async_handler &handler, request req);
+	static boost::asio::awaitable<void> execute_async_handler(std::shared_ptr<coroutine_http_session> self,
+	                                                          std::size_t sequence, const async_handler &handler,
+	                                                          request req);
 	void complete_request(std::size_t sequence, response response);
 	void notify_read_loop();
 	void notify_write_loop();
