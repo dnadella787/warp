@@ -23,7 +23,18 @@ function(add_warp_codegen_gtest_suite target)
     gtest_discover_tests(${target})
 endfunction()
 
+function(add_warp_compile_only_suite target)
+    add_library(${target} STATIC)
+    target_sources(${target} PRIVATE ${ARGN})
+    target_include_directories(${target} PRIVATE
+        ${PROJECT_SOURCE_DIR}/src
+        ${PROJECT_SOURCE_DIR}/tests
+    )
+    target_link_libraries(${target} PRIVATE warp_http warp_codegen_core warp_codegen_runtime)
+endfunction()
+
 set(GENERATED_CODEGEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/codegen")
+set(GENERATED_QUERY_ROUTING_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/query_routing")
 
 warp_generate_stubs(
     TARGET generated_users_api_headers
@@ -31,6 +42,14 @@ warp_generate_stubs(
     OUTPUT_DIR "${GENERATED_CODEGEN_DIR}"
     MODEL_HEADER "generated_users_api_types.hpp"
     RESOURCE_HEADER "generated_users_api_resources.hpp"
+)
+
+warp_generate_stubs(
+    TARGET generated_query_routing_api_headers
+    SPEC "${PROJECT_SOURCE_DIR}/tests/fixtures/codegen/query_routing_api.yaml"
+    OUTPUT_DIR "${GENERATED_QUERY_ROUTING_DIR}"
+    MODEL_HEADER "generated_query_routing_api_types.hpp"
+    RESOURCE_HEADER "generated_query_routing_api_resources.hpp"
 )
 
 set(warp_http_unit_test_sources
@@ -58,16 +77,27 @@ set(warp_http_integration_test_sources
     integration/http_pipelining_integration_test.cpp
     integration/http_connection_and_error_integration_test.cpp
     integration/generated_api_integration_test.cpp
+    integration/generated_query_routing_integration_test.cpp
 )
 
 add_warp_runtime_gtest_suite(warp_http_integration_tests
     ${warp_http_integration_test_sources}
 )
 add_dependencies(warp_http_integration_tests generated_users_api_headers)
+add_dependencies(warp_http_integration_tests generated_query_routing_api_headers)
 target_include_directories(warp_http_integration_tests PRIVATE
     "${GENERATED_CODEGEN_DIR}"
+    "${GENERATED_QUERY_ROUTING_DIR}"
 )
 target_link_libraries(warp_http_integration_tests PRIVATE warp_codegen_runtime)
+
+add_warp_compile_only_suite(warp_http_route_validation_compile
+    compile/query_route_validation_compile.cpp
+)
+add_dependencies(warp_http_route_validation_compile generated_query_routing_api_headers)
+target_include_directories(warp_http_route_validation_compile PRIVATE
+    "${GENERATED_QUERY_ROUTING_DIR}"
+)
 
 if (TARGET warp_db_postgres)
     add_warp_runtime_gtest_suite(warp_http_db_unit_tests

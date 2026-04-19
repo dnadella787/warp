@@ -202,10 +202,39 @@ struct route_identity {
 	}
 };
 
+struct reserved_route_identity {
+	std::string resource_name;
+	std::string path;
+};
+
+[[nodiscard]] bool ordered_contains(const std::vector<std::string> &values, std::string_view value) {
+	return std::find(values.begin(), values.end(), value) != values.end();
+}
+
+void append_unique(std::vector<std::string> &values, std::string_view value) {
+	if (!ordered_contains(values, value)) {
+		values.emplace_back(value);
+	}
+}
+
+[[nodiscard]] bool query_route_specs_overlap(const query_route_model &lhs, const query_route_model &rhs) {
+	for (const auto &required : lhs.required_parameters) {
+		if (!ordered_contains(rhs.accepted_parameters, required)) {
+			return false;
+		}
+	}
+	for (const auto &required : rhs.required_parameters) {
+		if (!ordered_contains(lhs.accepted_parameters, required)) {
+			return false;
+		}
+	}
+	return true;
+}
+
 struct model_builder {
 	api_model model;
 	global_symbol_table global_symbols;
-	std::unordered_set<std::string> route_identities;
+	std::unordered_map<std::string, reserved_route_identity> route_identities;
 
 	[[nodiscard]] std::string cpp_type_name(const schema_type &type) const {
 		switch (type.type) {
@@ -236,9 +265,13 @@ struct model_builder {
 		return global_symbols.reserve(raw_name, span, description);
 	}
 
-	void reserve_route_identity(http_method method, const warp::http::route_pattern &route, source_span span) {
+	void reserve_route_identity(std::string_view resource_name, http_method method,
+	                            const warp::http::route_pattern &route, std::string_view path, source_span span) {
 		const route_identity identity {.method = method, .shape_key = route.shape_key};
-		if (!route_identities.insert(identity.key()).second) {
+		const auto key = identity.key();
+		const auto [it, inserted] = route_identities.emplace(
+		    key, reserved_route_identity {.resource_name = std::string(resource_name), .path = std::string(path)});
+		if (!inserted && (it->second.resource_name != resource_name || it->second.path != path)) {
 			fail(span, "model.duplicate_route",
 			     "duplicate route shape '" + route.shape_key + "' for method " + std::string(to_string(method)));
 		}
@@ -390,6 +423,76 @@ struct model_builder {
 		return response;
 	}
 
+	[[nodiscard]] std::optional<query_route_model>
+	build_query_route_model(const request_model &request, const std::string &spec_name, source_span span) {
+		query_route_model query_route;
+		query_route.span = span;
+		query_route.spec_name = spec_name;
+
+		for (const auto &parameter : request.parameters) {
+			if (parameter.location != parameter_location::query) {
+				continue;
+			}
+			query_route.accepted_parameters.push_back(parameter.source_name);
+			if (parameter.required) {
+				query_route.required_parameters.push_back(parameter.source_name);
+			}
+		}
+
+		if (query_route.required_parameters.empty()) {
+			return std::nullopt;
+		}
+		return query_route;
+	}
+
+	void validate_route_group(const resource_model &resource, route_group_model &group) {
+		group.query_route_endpoint_indices.clear();
+		group.fallback_endpoint_index.reset();
+		group.routing_query_parameters.clear();
+
+		for (const auto endpoint_index : group.endpoint_indices) {
+			const auto &endpoint = resource.endpoints.at(endpoint_index);
+			if (endpoint.query_route.has_value()) {
+				group.query_route_endpoint_indices.push_back(endpoint_index);
+				for (const auto &name : endpoint.query_route->accepted_parameters) {
+					append_unique(group.routing_query_parameters, name);
+				}
+				continue;
+			}
+
+			if (group.fallback_endpoint_index.has_value()) {
+				fail(endpoint.span, "model.duplicate_route",
+				     "duplicate route '" + group.path + "' for method " + std::string(to_string(group.method)) +
+				         " requires deterministic query constraints or a single fallback endpoint");
+			}
+			group.fallback_endpoint_index = endpoint_index;
+		}
+
+		if (group.query_route_endpoint_indices.empty()) {
+			if (group.endpoint_indices.size() > 1) {
+				fail(resource.endpoints.at(group.endpoint_indices.back()).span, "model.duplicate_route",
+				     "duplicate route '" + group.path + "' for method " + std::string(to_string(group.method)) +
+				         " is ambiguous without required query parameter constraints");
+			}
+			return;
+		}
+
+		for (std::size_t i = 0; i < group.query_route_endpoint_indices.size(); ++i) {
+			const auto left_index = group.query_route_endpoint_indices[i];
+			const auto &left_endpoint = resource.endpoints.at(left_index);
+			for (std::size_t j = i + 1; j < group.query_route_endpoint_indices.size(); ++j) {
+				const auto right_index = group.query_route_endpoint_indices[j];
+				const auto &right_endpoint = resource.endpoints.at(right_index);
+				if (query_route_specs_overlap(*left_endpoint.query_route, *right_endpoint.query_route)) {
+					fail(right_endpoint.span, "model.ambiguous_query_route",
+					     "query-aware routes '" + left_endpoint.endpoint_name + "' and '" +
+					         right_endpoint.endpoint_name + "' for " + std::string(to_string(group.method)) + " " +
+					         group.path + " accept overlapping query parameter sets");
+				}
+			}
+		}
+	}
+
 	resource_model build_resource_model(const resource_spec &resource) {
 		resource_model resource_model;
 		resource_model.span = resource.span;
@@ -398,6 +501,7 @@ struct model_builder {
 		    reserve_public_type(resource.name + "_api_routes", resource.name_span, "resource routes");
 
 		local_symbol_table handler_symbols;
+		std::unordered_map<std::string, std::size_t> route_group_indices;
 		for (const auto &endpoint : resource.endpoints) {
 			warp::http::route_pattern route;
 			try {
@@ -405,7 +509,7 @@ struct model_builder {
 			} catch (const std::invalid_argument &ex) {
 				fail(endpoint.path_span, "model.invalid_route", ex.what());
 			}
-			reserve_route_identity(endpoint.method, route, endpoint.path_span);
+			reserve_route_identity(resource.name, endpoint.method, route, endpoint.path, endpoint.path_span);
 
 			endpoint_model endpoint_model;
 			endpoint_model.span = endpoint.span;
@@ -423,8 +527,26 @@ struct model_builder {
 			    "resource '" + resource.name + "'");
 			endpoint_model.request = build_request_model(endpoint, endpoint_model.request_name, endpoint_model.route);
 			endpoint_model.response = build_response_model(endpoint, endpoint_model.result_name);
+			endpoint_model.query_route = build_query_route_model(
+			    endpoint_model.request, reserve_public_type(prefix + "_query_route", endpoint.span, "query route spec"),
+			    endpoint.span);
 
+			const auto endpoint_index = resource_model.endpoints.size();
 			resource_model.endpoints.push_back(std::move(endpoint_model));
+
+			const auto group_key = std::string(to_string(endpoint.method)) + " " + resource_model.endpoints.back().path;
+			auto [group_it, inserted] = route_group_indices.emplace(group_key, resource_model.route_groups.size());
+			if (inserted) {
+				resource_model.route_groups.push_back(route_group_model {
+				    .method = resource_model.endpoints.back().method,
+				    .path = resource_model.endpoints.back().path,
+				});
+			}
+			resource_model.route_groups.at(group_it->second).endpoint_indices.push_back(endpoint_index);
+		}
+
+		for (auto &group : resource_model.route_groups) {
+			validate_route_group(resource_model, group);
 		}
 
 		return resource_model;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <memory>
 #include <optional>
 #include <string>
@@ -79,6 +80,13 @@ struct response_model {
 	http_body_mode body_mode {http_body_mode::forbidden};
 };
 
+struct query_route_model {
+	source_span span {};
+	std::string spec_name;
+	std::vector<std::string> required_parameters;
+	std::vector<std::string> accepted_parameters;
+};
+
 struct endpoint_model {
 	source_span span {};
 	std::string resource_name;
@@ -91,6 +99,16 @@ struct endpoint_model {
 	warp::http::route_pattern route;
 	request_model request;
 	response_model response;
+	std::optional<query_route_model> query_route;
+};
+
+struct route_group_model {
+	http_method method {http_method::get};
+	std::string path;
+	std::vector<std::size_t> endpoint_indices;
+	std::vector<std::size_t> query_route_endpoint_indices;
+	std::optional<std::size_t> fallback_endpoint_index;
+	std::vector<std::string> routing_query_parameters;
 };
 
 struct resource_model {
@@ -98,6 +116,7 @@ struct resource_model {
 	std::string name;
 	std::string routes_class_name;
 	std::vector<endpoint_model> endpoints;
+	std::vector<route_group_model> route_groups;
 };
 
 struct api_model {

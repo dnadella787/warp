@@ -90,4 +90,74 @@ resources:
 	EXPECT_NE(output.find(R"(required_header_param<std::string>(req, "x-\"trace\""))"), std::string::npos);
 }
 
+TEST(ResourceEmitterTest, EmitsQueryRouteSpecsForOverlappingGeneratedRoutes) {
+	const auto spec = parse_api_spec(R"(
+resources:
+  - name: reports
+    endpoints:
+      - name: fetch_report
+        method: GET
+        path: /reports/{report_id}
+        request:
+          parameters:
+            - name: report_id
+              in: path
+              type: string
+        response:
+          status: 204
+      - name: fetch_report_summary
+        method: GET
+        path: /reports/{report_id}
+        request:
+          parameters:
+            - name: report_id
+              in: path
+              type: string
+            - name: summary
+              in: query
+              type: bool
+        response:
+          status: 204
+      - name: fetch_report_projection
+        method: GET
+        path: /reports/{report_id}
+        request:
+          parameters:
+            - name: report_id
+              in: path
+              type: string
+            - name: fields
+              in: query
+              type: string
+        response:
+          status: 204
+      - name: fetch_report_summary_projection
+        method: GET
+        path: /reports/{report_id}
+        request:
+          parameters:
+            - name: report_id
+              in: path
+              type: string
+            - name: summary
+              in: query
+              type: bool
+            - name: fields
+              in: query
+              type: string
+        response:
+          status: 204
+)");
+
+	const auto output = resource_emitter().emit_header(build_api_model(spec, "generated_api"));
+
+	EXPECT_NE(output.find("using reports_fetch_report_summary_query_route = warp::http::route_spec<"),
+	          std::string::npos);
+	EXPECT_NE(output.find("warp::http::required_query<\"summary\">"), std::string::npos);
+	EXPECT_NE(output.find("warp::http::required_query<\"fields\">"), std::string::npos);
+	EXPECT_NE(output.find("static_assert(warp::http::deterministic_route_definitions<"), std::string::npos);
+	EXPECT_NE(output.find("builder.route(reports_fetch_report_summary_query_route {},"), std::string::npos);
+	EXPECT_NE(output.find("builder.route(reports_fetch_report_summary_projection_query_route {},"), std::string::npos);
+}
+
 } // namespace

@@ -1,5 +1,6 @@
 #include "warp/codegen/resource_stub_emitter.hpp"
 
+#include <algorithm>
 #include <stdexcept>
 #include <string>
 
@@ -98,6 +99,52 @@ std::string response_type_name(const api_model &model, const endpoint_model &end
 	return model.cpp_namespace + "::" + endpoint.result_name;
 }
 
+[[nodiscard]] bool contains_parameter(const std::vector<std::string> &parameters, std::string_view name) {
+	return std::find(parameters.begin(), parameters.end(), name) != parameters.end();
+}
+
+std::string query_constraint_expression(const query_route_model &query_route, const route_group_model &group,
+                                        std::string_view parameter_name) {
+	if (contains_parameter(query_route.required_parameters, parameter_name)) {
+		return "warp::http::required_query<" + cpp_string_literal(parameter_name) + ">";
+	}
+	if (contains_parameter(query_route.accepted_parameters, parameter_name)) {
+		return "warp::http::optional_query<" + cpp_string_literal(parameter_name) + ">";
+	}
+	return "warp::http::forbidden_query<" + cpp_string_literal(parameter_name) + ">";
+}
+
+void emit_query_route_spec_aliases(std::string &output, const resource_model &resource) {
+	for (const auto &group : resource.route_groups) {
+		for (const auto endpoint_index : group.query_route_endpoint_indices) {
+			const auto &endpoint = resource.endpoints[endpoint_index];
+			std::string alias = "using " + endpoint.query_route->spec_name + " = warp::http::route_spec<" +
+			                    method_expression(endpoint.method) + ", " + cpp_string_literal(endpoint.path);
+			for (const auto &parameter : group.routing_query_parameters) {
+				alias.append(", ");
+				alias.append(query_constraint_expression(*endpoint.query_route, group, parameter));
+			}
+			alias.append(">;");
+			append_line(output, alias);
+		}
+
+		if (group.query_route_endpoint_indices.size() < 2) {
+			continue;
+		}
+
+		std::string assertion = "\tstatic_assert(warp::http::deterministic_route_definitions<";
+		for (std::size_t i = 0; i < group.query_route_endpoint_indices.size(); ++i) {
+			if (i > 0) {
+				assertion.append(", ");
+			}
+			const auto &endpoint = resource.endpoints[group.query_route_endpoint_indices[i]];
+			assertion.append(endpoint.query_route->spec_name);
+		}
+		assertion.append(">(), \"generated query routes must resolve deterministically\");");
+		append_line(output, assertion);
+	}
+}
+
 void emit_request_contract_traits(std::string &output, const api_model &model, const endpoint_model &endpoint) {
 	const auto request_type = request_type_name(model, endpoint);
 	append_line(output, "template <>");
@@ -163,12 +210,18 @@ void emit_resource_routes(std::string &output, const api_model &model, const res
 	append_line(output, "\t\t}");
 	append_line(output, "\t}");
 	append_line(output);
+	emit_query_route_spec_aliases(output, resource);
+	if (!resource.endpoints.empty()) {
+		append_line(output);
+	}
 	append_line(output, "\tvoid register_routes(warp::http::server_builder &builder) const {");
 	for (const auto &endpoint : resource.endpoints) {
 		const auto request_type = request_type_name(model, endpoint);
 		const auto response_type = response_type_name(model, endpoint);
-		append_line(output, "\t\tbuilder.route(" + method_expression(endpoint.method) + ", " +
-		                        cpp_string_literal(endpoint.path) +
+		const auto route_registration = endpoint.query_route.has_value() ? endpoint.query_route->spec_name + " {}"
+		                                                                 : method_expression(endpoint.method) + ", " +
+		                                                                       cpp_string_literal(endpoint.path);
+		append_line(output, "\t\tbuilder.route(" + route_registration +
 		                        ", [service = service_](warp::request req) -> warp::awaitable<warp::response> {");
 		append_line(output, "\t\t\tconst auto version = req.version();");
 		append_line(output, "\t\t\tauto typed_request = warp::codegen::parse_http_request<" + request_type + ">(req);");

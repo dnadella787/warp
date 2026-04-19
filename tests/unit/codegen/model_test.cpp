@@ -147,6 +147,125 @@ resources:
 	EXPECT_THROW(static_cast<void>(build_api_model(spec)), diagnostic_error);
 }
 
+TEST(ApiModelTest, AcceptsDistinctOverlappingQueryRouteSets) {
+	const auto spec = parse_api_spec(R"(
+resources:
+  - name: reports
+    endpoints:
+      - name: fetch_report
+        method: GET
+        path: /reports/{report_id}
+        request:
+          parameters:
+            - name: report_id
+              in: path
+              type: string
+              required: true
+        response:
+          status: 204
+      - name: fetch_report_summary
+        method: GET
+        path: /reports/{report_id}
+        request:
+          parameters:
+            - name: report_id
+              in: path
+              type: string
+              required: true
+            - name: summary
+              in: query
+              type: bool
+              required: true
+        response:
+          status: 204
+      - name: fetch_report_projection
+        method: GET
+        path: /reports/{report_id}
+        request:
+          parameters:
+            - name: report_id
+              in: path
+              type: string
+              required: true
+            - name: fields
+              in: query
+              type: string
+              required: true
+        response:
+          status: 204
+      - name: fetch_report_summary_projection
+        method: GET
+        path: /reports/{report_id}
+        request:
+          parameters:
+            - name: report_id
+              in: path
+              type: string
+              required: true
+            - name: summary
+              in: query
+              type: bool
+              required: true
+            - name: fields
+              in: query
+              type: string
+              required: true
+        response:
+          status: 204
+)");
+
+	const auto model = build_api_model(spec);
+	ASSERT_EQ(model.resources.size(), 1U);
+	ASSERT_EQ(model.resources.front().endpoints.size(), 4U);
+}
+
+TEST(ApiModelTest, RejectsAmbiguousOverlappingQueryRouteSets) {
+	const auto spec = parse_api_spec(R"(
+resources:
+  - name: reports
+    endpoints:
+      - name: fetch_report_summary
+        method: GET
+        path: /reports/{report_id}
+        request:
+          parameters:
+            - name: report_id
+              in: path
+              type: string
+              required: true
+            - name: summary
+              in: query
+              type: bool
+              required: true
+        response:
+          status: 204
+      - name: fetch_report_summary_with_optional_fields
+        method: GET
+        path: /reports/{report_id}
+        request:
+          parameters:
+            - name: report_id
+              in: path
+              type: string
+              required: true
+            - name: summary
+              in: query
+              type: bool
+              required: true
+            - name: fields
+              in: query
+              type: string
+              required: false
+        response:
+          status: 204
+)");
+
+	const auto item = capture_diagnostic([&] { static_cast<void>(build_api_model(spec)); });
+	EXPECT_TRUE(item.code == "model.duplicate_route" || item.code == "model.ambiguous_query_route");
+	EXPECT_NE(item.message.find("route"), std::string::npos);
+	EXPECT_NE(item.message.find("GET"), std::string::npos);
+}
+
 TEST(ApiModelTest, RejectsResponseBodyForNoContentStatuses) {
 	const auto spec = parse_api_spec(R"(
 resources:

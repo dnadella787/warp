@@ -1,0 +1,104 @@
+cpp_namespace: generated_query_routing_api
+resources:
+  - name: reports
+    endpoints:
+      - name: fetch_report
+        method: GET
+        path: /reports/{report_id}
+        request:
+          parameters:
+            - name: report_id
+              in: path
+              type: string
+              required: true
+        response:
+          status: 200
+          body:
+            type: object
+            fields:
+              - name: route
+                type: string
+              - name: report_id
+                type: string
+              - name: saw_slow_started
+                type: bool
+      - name: fetch_report_summary
+        method: GET
+        path: /reports/{report_id}
+        request:
+          parameters:
+            - name: report_id
+              in: path
+              type: string
+              required: true
+            - name: summary
+              in: query
+              type: bool
+              required: true
+        response:
+          status: 200
+          body:
+            type: object
+            fields:
+              - name: route
+                type: string
+              - name: report_id
+                type: string
+              - name: summary
+                type: bool
+      - name: fetch_report_projection
+        method: GET
+        path: /reports/{report_id}
+        request:
+          parameters:
+            - name: report_id
+              in: path
+              type: string
+              required: true
+            - name: fields
+              in: query
+              type: string
+              required: true
+        response:
+          status: 200
+          body:
+            type: object
+            fields:
+              - name: route
+                type: string
+              - name: report_id
+                type: string
+              - name: fields
+                type: string
+      - name: fetch_report_summary_projection
+        method: GET
+        path: /reports/{report_id}
+        request:
+          parameters:
+            - name: report_id
+              in: path
+              type: string
+              required: true
+            - name: summary
+              in: query
+              type: bool
+              required: true
+            - name: fields
+              in: query
+              type: string
+              required: true
+        response:
+          status: 200
+          body:
+            type: object
+            fields:
+              - name: route
+                type: string
+              - name: report_id
+                type: string
+              - name: summary
+                type: bool
+              - name: fields
+                type: string
+              - name: fast_finished_before_return
+                type: bool

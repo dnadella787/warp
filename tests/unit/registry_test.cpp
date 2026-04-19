@@ -6,6 +6,8 @@
 #include <boost/beast/http/status.hpp>
 #include <boost/beast/http/verb.hpp>
 
+#include <string>
+
 #include "support/test_helpers.hpp"
 
 namespace {
@@ -17,6 +19,19 @@ using warp::http::registry;
 struct path_contract {
 	std::string id;
 };
+
+warp::response route_response(std::string route) {
+	return warp::response::ok(warp::body_builder().set("route", std::move(route)).build());
+}
+
+std::string matched_route_name(registry &routes, warp::request req) {
+	const auto *handler = routes.find(req);
+	if (handler == nullptr) {
+		return {};
+	}
+	const auto response = warp::test::run_handler(*handler, std::move(req));
+	return std::string(warp::test::parse_json_object(response.body()).at("route").as_string());
+}
 
 } // namespace
 
@@ -133,6 +148,108 @@ TEST(RegistryTest, FindPrefersLiteralRouteOverParameterRoute) {
 	EXPECT_EQ(body.at("route").as_string(), "literal");
 }
 
+TEST(RegistryTest, FindPrefersMostSpecificQueryAwareRoute) {
+	registry routes;
+	routes.add(warp::method::get, "/reports/{id}",
+	           [](const warp::request &) -> warp::response { return route_response("fallback"); });
+	routes.add(warp::method::get, "/reports/{id}?summary",
+	           [](const warp::request &) -> warp::response { return route_response("summary"); });
+	routes.add(warp::method::get, "/reports/{id}?fields",
+	           [](const warp::request &) -> warp::response { return route_response("projection"); });
+	routes.add(warp::method::get, "/reports/{id}?summary&fields",
+	           [](const warp::request &) -> warp::response { return route_response("summary_projection"); });
+
+	warp::request req(verb::get, "/reports/42?summary=true&fields=name", 11);
+	auto handler = routes.find(req);
+	ASSERT_NE(handler, nullptr);
+	ASSERT_TRUE(req.path_param("id").has_value());
+	EXPECT_EQ(*req.path_param("id"), "42");
+
+	const auto response = warp::test::run_handler(*handler, std::move(req));
+	const auto body = warp::test::parse_json_object(response.body());
+	EXPECT_EQ(std::string(body.at("route").as_string()), "summary_projection");
+}
+
+TEST(RegistryTest, FindSelectsMatchingSingleQueryRouteBeforeFallback) {
+	registry routes;
+	routes.add(warp::method::get, "/reports/{id}",
+	           [](const warp::request &) -> warp::response { return route_response("fallback"); });
+	routes.add(warp::method::get, "/reports/{id}?summary",
+	           [](const warp::request &) -> warp::response { return route_response("summary"); });
+	routes.add(warp::method::get, "/reports/{id}?fields",
+	           [](const warp::request &) -> warp::response { return route_response("projection"); });
+
+	EXPECT_EQ(matched_route_name(routes, warp::request(verb::get, "/reports/42?summary=true", 11)), "summary");
+	EXPECT_EQ(matched_route_name(routes, warp::request(verb::get, "/reports/42?fields=name", 11)), "projection");
+}
+
+TEST(RegistryTest, FindFallsBackWhenNoQueryAwareRouteMatches) {
+	registry routes;
+	routes.add(warp::method::get, "/reports/{id}",
+	           [](const warp::request &) -> warp::response { return route_response("fallback"); });
+	routes.add(warp::method::get, "/reports/{id}?summary",
+	           [](const warp::request &) -> warp::response { return route_response("summary"); });
+	routes.add(warp::method::get, "/reports/{id}?fields",
+	           [](const warp::request &) -> warp::response { return route_response("projection"); });
+
+	warp::request req(verb::get, "/reports/42?unused=1", 11);
+	auto handler = routes.find(req);
+	ASSERT_NE(handler, nullptr);
+
+	const auto response = warp::test::run_handler(*handler, std::move(req));
+	const auto body = warp::test::parse_json_object(response.body());
+	EXPECT_EQ(std::string(body.at("route").as_string()), "fallback");
+}
+
+TEST(RegistryTest, FindSupportsNegativeQueryConstraints) {
+	registry routes;
+	routes.add(warp::method::get, "/reports/{id}?summary&!fields",
+	           [](const warp::request &) -> warp::response { return route_response("summary_without_fields"); });
+	routes.add(warp::method::get, "/reports/{id}?summary&fields",
+	           [](const warp::request &) -> warp::response { return route_response("summary_with_fields"); });
+
+	EXPECT_EQ(matched_route_name(routes, warp::request(verb::get, "/reports/42?summary=true", 11)),
+	          "summary_without_fields");
+	EXPECT_EQ(matched_route_name(routes, warp::request(verb::get, "/reports/42?summary=true&fields=name", 11)),
+	          "summary_with_fields");
+}
+
+TEST(RegistryTest, FindDoesNotTreatDuplicateQueriesAsSatisfiedSpecificMatchers) {
+	registry routes;
+	routes.add(warp::method::get, "/reports/{id}",
+	           [](const warp::request &) -> warp::response { return route_response("fallback"); });
+	routes.add(warp::method::get, "/reports/{id}?summary",
+	           [](const warp::request &) -> warp::response { return route_response("summary"); });
+
+	warp::request req(verb::get, "/reports/42?summary=true&summary=false", 11);
+	auto handler = routes.find(req);
+	ASSERT_NE(handler, nullptr);
+	ASSERT_TRUE(req.target_error().has_value());
+	EXPECT_EQ(req.target_error()->code, "duplicate_query_parameter");
+
+	const auto response = warp::test::run_handler(*handler, std::move(req));
+	const auto body = warp::test::parse_json_object(response.body());
+	EXPECT_EQ(std::string(body.at("route").as_string()), "fallback");
+}
+
+TEST(RegistryTest, FindDoesNotTreatMalformedQueriesAsSatisfiedSpecificMatchers) {
+	registry routes;
+	routes.add(warp::method::get, "/reports/{id}",
+	           [](const warp::request &) -> warp::response { return route_response("fallback"); });
+	routes.add(warp::method::get, "/reports/{id}?fields",
+	           [](const warp::request &) -> warp::response { return route_response("projection"); });
+
+	warp::request req(verb::get, "/reports/42?fields=%ZZ", 11);
+	auto handler = routes.find(req);
+	ASSERT_NE(handler, nullptr);
+	ASSERT_TRUE(req.target_error().has_value());
+	EXPECT_EQ(req.target_error()->code, "malformed_query_parameter");
+
+	const auto response = warp::test::run_handler(*handler, std::move(req));
+	const auto body = warp::test::parse_json_object(response.body());
+	EXPECT_EQ(std::string(body.at("route").as_string()), "fallback");
+}
+
 TEST(RegistryTest, FindReturnsNullForUnknownMethodOrPath) {
 	registry routes;
 	routes.add(warp::method::get, "/users/{id}",
@@ -170,6 +287,7 @@ TEST(RegistryTest, AddRejectsInvalidRoutePatterns) {
 	EXPECT_THROW(routes.add(warp::method::get, "users/{id}", handler), std::invalid_argument);
 	EXPECT_THROW(routes.add(warp::method::get, "/users//id", handler), std::invalid_argument);
 	EXPECT_THROW(routes.add(warp::method::get, "/users/{}", handler), std::invalid_argument);
+	EXPECT_THROW(routes.add(warp::method::get, "/reports/{id}?summary&summary", handler), std::invalid_argument);
 }
 
 TEST(RegistryTest, AddRejectsDuplicateNormalizedRouteShapesPerMethod) {
@@ -181,6 +299,10 @@ TEST(RegistryTest, AddRejectsDuplicateNormalizedRouteShapesPerMethod) {
 	routes.add(warp::method::get, "/users/{id}", handler);
 	EXPECT_THROW(routes.add(warp::method::get, "/users/{name}", handler), std::invalid_argument);
 	routes.add(warp::method::post, "/users/{name}", handler);
+
+	routes.add(warp::method::get, "/reports/{id}?summary", handler);
+	EXPECT_THROW(routes.add(warp::method::get, "/reports/{report_id}?summary", handler), std::invalid_argument);
+	routes.add(warp::method::get, "/reports/{report_id}?fields", handler);
 }
 
 TEST(RegistryTest, CopyConstructorPreservesRouteTree) {

@@ -7,6 +7,7 @@
 
 #include "http.hpp"
 #include "event_loop_mode.hpp"
+#include "route_constraints.hpp"
 #include "server.hpp"
 
 namespace warp::http {
@@ -20,7 +21,9 @@ namespace warp::http {
  * launched synchronously.
  */
 template <typename H>
-inline constexpr bool is_sync_route_handler = std::is_invocable_r_v<response, std::decay_t<H> &, request>;
+inline constexpr bool is_sync_route_handler = requires(std::decay_t<H> &fn, request req) {
+	{ std::invoke(fn, std::move(req)) } -> std::convertible_to<response>;
+};
 
 /**
  * @brief Trait to identify asynchronous route handlers (C++20 Coroutines).
@@ -32,9 +35,9 @@ inline constexpr bool is_sync_route_handler = std::is_invocable_r_v<response, st
  * coroutine_http_session the handler is launched as a child coroutine
  */
 template <typename H>
-inline constexpr bool is_async_route_handler =
-    std::invocable<std::decay_t<H> &, request> &&
-    std::same_as<std::remove_cvref_t<std::invoke_result_t<std::decay_t<H> &, request>>, awaitable<response>>;
+inline constexpr bool is_async_route_handler = requires(std::decay_t<H> &fn, request req) {
+	{ std::invoke(fn, std::move(req)) } -> std::same_as<awaitable<response>>;
+};
 
 /**
  * @brief compile time requirement for request handlers
@@ -47,6 +50,9 @@ concept resource_registrable = std::is_lvalue_reference_v<T> &&
                                requires(T resource, server_builder &builder) { resource.register_routes(builder); };
 
 class server_builder {
+private:
+	server_builder &route(method verb, std::string path, handler handler);
+
 public:
 	server_builder() = default;
 
@@ -67,7 +73,22 @@ public:
 
 	template <route_handler H>
 	server_builder &route(method verb, std::string path, H &&handler) {
-		return route(verb, std::move(path), make_route_handler(std::forward<H>(handler)));
+		return route_runtime(verb, std::move(path), make_route_handler(std::forward<H>(handler)));
+	}
+
+	template <fixed_string Path, route_handler H>
+	server_builder &route(method verb, route_path<Path>, H &&handler) {
+		return route(verb, std::string(route_path<Path>::view()), std::forward<H>(handler));
+	}
+
+	template <route_registration_spec Spec, route_handler H>
+	server_builder &route(Spec, H &&handler) {
+		return route(Spec::verb, registered_path<Spec>(), std::forward<H>(handler));
+	}
+
+	template <method Verb, fixed_string Path, query_constraint... QueryConstraints, route_handler H>
+	server_builder &route(H &&handler) {
+		return route(route_spec<Verb, Path, QueryConstraints...> {}, std::forward<H>(handler));
 	}
 
 	template <route_handler H>
@@ -75,9 +96,24 @@ public:
 		return route(method::get, std::move(path), std::forward<H>(handler));
 	}
 
+	template <fixed_string Path, route_handler H>
+	server_builder &route(route_path<Path>, H &&handler) {
+		return route(method::get, route_path<Path> {}, std::forward<H>(handler));
+	}
+
 	template <route_handler H>
 	server_builder &get(std::string path, H &&handler) {
 		return route(method::get, std::move(path), std::forward<H>(handler));
+	}
+
+	template <fixed_string Path, route_handler H>
+	server_builder &get(route_path<Path>, H &&handler) {
+		return route(method::get, route_path<Path> {}, std::forward<H>(handler));
+	}
+
+	template <fixed_string Path, query_constraint... QueryConstraints, route_handler H>
+	server_builder &get(H &&handler) {
+		return route<method::get, Path, QueryConstraints...>(std::forward<H>(handler));
 	}
 
 	template <route_handler H>
@@ -85,9 +121,29 @@ public:
 		return route(method::post, std::move(path), std::forward<H>(handler));
 	}
 
+	template <fixed_string Path, route_handler H>
+	server_builder &post(route_path<Path>, H &&handler) {
+		return route(method::post, route_path<Path> {}, std::forward<H>(handler));
+	}
+
+	template <fixed_string Path, query_constraint... QueryConstraints, route_handler H>
+	server_builder &post(H &&handler) {
+		return route<method::post, Path, QueryConstraints...>(std::forward<H>(handler));
+	}
+
 	template <route_handler H>
 	server_builder &put(std::string path, H &&handler) {
 		return route(method::put, std::move(path), std::forward<H>(handler));
+	}
+
+	template <fixed_string Path, route_handler H>
+	server_builder &put(route_path<Path>, H &&handler) {
+		return route(method::put, route_path<Path> {}, std::forward<H>(handler));
+	}
+
+	template <fixed_string Path, query_constraint... QueryConstraints, route_handler H>
+	server_builder &put(H &&handler) {
+		return route<method::put, Path, QueryConstraints...>(std::forward<H>(handler));
 	}
 
 	template <route_handler H>
@@ -95,9 +151,44 @@ public:
 		return route(method::delete_, std::move(path), std::forward<H>(handler));
 	}
 
+	template <fixed_string Path, route_handler H>
+	server_builder &delete_(route_path<Path>, H &&handler) {
+		return route(method::delete_, route_path<Path> {}, std::forward<H>(handler));
+	}
+
+	template <fixed_string Path, query_constraint... QueryConstraints, route_handler H>
+	server_builder &delete_(H &&handler) {
+		return route<method::delete_, Path, QueryConstraints...>(std::forward<H>(handler));
+	}
+
 	[[nodiscard]] server build() const;
 
 private:
+	server_builder &route_runtime(method verb, std::string path, handler callback) {
+		return route(verb, std::move(path), std::move(callback));
+	}
+
+	template <route_registration_spec Spec>
+	[[nodiscard]] static std::string registered_path() {
+		std::string path(Spec::path_view());
+		bool first = true;
+		for (const auto &constraint : Spec::query_constraints) {
+			path.push_back(first ? '?' : '&');
+			first = false;
+			if (constraint.presence == query_constraint_presence::forbidden) {
+				path.push_back('!');
+			} else if (constraint.presence == query_constraint_presence::optional) {
+				path.push_back('~');
+			}
+			path.append(constraint.name);
+			if (constraint.has_exact_value) {
+				path.push_back('=');
+				path.append(constraint.exact_value);
+			}
+		}
+		return path;
+	}
+
 	template <event_loop_mode Mode>
 	[[nodiscard]] server make_server() const;
 
@@ -123,8 +214,6 @@ private:
 			}};
 		}
 	}
-
-	server_builder &route(method verb, std::string path, handler handler);
 
 	struct route_definition {
 		method verb;

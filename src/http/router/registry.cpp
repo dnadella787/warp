@@ -2,17 +2,47 @@
 
 #include <boost/asio/awaitable.hpp>
 
+#include <algorithm>
+#include <array>
+#include <charconv>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
 namespace warp::http {
 
+namespace {
+
+constexpr std::array<std::string_view, 4> route_priority_keys {
+    "priority",
+    "_priority",
+    "__priority",
+    "__warp_priority",
+};
+
+[[nodiscard]] bool is_priority_query_key(std::string_view key) noexcept {
+	return std::ranges::find(route_priority_keys, key) != route_priority_keys.end();
+}
+
+[[nodiscard]] std::int64_t parse_route_priority(std::string_view route, std::string_view raw_value) {
+	std::int64_t priority = 0;
+	const auto [ptr, ec] = std::from_chars(raw_value.data(), raw_value.data() + raw_value.size(), priority);
+	if (ec != std::errc {} || ptr != raw_value.data() + raw_value.size()) {
+		throw std::invalid_argument("route priority must be a signed integer in route '" + std::string(route) + "'");
+	}
+	return priority;
+}
+
+} // namespace
+
 registry::registry(const registry &other) {
+	next_registration_order_ = other.next_registration_order_;
 	for (const auto &[verb, root] : other.method_roots_) {
 		method_roots_.emplace(verb, clone_node(root));
 	}
@@ -23,6 +53,7 @@ registry &registry::operator=(const registry &other) {
 		return *this;
 	}
 	method_roots_.clear();
+	next_registration_order_ = other.next_registration_order_;
 	for (const auto &[verb, root] : other.method_roots_) {
 		method_roots_.emplace(verb, clone_node(root));
 	}
@@ -34,15 +65,15 @@ void registry::add(method verb, std::string path, handler h) {
 }
 
 void registry::add_route(method verb, std::string path, handler h) {
-	const auto pattern = parse_route_pattern(path);
+	auto parsed_route = parse_registered_route(path);
 	auto &root = method_roots_[verb];
 	auto *current = &root;
 
 	std::vector<route_parameter> parameters;
-	parameters.reserve(pattern.segments.size());
+	parameters.reserve(parsed_route.pattern.segments.size());
 
-	for (std::size_t i = 0; i < pattern.segments.size(); ++i) {
-		const auto &segment = pattern.segments[i];
+	for (std::size_t i = 0; i < parsed_route.pattern.segments.size(); ++i) {
+		const auto &segment = parsed_route.pattern.segments[i];
 		if (segment.kind == route_segment_kind::literal) {
 			auto [it, inserted] = current->literal_children.try_emplace(segment.text, std::make_unique<node>());
 			boost::ignore_unused(inserted);
@@ -57,13 +88,19 @@ void registry::add_route(method verb, std::string path, handler h) {
 		parameters.push_back(route_parameter {.index = i, .name = segment.text});
 	}
 
-	if (current->route) {
-		throw std::invalid_argument("duplicate route pattern for method and normalized path shape");
+	for (const auto &existing : current->routes) {
+		if (existing.query_constraints == parsed_route.query_constraints) {
+			throw std::invalid_argument("duplicate route pattern for method, normalized path shape, and query shape");
+		}
 	}
 
-	current->route = std::make_unique<route_entry>();
-	current->route->handler = std::move(h);
-	current->route->parameters = std::move(parameters);
+	current->routes.push_back(route_entry {
+	    .handler = std::move(h),
+	    .parameters = std::move(parameters),
+	    .query_constraints = std::move(parsed_route.query_constraints),
+	    .priority = parsed_route.priority,
+	    .registration_order = next_registration_order_++,
+	});
 }
 
 const handler *registry::find(request &req) const {
@@ -73,7 +110,7 @@ const handler *registry::find(request &req) const {
 		return nullptr;
 	}
 
-	if (const auto *route = match_route(it->second, req.path())) {
+	if (const auto *route = match_route(it->second, req)) {
 		apply_path_params(req, req.path(), *route);
 		return &route->handler;
 	}
@@ -117,23 +154,107 @@ registry::node registry::clone_node(const node &source) {
 	if (source.parameter_child) {
 		copy.parameter_child = std::make_unique<node>(clone_node(*source.parameter_child));
 	}
-	if (source.route) {
-		copy.route = std::make_unique<route_entry>(*source.route);
-	}
+	copy.routes = source.routes;
 	return copy;
 }
 
-const registry::route_entry *registry::match_route(const node &root, std::string_view path) {
+registry::parsed_route registry::parse_registered_route(std::string_view route) {
+	parsed_route parsed {.pattern = parse_route_pattern(strip_query_string(route))};
+	const auto query_pos = route.find('?');
+	if (query_pos == std::string_view::npos) {
+		return parsed;
+	}
+
+	const auto raw_query = route.substr(query_pos + 1);
+	std::size_t start = 0;
+	bool priority_set = false;
+	while (start < raw_query.size()) {
+		const auto end = raw_query.find('&', start);
+		const auto token =
+		    raw_query.substr(start, end == std::string_view::npos ? std::string_view::npos : end - start);
+		if (!token.empty()) {
+			const auto eq = token.find('=');
+			auto key = try_decode_query_component(token.substr(0, eq));
+			if (!key.has_value() || key->empty()) {
+				throw std::invalid_argument("route query constraint names must be non-empty and valid");
+			}
+
+			auto presence = query_constraint_presence::required;
+			if (key->front() == '!') {
+				presence = query_constraint_presence::forbidden;
+				key->erase(key->begin());
+			} else if (key->front() == '~') {
+				presence = query_constraint_presence::optional;
+				key->erase(key->begin());
+			}
+			if (key->empty()) {
+				throw std::invalid_argument("route query constraint names must be non-empty and valid");
+			}
+
+			const auto raw_value = eq == std::string_view::npos ? std::optional<std::string> {}
+			                                                    : try_decode_query_component(token.substr(eq + 1));
+			if (eq != std::string_view::npos && !raw_value.has_value()) {
+				throw std::invalid_argument("route query constraint values must use valid percent-encoding");
+			}
+
+			if (is_priority_query_key(*key)) {
+				if (!raw_value.has_value()) {
+					throw std::invalid_argument("route priority must be declared as key=value");
+				}
+				if (priority_set) {
+					throw std::invalid_argument("route priority may only be declared once");
+				}
+				parsed.priority = parse_route_priority(route, *raw_value);
+				priority_set = true;
+			} else {
+				parsed.query_constraints.push_back(query_constraint {
+				    .name = std::move(*key),
+				    .presence = presence,
+				    .value = std::move(raw_value),
+				});
+			}
+		}
+
+		if (end == std::string_view::npos) {
+			break;
+		}
+		start = end + 1;
+	}
+
+	std::ranges::sort(parsed.query_constraints,
+	                  [](const query_constraint &lhs, const query_constraint &rhs) { return lhs.name < rhs.name; });
+	for (std::size_t i = 1; i < parsed.query_constraints.size(); ++i) {
+		if (parsed.query_constraints[i - 1].name == parsed.query_constraints[i].name) {
+			throw std::invalid_argument("route query constraint names must be unique");
+		}
+	}
+
+	return parsed;
+}
+
+const registry::route_entry *registry::match_route(const node &root, const request &req) {
 	std::vector<std::string> segments;
 	try {
-		segments = split_route_path(path);
+		segments = split_route_path(req.path());
 	} catch (const std::invalid_argument &) {
 		return nullptr;
 	}
 
 	const node *current = &root;
 	if (segments.empty()) {
-		return current->route.get();
+		const route_entry *best = nullptr;
+		query_match_score best_score {};
+		for (const auto &route : current->routes) {
+			const auto score = match_query_constraints(route, req);
+			if (!score.has_value()) {
+				continue;
+			}
+			if (best == nullptr || is_better_match(route, *score, *best, best_score)) {
+				best = &route;
+				best_score = *score;
+			}
+		}
+		return best;
 	}
 
 	for (const auto &token : segments) {
@@ -146,7 +267,65 @@ const registry::route_entry *registry::match_route(const node &root, std::string
 		}
 	}
 
-	return current->route.get();
+	const route_entry *best = nullptr;
+	query_match_score best_score {};
+	for (const auto &route : current->routes) {
+		const auto score = match_query_constraints(route, req);
+		if (!score.has_value()) {
+			continue;
+		}
+		if (best == nullptr || is_better_match(route, *score, *best, best_score)) {
+			best = &route;
+			best_score = *score;
+		}
+	}
+	return best;
+}
+
+std::optional<registry::query_match_score> registry::match_query_constraints(const route_entry &route,
+                                                                             const request &req) {
+	query_match_score score;
+	for (const auto &constraint : route.query_constraints) {
+		const auto actual = req.query_param(constraint.name);
+		if (constraint.presence == query_constraint_presence::forbidden) {
+			if (actual.has_value()) {
+				return std::nullopt;
+			}
+			++score.matched_constraints;
+			continue;
+		}
+
+		if (!actual.has_value()) {
+			if (constraint.presence == query_constraint_presence::required) {
+				return std::nullopt;
+			}
+			continue;
+		}
+
+		if (constraint.value.has_value() && *actual != *constraint.value) {
+			return std::nullopt;
+		}
+
+		++score.matched_constraints;
+		if (constraint.value.has_value()) {
+			++score.matched_exact_constraints;
+		}
+	}
+	return score;
+}
+
+bool registry::is_better_match(const route_entry &candidate, query_match_score candidate_score,
+                               const route_entry &current_best, query_match_score current_best_score) {
+	if (candidate_score.matched_constraints != current_best_score.matched_constraints) {
+		return candidate_score.matched_constraints > current_best_score.matched_constraints;
+	}
+	if (candidate_score.matched_exact_constraints != current_best_score.matched_exact_constraints) {
+		return candidate_score.matched_exact_constraints > current_best_score.matched_exact_constraints;
+	}
+	if (candidate.priority != current_best.priority) {
+		return candidate.priority > current_best.priority;
+	}
+	return candidate.registration_order < current_best.registration_order;
 }
 
 void registry::apply_path_params(request &req, std::string_view path, const route_entry &route) {

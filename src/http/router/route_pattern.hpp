@@ -28,6 +28,156 @@ struct route_pattern {
 	std::string shape_key {"/"};
 };
 
+enum class route_pattern_validation_error {
+	none,
+	empty_path,
+	missing_leading_slash,
+	contains_fragment,
+	contains_query_string,
+	empty_segment,
+	malformed_parameter_segment,
+	empty_parameter_name,
+	parameter_name_contains_braces,
+	duplicate_parameter_name,
+};
+
+struct route_pattern_validation_result {
+	route_pattern_validation_error error {route_pattern_validation_error::none};
+	std::size_t segment_count {};
+	std::size_t parameter_count {};
+
+	[[nodiscard]] constexpr bool ok() const noexcept {
+		return error == route_pattern_validation_error::none;
+	}
+};
+
+[[nodiscard]] constexpr std::string_view
+route_pattern_validation_message(route_pattern_validation_error error) noexcept {
+	switch (error) {
+	case route_pattern_validation_error::none:
+		return "";
+	case route_pattern_validation_error::empty_path:
+		return "route path must not be empty";
+	case route_pattern_validation_error::missing_leading_slash:
+		return "route path must start with '/'";
+	case route_pattern_validation_error::contains_fragment:
+		return "route path must not contain a fragment";
+	case route_pattern_validation_error::contains_query_string:
+		return "route pattern must not contain a query string";
+	case route_pattern_validation_error::empty_segment:
+		return "route path contains an empty segment";
+	case route_pattern_validation_error::malformed_parameter_segment:
+		return "route parameter segments must use the form '{name}'";
+	case route_pattern_validation_error::empty_parameter_name:
+		return "route parameter name cannot be empty";
+	case route_pattern_validation_error::parameter_name_contains_braces:
+		return "route parameter name cannot contain braces";
+	case route_pattern_validation_error::duplicate_parameter_name:
+		return "route parameter names must be unique within a path";
+	}
+	return "invalid route pattern";
+}
+
+namespace detail {
+
+[[nodiscard]] constexpr std::string_view route_segment_at(std::string_view path, std::size_t start) noexcept {
+	if (start >= path.size()) {
+		return {};
+	}
+	const auto end = path.find('/', start);
+	return end == std::string_view::npos ? path.substr(start) : path.substr(start, end - start);
+}
+
+[[nodiscard]] constexpr bool is_parameter_segment(std::string_view segment) noexcept {
+	return !segment.empty() && (segment.front() == '{' || segment.back() == '}');
+}
+
+[[nodiscard]] constexpr std::string_view route_parameter_name(std::string_view segment) noexcept {
+	return segment.substr(1, segment.size() - 2);
+}
+
+} // namespace detail
+
+[[nodiscard]] constexpr route_pattern_validation_result validate_route_pattern(std::string_view pattern) noexcept {
+	if (pattern.find('?') != std::string_view::npos) {
+		return {.error = route_pattern_validation_error::contains_query_string};
+	}
+	if (pattern.empty()) {
+		return {.error = route_pattern_validation_error::empty_path};
+	}
+	if (pattern.front() != '/') {
+		return {.error = route_pattern_validation_error::missing_leading_slash};
+	}
+	if (pattern.find('#') != std::string_view::npos) {
+		return {.error = route_pattern_validation_error::contains_fragment};
+	}
+	if (pattern == "/") {
+		return {};
+	}
+
+	route_pattern_validation_result result;
+	for (std::size_t start = 1; start <= pattern.size();) {
+		const auto segment = detail::route_segment_at(pattern, start);
+		if (segment.empty()) {
+			return {.error = route_pattern_validation_error::empty_segment};
+		}
+
+		++result.segment_count;
+		if (detail::is_parameter_segment(segment)) {
+			if (segment.size() < 3 || segment.front() != '{' || segment.back() != '}') {
+				return {
+				    .error = route_pattern_validation_error::malformed_parameter_segment,
+				    .segment_count = result.segment_count,
+				    .parameter_count = result.parameter_count,
+				};
+			}
+
+			const auto name = detail::route_parameter_name(segment);
+			if (name.empty()) {
+				return {
+				    .error = route_pattern_validation_error::empty_parameter_name,
+				    .segment_count = result.segment_count,
+				    .parameter_count = result.parameter_count,
+				};
+			}
+			if (name.find('{') != std::string_view::npos || name.find('}') != std::string_view::npos) {
+				return {
+				    .error = route_pattern_validation_error::parameter_name_contains_braces,
+				    .segment_count = result.segment_count,
+				    .parameter_count = result.parameter_count,
+				};
+			}
+
+			for (std::size_t previous = 1; previous < start;) {
+				const auto prior_segment = detail::route_segment_at(pattern, previous);
+				if (detail::is_parameter_segment(prior_segment) &&
+				    detail::route_parameter_name(prior_segment) == name) {
+					return {
+					    .error = route_pattern_validation_error::duplicate_parameter_name,
+					    .segment_count = result.segment_count,
+					    .parameter_count = result.parameter_count,
+					};
+				}
+				const auto previous_end = pattern.find('/', previous);
+				if (previous_end == std::string_view::npos) {
+					break;
+				}
+				previous = previous_end + 1;
+			}
+
+			++result.parameter_count;
+		}
+
+		const auto end = pattern.find('/', start);
+		if (end == std::string_view::npos) {
+			break;
+		}
+		start = end + 1;
+	}
+
+	return result;
+}
+
 inline int hex_value(char c) {
 	if (c >= '0' && c <= '9') {
 		return c - '0';
@@ -124,27 +274,27 @@ inline std::vector<std::string> split_route_path(std::string_view path) {
 		return {};
 	}
 
-	auto split_view = clean.substr(1) | std::views::split('/')
-						   | std::views::transform([](auto&& rng)-> std::string {
-								// Convert the sub-range back into a string_view
-								std::string_view segment{rng.data(), rng.size()};
-								// error on // pattern
-								if (segment.empty())
-									throw std::invalid_argument("route path contains an empty segment");
-								return std::string(segment);
-						   });
+	auto split_view = clean.substr(1) | std::views::split('/') | std::views::transform([](auto &&rng) -> std::string {
+		                  // Convert the sub-range back into a string_view
+		                  std::string_view segment {rng.data(), rng.size()};
+		                  // error on // pattern
+		                  if (segment.empty())
+			                  throw std::invalid_argument("route path contains an empty segment");
+		                  return std::string(segment);
+	                  });
 
 	std::vector<std::string> segments;
 	segments.reserve(6);
 
-	for (auto&& seg : split_view)
+	for (auto &&seg : split_view)
 		segments.push_back(std::move(seg));
 	return segments;
 }
 
 inline route_pattern parse_route_pattern(std::string_view pattern) {
-	if (pattern.find('?') != std::string_view::npos) {
-		throw std::invalid_argument("route pattern must not contain a query string");
+	const auto validation = validate_route_pattern(pattern);
+	if (!validation.ok()) {
+		throw std::invalid_argument(std::string(route_pattern_validation_message(validation.error)));
 	}
 
 	route_pattern parsed;
