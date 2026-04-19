@@ -55,96 +55,76 @@ boost::asio::awaitable<void> coroutine_http_session::read_loop() {
 
 		if (ec == beast::http::error::end_of_stream) {
 			stop_reading_ = true;
-			if (outstanding_requests_ == 0) {
+			if (outstanding_requests_ == 0)
 				shutdown();
-			}
 			co_return;
 		}
 
 		if (ec) {
 			util::fail(ec, COMPONENT, "read_loop");
-			shutdown();
-			co_return;
+			co_return shutdown();
 		}
 
 		request req {parser_->release()};
 		const auto sequence = next_request_sequence_++;
-		const auto version = req.version();
-		const auto keep_alive = req.keep_alive();
+		request_ctxs_.emplace(
+		    sequence,
+		    request_context {.sequence = sequence, .version = req.version(), .client_keep_alive = req.keep_alive()});
 		++outstanding_requests_;
 
-		if (!keep_alive) {
+		policy_.on_request_accepted(sequence, req.keep_alive());
+		if (!policy_.accepting_requests())
 			stop_reading_ = true;
-		}
 
 		if (const auto *handler = routes_.find(req)) {
-			std::visit(common::overloaded {[&](const sync_handler &h) {
-				                               execute_sync_handler(sequence, version, keep_alive, h, std::move(req));
-			                               },
-			                               [&](const async_handler &h) {
-				                               boost::asio::co_spawn(stream_.get_executor(),
-				                                                     execute_async_handler(sequence, version,
-				                                                                           keep_alive, h,
-				                                                                           std::move(req)),
-				                                                     boost::asio::detached);
-			                               }},
-			           *handler);
+			std::visit(
+			    common::overloaded {[&](const sync_handler &h) { execute_sync_handler(sequence, h, std::move(req)); },
+			                        [&](const async_handler &h) {
+				                        boost::asio::co_spawn(stream_.get_executor(),
+				                                              execute_async_handler(sequence, h, std::move(req)),
+				                                              boost::asio::detached);
+			                        }},
+			    *handler);
 		} else {
-			complete_request(sequence, version, keep_alive, response::not_found());
+			complete_request(sequence, response::not_found());
 		}
 	}
 }
 
 boost::asio::awaitable<void> coroutine_http_session::write_loop() {
 	for (;;) {
+		std::map<std::size_t, pending_write>::iterator it;
 		while (!shutdown_started_) {
-			if (pending_responses_.find(next_write_sequence_) != pending_responses_.end()) {
+			it = pending_responses_.find(next_write_sequence_);
+			if (it != pending_responses_.end())
 				break;
-			}
-			if (stop_reading_ && outstanding_requests_ == 0) {
-				shutdown();
-				co_return;
-			}
+			if (stop_reading_ && outstanding_requests_ == 0)
+				co_return shutdown();
 			co_await wait_for_write_ready();
 		}
 
-		if (shutdown_started_) {
+		if (shutdown_started_)
 			co_return;
-		}
-
-		const auto it = pending_responses_.find(next_write_sequence_);
-		if (it == pending_responses_.end()) {
-			continue;
-		}
 
 		stream_.expires_after(std::chrono::seconds(30));
-		const auto keep_alive = it->second.keep_alive();
 		beast::error_code ec;
-		co_await beast::http::async_write(stream_, it->second,
+		co_await beast::http::async_write(stream_, it->second.response,
 		                                  boost::asio::redirect_error(boost::asio::use_awaitable, ec));
 		if (ec) {
 			util::fail(ec, COMPONENT, "write_loop");
-			shutdown();
-			co_return;
+			co_return shutdown();
 		}
 
+		bool close_after_write = it->second.close_after_write;
 		pending_responses_.erase(it);
-		if (outstanding_requests_ > 0) {
-			--outstanding_requests_;
-		}
-		++next_write_sequence_;
+		finish_request(next_write_sequence_++);
+		if (close_after_write)
+			co_return shutdown();
+
+		if (stop_reading_ && outstanding_requests_ == 0)
+			co_return shutdown();
+
 		notify_read_loop();
-
-		if (!keep_alive) {
-			stop_reading_ = true;
-			shutdown();
-			co_return;
-		}
-
-		if (stop_reading_ && outstanding_requests_ == 0) {
-			shutdown();
-			co_return;
-		}
 	}
 }
 
@@ -160,37 +140,48 @@ boost::asio::awaitable<void> coroutine_http_session::wait_for_write_ready() {
 	co_await write_signal_.async_wait(boost::asio::redirect_error(boost::asio::use_awaitable, ec));
 }
 
-void coroutine_http_session::execute_sync_handler(std::size_t sequence, unsigned version, bool keep_alive,
-                                                  const sync_handler &handler, request req) {
+void coroutine_http_session::execute_sync_handler(std::size_t sequence, const sync_handler &handler, request req) {
 	try {
 		auto resp = handler(std::move(req));
-		complete_request(sequence, version, keep_alive, std::move(resp));
-	} catch (const std::exception &) {
-		complete_request(sequence, version, keep_alive, response::server_error());
+		complete_request(sequence, std::move(resp));
+	} catch (...) {
+		complete_request(sequence, response::server_error());
 	}
 }
 
-boost::asio::awaitable<void> coroutine_http_session::execute_async_handler(std::size_t sequence, unsigned version,
-                                                                           bool keep_alive,
+boost::asio::awaitable<void> coroutine_http_session::execute_async_handler(std::size_t sequence,
                                                                            const async_handler &handler, request req) {
 	try {
 		auto resp = co_await handler(std::move(req));
-		complete_request(sequence, version, keep_alive, std::move(resp));
-	} catch (const std::exception &) {
-		complete_request(sequence, version, keep_alive, response::server_error());
+		complete_request(sequence, std::move(resp));
+	} catch (...) {
+		complete_request(sequence, response::server_error());
 	}
 }
 
-void coroutine_http_session::complete_request(std::size_t sequence, unsigned version, bool keep_alive,
-                                              response response) {
-	if (shutdown_started_) {
+void coroutine_http_session::complete_request(std::size_t sequence, response response) {
+	if (shutdown_started_)
+		return;
+
+	auto ctx_it = request_ctxs_.find(sequence);
+	if (ctx_it == request_ctxs_.end())
+		return util::fail(COMPONENT, "on_handler_complete{req_ctx.find}",
+		                  "context could not be found in session map on completion");
+
+	auto decision = policy_.on_response_ready(ctx_it->second, response);
+	if (!policy_.accepting_requests())
+		stop_reading_ = true;
+
+	if (decision.drop_response) {
+		finish_request(sequence);
+		if (outstanding_requests_ == 0 && stop_reading_)
+			shutdown();
 		return;
 	}
 
-	response.version(version);
-	response.keep_alive(keep_alive && response.keep_alive());
 	response.prepare_payload();
-	pending_responses_.emplace(sequence, std::move(response));
+	pending_responses_.emplace(
+	    sequence, pending_write {.response = std::move(response), .close_after_write = decision.close_after_write});
 	notify_write_loop();
 }
 
@@ -215,6 +206,11 @@ void coroutine_http_session::shutdown() {
 	if (ec && ec != boost::asio::error::not_connected) {
 		util::fail(ec, COMPONENT, "shutdown");
 	}
+}
+
+void coroutine_http_session::finish_request(std::size_t sequence) {
+	request_ctxs_.erase(sequence);
+	--outstanding_requests_;
 }
 
 } // namespace warp::http

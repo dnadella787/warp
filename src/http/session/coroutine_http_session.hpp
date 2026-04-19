@@ -10,6 +10,7 @@
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
 
+#include "connection_close_policy.h"
 #include "../router/registry.hpp"
 #include "warp/warp.hpp"
 
@@ -26,19 +27,20 @@ private:
 	boost::asio::awaitable<void> write_loop();
 	boost::asio::awaitable<void> wait_for_read_ready();
 	boost::asio::awaitable<void> wait_for_write_ready();
-	void execute_sync_handler(std::size_t sequence, unsigned version, bool keep_alive, const sync_handler &handler,
-	                          request req);
-	boost::asio::awaitable<void> execute_async_handler(std::size_t sequence, unsigned version, bool keep_alive,
-	                                                   const async_handler &handler, request req);
-	void complete_request(std::size_t sequence, unsigned version, bool keep_alive, response response);
+	void execute_sync_handler(std::size_t sequence, const sync_handler &handler, request req);
+	boost::asio::awaitable<void> execute_async_handler(std::size_t sequence, const async_handler &handler, request req);
+	void complete_request(std::size_t sequence, response response);
 	void notify_read_loop();
 	void notify_write_loop();
+	void finish_request(std::size_t sequence);
 	void shutdown();
 
 	boost::beast::tcp_stream stream_;
 	boost::beast::flat_buffer buffer_;
 	registry &routes_;
-	std::map<std::size_t, warp::response> pending_responses_;
+	std::map<std::size_t, request_context> request_ctxs_;
+	std::map<std::size_t, pending_write> pending_responses_;
+	connection_close_policy policy_ {};
 	std::optional<boost::beast::http::request_parser<boost::beast::http::string_body>> parser_;
 	boost::asio::steady_timer read_signal_;
 	boost::asio::steady_timer write_signal_;
