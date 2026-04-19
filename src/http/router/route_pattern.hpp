@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <optional>
+#include <ranges>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -123,21 +124,21 @@ inline std::vector<std::string> split_route_path(std::string_view path) {
 		return {};
 	}
 
-	std::vector<std::string> segments;
-	std::size_t start = 1;
-	while (start <= clean.size()) {
-		const auto end = clean.find('/', start);
-		const auto token = clean.substr(start, end == std::string_view::npos ? std::string_view::npos : end - start);
-		if (token.empty()) {
-			throw std::invalid_argument("route path contains an empty segment");
-		}
-		segments.emplace_back(token);
-		if (end == std::string_view::npos) {
-			break;
-		}
-		start = end + 1;
-	}
+	auto split_view = clean.substr(1) | std::views::split('/')
+						   | std::views::transform([](auto&& rng)-> std::string {
+								// Convert the sub-range back into a string_view
+								std::string_view segment{rng.data(), rng.size()};
+								// error on // pattern
+								if (segment.empty())
+									throw std::invalid_argument("route path contains an empty segment");
+								return std::string(segment);
+						   });
 
+	std::vector<std::string> segments;
+	segments.reserve(6);
+
+	for (auto&& seg : split_view)
+		segments.push_back(std::move(seg));
 	return segments;
 }
 

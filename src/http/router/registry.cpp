@@ -126,7 +126,7 @@ registry::node registry::clone_node(const node &source) {
 const registry::route_entry *registry::match_route(const node &root, std::string_view path) {
 	std::vector<std::string> segments;
 	try {
-		segments = warp::http::split_route_path(path);
+		segments = split_route_path(path);
 	} catch (const std::invalid_argument &) {
 		return nullptr;
 	}
@@ -154,7 +154,7 @@ void registry::apply_path_params(request &req, std::string_view path, const rout
 	params.reserve(route.parameters.size());
 
 	if (!route.parameters.empty()) {
-		const auto segments = warp::http::split_route_path(path);
+		const auto segments = split_route_path(path);
 		for (const auto &parameter : route.parameters) {
 			if (parameter.index >= segments.size()) {
 				break;
