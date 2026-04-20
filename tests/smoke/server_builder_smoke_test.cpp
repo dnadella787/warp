@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <thread>
 
 #include "warp/warp.hpp"
 #include "warp/http/server_builder.hpp"
@@ -63,6 +64,33 @@ TEST(ServerBuilderSmokeTest, RegistersMutableAndConstResources) {
 	auto &configured = builder.register_resource(resource).register_resource(const_resource_instance);
 
 	EXPECT_EQ(&configured, &builder);
+}
+
+TEST(ServerBuilderSmokeTest, ConcurrentRunAndStopDoNotRaceServerLifecycle) {
+	for (auto mode : event_loop_modes) {
+		for (int iteration = 0; iteration < 25; ++iteration) {
+			auto server = warp::http::server_builder()
+			                  .address("127.0.0.1")
+			                  .port(0)
+			                  .worker_threads(2)
+			                  .event_loop(mode)
+			                  .get("/health", [](const warp::request &) -> warp::response {
+				                  return warp::response::ok("ok");
+			                  })
+			                  .build();
+
+			std::thread runner([&server]() {
+				server.run(false);
+			});
+			std::thread stopper([&server]() {
+				server.stop();
+			});
+
+			runner.join();
+			stopper.join();
+			server.stop();
+		}
+	}
 }
 
 } // namespace

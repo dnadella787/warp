@@ -8,6 +8,7 @@
 
 #include <atomic>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <thread>
 
@@ -193,6 +194,30 @@ TEST_P(HttpConnectionAndErrorIntegrationTest, AsyncCloseRequestBlocksFasterSyncR
 
 	std::this_thread::sleep_for(150ms);
 	EXPECT_EQ(after_processed->load(std::memory_order_acquire), 1);
+}
+
+TEST_P(HttpConnectionAndErrorIntegrationTest, StopCalledFromIoWorkerThreadDoesNotDeadlock) {
+	auto stop_returned = std::make_shared<std::atomic<bool>>(false);
+	auto controller = std::make_shared<std::optional<warp::http::server::controller>>();
+
+	support::server_fixture fixture(warp::http::server_builder()
+	                                    .event_loop(GetParam())
+	                                    .get("/stop", [controller, stop_returned](const request &) -> response {
+		                                    controller->value().stop();
+		                                    stop_returned->store(true, std::memory_order_release);
+		                                    return response::ok(body_builder().set("route", "stop").build());
+	                                    }));
+	*controller = fixture.server.get_controller();
+
+	auto client = support::connect_client(fixture.port);
+	support::send_requests(*client, support::make_get_request("/stop", "close"));
+
+	const auto deadline = std::chrono::steady_clock::now() + 1s;
+	while (!stop_returned->load(std::memory_order_acquire) && std::chrono::steady_clock::now() < deadline) {
+		std::this_thread::sleep_for(10ms);
+	}
+
+	EXPECT_TRUE(stop_returned->load(std::memory_order_acquire));
 }
 
 // Uncomment once uncaught exception handling is configurable

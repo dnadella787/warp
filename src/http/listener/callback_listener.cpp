@@ -30,10 +30,14 @@ void callback_listener::do_accept() {
 }
 
 void callback_listener::on_accept(boost::beast::error_code ec, boost::asio::ip::tcp::socket socket) {
-	if (ec)
+	if (ec) {
+		if (ec == boost::asio::error::operation_aborted) {
+			return;
+		}
 		util::fail(ec, COMPONENT, "on_accept");
-	else
+	} else {
 		std::make_shared<callback_http_session>(std::move(socket), registry_)->start();
+	}
 
 	do_accept();
 }

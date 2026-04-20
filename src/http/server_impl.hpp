@@ -1,7 +1,9 @@
 #pragma once
 
-#include <atomic>
+#include <condition_variable>
 #include <memory>
+#include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 
@@ -22,16 +24,27 @@ public:
 	void stop() override;
 
 private:
+	enum class lifecycle_state {
+		stopped,
+		starting,
+		running,
+		stopping,
+	};
+
 	void start_runner_threads();
-	void stop_io_ctx();
+	std::vector<std::thread> stop_io_ctx();
+	static void join_runner_threads(std::vector<std::thread> threads, std::thread::id current_thread_id);
 
 	std::size_t pool_size_;
 	boost::asio::io_context io_ctx_;
 	registry routes_;
 	std::shared_ptr<base_listener> listener_;
-	boost::asio::executor_work_guard<boost::asio::io_context::executor_type> guard_;
+	std::optional<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> guard_;
 	std::vector<std::thread> threads_;
-	std::atomic<bool> running_ {false};
+	std::mutex lifecycle_mutex_;
+	std::condition_variable lifecycle_cv_;
+	lifecycle_state state_ {lifecycle_state::stopped};
+	std::optional<std::thread::id> stopping_thread_id_;
 
 	using listener_t = typename listener_traits<Mode>::type;
 };

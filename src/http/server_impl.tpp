@@ -11,42 +11,89 @@ namespace warp::http {
 template <event_loop_mode Mode>
 server::server_impl<Mode>::server_impl(const std::string &address, std::uint16_t port, std::size_t workers, registry routes)
 : pool_size_(workers ? workers : 1), io_ctx_(static_cast<int>(pool_size_)), routes_(std::move(routes)),
-	guard_(boost::asio::make_work_guard(io_ctx_)), listener_(std::make_shared<listener_t>(io_ctx_, routes_, address, port)) {
+	listener_(std::make_shared<listener_t>(io_ctx_, routes_, address, port)) {
 	threads_.reserve(pool_size_);
 }
 
-/*
- std::atomic<bool> running_ checked via std::atomic::exchange(true/false, std::memory_order_acq_rel)
- guarantees that run()/stop() check the value and update the server resources (like thread pool/listener)
- accordingly before propagating the change downstream to an acquire on another thread (e.g. run()/stop()).
-
- TLDR: run/stop are r/w
- */
 template <event_loop_mode _>
 void server::server_impl<_>::run(bool blocking) {
-	// try to start, if its already running just return early, use acq_rel
-	// b/c we want to acquire the current state and check if it in a non-running
-	// state, and then release it to consumers like listener::run()/stop()
-	if (running_.exchange(true, std::memory_order_acq_rel)) {
+	std::vector<std::thread> threads_to_join;
+
+	{
+		std::unique_lock lock(lifecycle_mutex_);
+		if (state_ != lifecycle_state::stopped) {
+			return;
+		}
+
+		state_ = lifecycle_state::starting;
+		io_ctx_.restart();
+		guard_.emplace(boost::asio::make_work_guard(io_ctx_));
+
+		try {
+			start_runner_threads();
+			listener_->run();
+			state_ = lifecycle_state::running;
+		} catch (...) {
+			state_ = lifecycle_state::stopping;
+			stopping_thread_id_ = std::this_thread::get_id();
+			threads_to_join = stop_io_ctx();
+			lock.unlock();
+			join_runner_threads(std::move(threads_to_join), std::this_thread::get_id());
+			lock.lock();
+			state_ = lifecycle_state::stopped;
+			stopping_thread_id_.reset();
+			lock.unlock();
+			lifecycle_cv_.notify_all();
+			throw;
+		}
+	}
+
+	if (!blocking) {
 		return;
 	}
-	start_runner_threads();
-	listener_->run();
-	if (blocking)
+
+	try {
 		io_ctx_.run();
+	} catch (...) {
+		stop();
+		throw;
+	}
 }
 
 template <event_loop_mode Mode>
 void server::server_impl<Mode>::stop() {
-	// try to stop, if its already stopped just return early, use acq_rel
-	// b/c we want to ensure that all previous activity on running_ is
-	// published (i.e. from run() or other stop() threads) before we cancel
-	// the io_context pool and acceptor
-	if (!running_.exchange(false, std::memory_order_acq_rel)) {
-		return;
+	std::vector<std::thread> threads_to_join;
+
+	{
+		std::unique_lock lock(lifecycle_mutex_);
+		if (state_ == lifecycle_state::stopped) {
+			return;
+		}
+
+		if (state_ == lifecycle_state::stopping) {
+			if (stopping_thread_id_ == std::this_thread::get_id()) {
+				return;
+			}
+
+			lifecycle_cv_.wait(lock, [this]() {
+				return state_ == lifecycle_state::stopped;
+			});
+			return;
+		}
+
+		state_ = lifecycle_state::stopping;
+		stopping_thread_id_ = std::this_thread::get_id();
+		threads_to_join = stop_io_ctx();
 	}
 
-	stop_io_ctx();
+	join_runner_threads(std::move(threads_to_join), std::this_thread::get_id());
+
+	{
+		std::lock_guard lock(lifecycle_mutex_);
+		state_ = lifecycle_state::stopped;
+		stopping_thread_id_.reset();
+	}
+	lifecycle_cv_.notify_all();
 }
 
 template <event_loop_mode Mode>
@@ -66,15 +113,30 @@ void server::server_impl<Mode>::start_runner_threads() {
 }
 
 template <event_loop_mode Mode>
-void server::server_impl<Mode>::stop_io_ctx() {
-	guard_.reset();
+std::vector<std::thread> server::server_impl<Mode>::stop_io_ctx() {
+	if (guard_) {
+		guard_->reset();
+		guard_.reset();
+	}
+
 	io_ctx_.stop();
-	for (auto &t : threads_) {
+
+	auto threads = std::move(threads_);
+	threads_.reserve(pool_size_);
+	return threads;
+}
+
+template <event_loop_mode Mode>
+void server::server_impl<Mode>::join_runner_threads(std::vector<std::thread> threads, std::thread::id current_thread_id) {
+	for (auto &t : threads) {
 		if (t.joinable()) {
+			if (t.get_id() == current_thread_id) {
+				t.detach();
+				continue;
+			}
 			t.join();
 		}
 	}
-	threads_.clear();
 }
 
 } // namespace warp::http
