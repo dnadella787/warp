@@ -1,0 +1,9 @@
+cpp_namespace: generated_multi_header_secondary_api
+resources:
+  - name: users
+    endpoints:
+      - name: health
+        method: GET
+        path: /users/health
+        response:
+          status: 204

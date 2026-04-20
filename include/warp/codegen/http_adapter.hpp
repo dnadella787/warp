@@ -6,8 +6,11 @@
 #include <boost/beast/http/status.hpp>
 #include <boost/json/value_from.hpp>
 
+#include <concepts>
 #include <functional>
+#include <memory>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -110,6 +113,30 @@ namespace detail {
 template <typename T>
 inline constexpr bool always_false_v = false;
 
+template <typename... Ts>
+struct type_list {};
+
+template <typename T>
+struct member_pointer_traits;
+
+template <typename Class, typename Value>
+struct member_pointer_traits<Value Class::*> {
+	using class_type = Class;
+	using value_type = Value;
+};
+
+template <typename T>
+struct optional_value_traits {
+	static constexpr bool is_optional = false;
+	using value_type = T;
+};
+
+template <typename T>
+struct optional_value_traits<std::optional<T>> {
+	static constexpr bool is_optional = true;
+	using value_type = T;
+};
+
 template <typename T>
 constexpr std::string_view scalar_type_name() {
 	if constexpr (std::is_same_v<T, std::string>) {
@@ -170,7 +197,49 @@ parse_result<T> parse_scalar_impl(std::string_view value, std::string_view field
 	}
 }
 
+template <typename Selector, typename Service, typename Signature>
+consteval bool member_signature_matches() {
+	return Selector::template matches<Signature, Service>();
+}
+
+template <typename Selector, typename Service, typename... Signatures>
+consteval std::size_t matching_member_signature_count(type_list<Signatures...>) {
+	return (static_cast<std::size_t>(member_signature_matches<Selector, Service, Signatures>()) + ... + 0U);
+}
+
+template <typename Selector, typename Service, typename Request, typename Signature>
+decltype(auto) invoke_matching_member(Service &service, Request &&request, type_list<Signature>) {
+	static_assert(member_signature_matches<Selector, Service, Signature>());
+	return std::invoke(Selector::template get<Signature, Service>(), service, std::forward<Request>(request));
+}
+
+template <typename Selector, typename Service, typename Request, typename Signature, typename... Signatures>
+decltype(auto) invoke_matching_member(Service &service, Request &&request, type_list<Signature, Signatures...>) {
+	if constexpr (member_signature_matches<Selector, Service, Signature>()) {
+		return std::invoke(Selector::template get<Signature, Service>(), service, std::forward<Request>(request));
+	} else {
+		return invoke_matching_member<Selector>(service, std::forward<Request>(request), type_list<Signatures...> {});
+	}
+}
+
+template <typename Service, typename Result, typename Request>
+using endpoint_member_signatures =
+    type_list<Result (Service::*)(Request), Result (Service::*)(Request) &, Result (Service::*)(Request &&),
+              Result (Service::*)(Request &&) &, Result (Service::*)(const Request &),
+              Result (Service::*)(const Request &) &, Result (Service::*)(const Request &&),
+              Result (Service::*)(const Request &&) &, Result (Service::*)(Request) const,
+              Result (Service::*)(Request) const &, Result (Service::*)(Request &&) const,
+              Result (Service::*)(Request &&) const &, Result (Service::*)(const Request &) const,
+              Result (Service::*)(const Request &) const &, Result (Service::*)(const Request &&) const,
+              Result (Service::*)(const Request &&) const &>;
+
 } // namespace detail
+
+template <typename Contract>
+concept request_contract = requires(const request &req) {
+	typename Contract::request_type;
+	{ Contract::parse(req) } -> std::same_as<parse_result<typename Contract::request_type>>;
+};
 
 inline std::optional<std::string_view> header_value(const request &req, std::string_view name) {
 	const auto it = req.find(boost::beast::string_view {name.data(), name.size()});
@@ -330,6 +399,123 @@ parse_result<RequestContract> parse_http_request(const request &req) {
 	return request_contract_traits<RequestContract>::parse(req);
 }
 
+template <auto Member, http::fixed_string Name>
+struct path_binding {
+	using pointer_traits = detail::member_pointer_traits<decltype(Member)>;
+	using request_type = typename pointer_traits::class_type;
+	using value_type = typename pointer_traits::value_type;
+
+	static_assert(!detail::optional_value_traits<value_type>::is_optional,
+	              "path bindings must target a non-optional member");
+
+	static constexpr auto member = Member;
+
+	static parse_result<value_type> parse(const request &req) {
+		return required_path_param<value_type>(req, Name.view());
+	}
+};
+
+template <auto Member, http::fixed_string Name>
+struct query_binding {
+	using pointer_traits = detail::member_pointer_traits<decltype(Member)>;
+	using request_type = typename pointer_traits::class_type;
+	using value_type = typename pointer_traits::value_type;
+	using scalar_type = typename detail::optional_value_traits<value_type>::value_type;
+
+	static constexpr auto member = Member;
+
+	static parse_result<value_type> parse(const request &req) {
+		if constexpr (detail::optional_value_traits<value_type>::is_optional) {
+			return optional_query_param<scalar_type>(req, Name.view());
+		} else {
+			return required_query_param<value_type>(req, Name.view());
+		}
+	}
+};
+
+template <auto Member, http::fixed_string Name>
+struct header_binding {
+	using pointer_traits = detail::member_pointer_traits<decltype(Member)>;
+	using request_type = typename pointer_traits::class_type;
+	using value_type = typename pointer_traits::value_type;
+	using scalar_type = typename detail::optional_value_traits<value_type>::value_type;
+
+	static constexpr auto member = Member;
+
+	static parse_result<value_type> parse(const request &req) {
+		if constexpr (detail::optional_value_traits<value_type>::is_optional) {
+			return optional_header_param<scalar_type>(req, Name.view());
+		} else {
+			return required_header_param<value_type>(req, Name.view());
+		}
+	}
+};
+
+template <auto Member>
+struct json_body_binding {
+	using pointer_traits = detail::member_pointer_traits<decltype(Member)>;
+	using request_type = typename pointer_traits::class_type;
+	using value_type = typename pointer_traits::value_type;
+
+	static_assert(!detail::optional_value_traits<value_type>::is_optional,
+	              "JSON body bindings must target a non-optional member");
+
+	static constexpr auto member = Member;
+
+	static parse_result<value_type> parse(const request &req) {
+		return json_body<value_type>(req);
+	}
+};
+
+template <typename Request, typename... Bindings>
+struct generated_request_contract {
+	using request_type = Request;
+
+	static_assert((std::is_same_v<Request, typename Bindings::request_type> && ...),
+	              "all bindings in a request contract must target the same request type");
+
+	static parse_result<Request> parse(const request &req) {
+		if (const auto target_error = request_target_binding_error(req); target_error.has_value()) {
+			return parse_result<Request>::failure(*target_error);
+		}
+
+		Request out;
+		binding_error error;
+		if (!(apply_binding<Bindings>(out, req, error) && ...)) {
+			return parse_result<Request>::failure(std::move(error));
+		}
+		return parse_result<Request>::success(std::move(out));
+	}
+
+private:
+	template <typename Binding>
+	static bool apply_binding(Request &out, const request &req, binding_error &error) {
+		auto parsed = Binding::parse(req);
+		if (!parsed.has_value()) {
+			error = parsed.error();
+			return false;
+		}
+		out.*(Binding::member) = std::move(parsed).value();
+		return true;
+	}
+};
+
+template <typename Response>
+struct empty_response_contract {
+	static constexpr unsigned status_code = Response::status_code;
+	static constexpr bool has_body = false;
+};
+
+template <typename Response, auto BodyMember>
+struct body_response_contract {
+	static constexpr unsigned status_code = Response::status_code;
+	static constexpr bool has_body = true;
+
+	static decltype(auto) body(const Response &value) {
+		return value.*BodyMember;
+	}
+};
+
 template <typename T>
 struct endpoint_response {
 	boost::beast::http::status status {boost::beast::http::status::ok};
@@ -385,6 +571,87 @@ awaitable<ResponseType> invoke_user_handler(Invocable &&invocable) {
 		              "handler must return ResponseType or warp::awaitable<ResponseType>");
 	}
 }
+
+template <typename ResponseType, typename RequestType, typename Service, typename Selector>
+decltype(auto) invoke_endpoint_handler_overload(Service &service, RequestType &&request) {
+	using sync_signatures = detail::endpoint_member_signatures<Service, ResponseType, RequestType>;
+	using async_signatures = detail::endpoint_member_signatures<Service, awaitable<ResponseType>, RequestType>;
+
+	constexpr auto sync_match_count = detail::matching_member_signature_count<Selector, Service>(sync_signatures {});
+	constexpr auto async_match_count = detail::matching_member_signature_count<Selector, Service>(async_signatures {});
+	constexpr auto total_match_count = sync_match_count + async_match_count;
+
+	static_assert(total_match_count > 0,
+	              "generated endpoint handler resolution could not find an overload matching the endpoint request/"
+	              "response contract");
+	static_assert(total_match_count == 1,
+	              "generated endpoint handler resolution is ambiguous: multiple overloads match the endpoint request/"
+	              "response contract");
+
+	if constexpr (sync_match_count == 1) {
+		return detail::invoke_matching_member<Selector>(service, std::forward<RequestType>(request),
+		                                                sync_signatures {});
+	} else {
+		return detail::invoke_matching_member<Selector>(service, std::forward<RequestType>(request),
+		                                                async_signatures {});
+	}
+}
+
+template <typename ResponseType, typename Service, typename HandlerFn, typename RequestType>
+concept endpoint_handler = requires(HandlerFn handler_fn, Service &service, RequestType request) {
+	{ std::invoke(handler_fn, service, std::move(request)) } -> std::same_as<ResponseType>;
+} || requires(HandlerFn handler_fn, Service &service, RequestType request) {
+	{ std::invoke(handler_fn, service, std::move(request)) } -> std::same_as<awaitable<ResponseType>>;
+};
+
+template <request_contract RequestContract, typename ResponseType, typename Service, typename MemberFn>
+    requires endpoint_handler<ResponseType, Service, MemberFn, typename RequestContract::request_type>
+auto bind_endpoint(std::shared_ptr<Service> service, MemberFn member_fn) {
+	return [service = std::move(service), member_fn](warp::request req) -> warp::awaitable<warp::response> {
+		const auto version = req.version();
+		const auto keep_alive = req.keep_alive();
+
+		auto typed_request = RequestContract::parse(req);
+		if (!typed_request.has_value()) {
+			auto response = warp::codegen::to_error_response(typed_request.error(), version);
+			response.keep_alive(keep_alive);
+			co_return response;
+		}
+
+		auto typed_response = co_await warp::codegen::invoke_user_handler<ResponseType>(
+		    [service, member_fn, typed_request = std::move(typed_request).value()]() mutable {
+			    return std::invoke(member_fn, *service, std::move(typed_request));
+		    });
+
+		auto response = warp::codegen::to_http_response(typed_response, version);
+		response.keep_alive(keep_alive);
+		co_return response;
+	};
+}
+
+template <typename Service, typename Route, request_contract RequestContract, typename ResponseType, auto MemberFn>
+struct endpoint_binding {
+	static void register_route(http::server_builder &builder, const std::shared_ptr<Service> &service) {
+		builder.route(Route {}, bind_endpoint<RequestContract, ResponseType>(service, MemberFn));
+	}
+};
+
+template <typename Service, typename... Endpoints>
+class generated_resource {
+public:
+	explicit generated_resource(std::shared_ptr<Service> service) : service_(std::move(service)) {
+		if (!service_) {
+			throw std::invalid_argument("service must not be null");
+		}
+	}
+
+	void register_routes(http::server_builder &builder) const {
+		(Endpoints::register_route(builder, service_), ...);
+	}
+
+private:
+	std::shared_ptr<Service> service_;
+};
 
 template <typename... Resources>
 void register_resources(http::server_builder &builder, Resources &...resources) {

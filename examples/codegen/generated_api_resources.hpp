@@ -3,120 +3,90 @@
 #include "generated_api_types.hpp"
 #include "warp/codegen/http_adapter.hpp"
 
-#include <memory>
-#include <stdexcept>
-#include <utility>
+namespace generated_api::codegen_detail {
+
+using users_create_user_request_contract = warp::codegen::generated_request_contract<
+    users_create_user_request, warp::codegen::path_binding<&users_create_user_request::user_id, "user_id">,
+    warp::codegen::query_binding<&users_create_user_request::verbose, "verbose">,
+    warp::codegen::header_binding<&users_create_user_request::x_trace_id, "x-trace-id">,
+    warp::codegen::json_body_binding<&users_create_user_request::body>>;
+using users_create_user_response_contract =
+    warp::codegen::body_response_contract<users_create_user_response, &users_create_user_response::body>;
+struct users_create_user_request_handler_selector {
+	template <typename Signature, typename Service>
+	static consteval bool matches() {
+		return requires { static_cast<Signature>(&Service::create_user); };
+	}
+	template <typename Signature, typename Service>
+	static constexpr Signature get() {
+		return static_cast<Signature>(&Service::create_user);
+	}
+};
+
+using users_health_request_contract = warp::codegen::generated_request_contract<users_health_request>;
+using users_health_response_contract = warp::codegen::empty_response_contract<users_health_response>;
+struct users_health_request_handler_selector {
+	template <typename Signature, typename Service>
+	static consteval bool matches() {
+		return requires { static_cast<Signature>(&Service::health); };
+	}
+	template <typename Signature, typename Service>
+	static constexpr Signature get() {
+		return static_cast<Signature>(&Service::health);
+	}
+};
+
+} // namespace generated_api::codegen_detail
 
 namespace warp::codegen {
 
 template <>
-struct request_contract_traits<generated_api::users_create_user_request> {
-	static parse_result<generated_api::users_create_user_request> parse(const request &req) {
-		generated_api::users_create_user_request out;
-		auto parsed_user_id = required_path_param<std::string>(req, "user_id");
-		if (!parsed_user_id.has_value()) {
-			return parse_result<generated_api::users_create_user_request>::failure(parsed_user_id.error());
-		}
-		out.user_id = std::move(parsed_user_id).value();
-		auto parsed_verbose = optional_query_param<bool>(req, "verbose");
-		if (!parsed_verbose.has_value()) {
-			return parse_result<generated_api::users_create_user_request>::failure(parsed_verbose.error());
-		}
-		out.verbose = std::move(parsed_verbose).value();
-		auto parsed_x_trace_id = required_header_param<std::string>(req, "x-trace-id");
-		if (!parsed_x_trace_id.has_value()) {
-			return parse_result<generated_api::users_create_user_request>::failure(parsed_x_trace_id.error());
-		}
-		out.x_trace_id = std::move(parsed_x_trace_id).value();
-		auto parsed_body = json_body<generated_api::users_create_user_request_body>(req);
-		if (!parsed_body.has_value()) {
-			return parse_result<generated_api::users_create_user_request>::failure(parsed_body.error());
-		}
-		out.body = std::move(parsed_body).value();
-		return parse_result<generated_api::users_create_user_request>::success(std::move(out));
-	}
-};
+struct request_contract_traits<generated_api::users_create_user_request>
+    : generated_api::codegen_detail::users_create_user_request_contract {};
 
 template <>
-struct response_contract_traits<generated_api::users_create_user_response> {
-	static constexpr unsigned status_code = generated_api::users_create_user_response::status_code;
-	static constexpr bool has_body = true;
-	static const generated_api::users_create_user_response_body &
-	body(const generated_api::users_create_user_response &value) {
-		return value.body;
-	}
-};
+struct response_contract_traits<generated_api::users_create_user_response>
+    : generated_api::codegen_detail::users_create_user_response_contract {};
 
 template <>
-struct request_contract_traits<generated_api::users_health_request> {
-	static parse_result<generated_api::users_health_request> parse(const request &req) {
-		generated_api::users_health_request out;
-		return parse_result<generated_api::users_health_request>::success(std::move(out));
-	}
-};
+struct request_contract_traits<generated_api::users_health_request>
+    : generated_api::codegen_detail::users_health_request_contract {};
 
 template <>
-struct response_contract_traits<generated_api::users_health_response> {
-	static constexpr unsigned status_code = generated_api::users_health_response::status_code;
-	static constexpr bool has_body = false;
-};
+struct response_contract_traits<generated_api::users_health_response>
+    : generated_api::codegen_detail::users_health_response_contract {};
 
 } // namespace warp::codegen
 
 namespace generated_api {
 
+using users_create_user_request_route = warp::http::route_spec<warp::method::post, "/users/{user_id}">;
+using users_health_request_route = warp::http::route_spec<warp::method::get, "/health">;
+
 template <typename Service>
-class users_api_routes {
-public:
-	explicit users_api_routes(std::shared_ptr<Service> service) : service_(std::move(service)) {
-		if (!service_) {
-			throw std::invalid_argument("service must not be null");
-		}
-	}
+using users_create_user_request_endpoint = warp::codegen::endpoint_binding<
+    Service, users_create_user_request_route,
+    warp::codegen::request_contract_traits<generated_api::users_create_user_request>,
+    generated_api::users_create_user_response,
+    [](Service &service, generated_api::users_create_user_request &&typed_request) -> decltype(auto) {
+	    return warp::codegen::invoke_endpoint_handler_overload<
+	        generated_api::users_create_user_response, generated_api::users_create_user_request, Service,
+	        generated_api::codegen_detail::users_create_user_request_handler_selector>(service,
+	                                                                                   std::move(typed_request));
+    }>;
 
-	void register_routes(warp::http::server_builder &builder) const {
-		builder.route(warp::method::post, "/users/{user_id}",
-		              [service = service_](warp::request req) -> warp::awaitable<warp::response> {
-			              const auto version = req.version();
-			              const auto keep_alive = req.keep_alive();
-			              auto typed_request =
-			                  warp::codegen::parse_http_request<generated_api::users_create_user_request>(req);
-			              if (!typed_request.has_value()) {
-				              auto response = warp::codegen::to_error_response(typed_request.error(), version);
-				              response.keep_alive(keep_alive);
-				              co_return response;
-			              }
-			              auto typed_response =
-			                  co_await warp::codegen::invoke_user_handler<generated_api::users_create_user_response>(
-			                      [service, typed_request = std::move(typed_request).value()]() mutable {
-				                      return service->create_user(std::move(typed_request));
-			                      });
-			              auto response = warp::codegen::to_http_response(typed_response, version);
-			              response.keep_alive(keep_alive);
-			              co_return response;
-		              });
-		builder.route(
-		    warp::method::get, "/health", [service = service_](warp::request req) -> warp::awaitable<warp::response> {
-			    const auto version = req.version();
-			    const auto keep_alive = req.keep_alive();
-			    auto typed_request = warp::codegen::parse_http_request<generated_api::users_health_request>(req);
-			    if (!typed_request.has_value()) {
-				    auto response = warp::codegen::to_error_response(typed_request.error(), version);
-				    response.keep_alive(keep_alive);
-				    co_return response;
-			    }
-			    auto typed_response = co_await warp::codegen::invoke_user_handler<generated_api::users_health_response>(
-			        [service, typed_request = std::move(typed_request).value()]() mutable {
-				        return service->health(std::move(typed_request));
-			        });
-			    auto response = warp::codegen::to_http_response(typed_response, version);
-			    response.keep_alive(keep_alive);
-			    co_return response;
-		    });
-	}
+template <typename Service>
+using users_health_request_endpoint = warp::codegen::endpoint_binding<
+    Service, users_health_request_route, warp::codegen::request_contract_traits<generated_api::users_health_request>,
+    generated_api::users_health_response,
+    [](Service &service, generated_api::users_health_request &&typed_request) -> decltype(auto) {
+	    return warp::codegen::invoke_endpoint_handler_overload<
+	        generated_api::users_health_response, generated_api::users_health_request, Service,
+	        generated_api::codegen_detail::users_health_request_handler_selector>(service, std::move(typed_request));
+    }>;
 
-private:
-	std::shared_ptr<Service> service_;
-};
+template <typename Service>
+using users_api_routes = warp::codegen::generated_resource<Service, users_create_user_request_endpoint<Service>,
+                                                           users_health_request_endpoint<Service>>;
 
 } // namespace generated_api

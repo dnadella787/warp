@@ -139,7 +139,7 @@ clang-format -i $(git ls-files '*.cpp' '*.hpp')
 
 ### Code generation
 
-Warp can generate typed request/response models and CRTP resource bases from a YAML API description. The generator surface lives under `warp::codegen`.
+Warp can generate typed request/response models and route-registration adapters from a YAML API description. The generator surface lives under `warp::codegen`.
 
 Two supported workflows:
 

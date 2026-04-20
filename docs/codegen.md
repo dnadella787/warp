@@ -4,7 +4,7 @@ Warp includes a code generation pipeline that turns a constrained YAML API descr
 
 - JSON request/response body structs
 - typed endpoint request envelopes
-- CRTP resource base classes grouped by resource
+- generated route-registration adapters grouped by resource
 - request parsing and response serialization glue for `warp::request` / `warp::response`
 
 ## YAML format
@@ -70,7 +70,7 @@ Schema rules:
 - Request parameters must be primitive
 - Path parameters must be present in both the route path and the request parameter list
 - Nullable schemas are reserved for future support and currently rejected during model normalization
-- Generated type names and CRTP resource-base names use `snake_case`
+- Generated type names and route-adapter aliases use `snake_case`
 - Generated C++ member names are sanitized to valid identifiers while preserving the wire name for binding, for example `x-trace-id` becomes `x_trace_id`
 
 ## Ahead-of-time generation with the CLI
@@ -158,16 +158,16 @@ int main() {
 `warp::codegen::api_stub_generator` emits two headers:
 
 - model header: JSON body structs, typed request envelopes, typed result structs
-- resource header: `request_contract_traits`, `response_contract_traits`, and CRTP resource bases
+- resource header: request/response contract aliases and a generated route-registration alias per resource
 
-The generated resource base shape is:
+The generated resource adapter shape is:
 
 ```cpp
-template <typename Derived>
-class users_api_base {
-public:
-    void register_routes(warp::http::server_builder &builder);
-};
+template <typename Service>
+using users_api_routes = warp::codegen::generated_resource<
+    Service,
+    users_create_user_request_endpoint<Service>,
+    users_health_request_endpoint<Service>>;
 ```
 
 The resource class implements handlers like:
@@ -210,7 +210,7 @@ Responses are serialized from the generated result type using `response_contract
 
 1. Add a new resource or endpoint entry to the YAML file.
 2. Regenerate headers with either `warp_codegen` or `warp_generate_stubs(...)`.
-3. Extend the generated CRTP resource base and implement the new handler.
+3. Implement the generated request/response handler signatures on your service class.
 4. Register the derived resource with `server_builder`.
 
 ## Running tests

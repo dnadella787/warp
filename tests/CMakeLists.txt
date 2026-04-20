@@ -35,6 +35,9 @@ endfunction()
 
 set(GENERATED_CODEGEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/codegen")
 set(GENERATED_QUERY_ROUTING_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/query_routing")
+set(GENERATED_OVERLOADED_HANDLER_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/overloaded_handler")
+set(GENERATED_MULTI_HEADER_PRIMARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/multi_header_primary")
+set(GENERATED_MULTI_HEADER_SECONDARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/multi_header_secondary")
 
 warp_generate_stubs(
     TARGET generated_users_api_headers
@@ -50,6 +53,30 @@ warp_generate_stubs(
     OUTPUT_DIR "${GENERATED_QUERY_ROUTING_DIR}"
     MODEL_HEADER "generated_query_routing_api_types.hpp"
     RESOURCE_HEADER "generated_query_routing_api_resources.hpp"
+)
+
+warp_generate_stubs(
+    TARGET generated_overloaded_handler_api_headers
+    SPEC "${PROJECT_SOURCE_DIR}/tests/fixtures/codegen/overloaded_handler_api.yaml"
+    OUTPUT_DIR "${GENERATED_OVERLOADED_HANDLER_DIR}"
+    MODEL_HEADER "generated_overloaded_handler_api_types.hpp"
+    RESOURCE_HEADER "generated_overloaded_handler_api_resources.hpp"
+)
+
+warp_generate_stubs(
+    TARGET generated_multi_header_primary_api_headers
+    SPEC "${PROJECT_SOURCE_DIR}/tests/fixtures/codegen/multi_generated_header_primary_api.yaml"
+    OUTPUT_DIR "${GENERATED_MULTI_HEADER_PRIMARY_DIR}"
+    MODEL_HEADER "generated_multi_header_primary_api_types.hpp"
+    RESOURCE_HEADER "generated_multi_header_primary_api_resources.hpp"
+)
+
+warp_generate_stubs(
+    TARGET generated_multi_header_secondary_api_headers
+    SPEC "${PROJECT_SOURCE_DIR}/tests/fixtures/codegen/multi_generated_header_secondary_api.yaml"
+    OUTPUT_DIR "${GENERATED_MULTI_HEADER_SECONDARY_DIR}"
+    MODEL_HEADER "generated_multi_header_secondary_api_types.hpp"
+    RESOURCE_HEADER "generated_multi_header_secondary_api_resources.hpp"
 )
 
 set(warp_http_unit_test_sources
@@ -97,6 +124,26 @@ add_warp_compile_only_suite(warp_http_route_validation_compile
 add_dependencies(warp_http_route_validation_compile generated_query_routing_api_headers)
 target_include_directories(warp_http_route_validation_compile PRIVATE
     "${GENERATED_QUERY_ROUTING_DIR}"
+)
+
+add_warp_compile_only_suite(warp_http_overloaded_handler_compile
+    compile/overloaded_handler_codegen_compile.cpp
+)
+add_dependencies(warp_http_overloaded_handler_compile generated_overloaded_handler_api_headers)
+target_include_directories(warp_http_overloaded_handler_compile PRIVATE
+    "${GENERATED_OVERLOADED_HANDLER_DIR}"
+)
+
+add_warp_compile_only_suite(warp_http_multi_generated_header_compile
+    compile/multi_generated_header_coexistence_compile.cpp
+)
+add_dependencies(warp_http_multi_generated_header_compile
+    generated_multi_header_primary_api_headers
+    generated_multi_header_secondary_api_headers
+)
+target_include_directories(warp_http_multi_generated_header_compile PRIVATE
+    "${GENERATED_MULTI_HEADER_PRIMARY_DIR}"
+    "${GENERATED_MULTI_HEADER_SECONDARY_DIR}"
 )
 
 if (TARGET warp_db_postgres)

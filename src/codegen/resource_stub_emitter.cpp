@@ -70,33 +70,43 @@ std::string method_expression(http_method method) {
 	throw std::invalid_argument("unsupported HTTP method");
 }
 
-std::string cpp_type(const schema_type &type) {
-	switch (type.type) {
-	case schema_type::kind::string_value:
-		return "std::string";
-	case schema_type::kind::int64_value:
-		return "std::int64_t";
-	case schema_type::kind::double_value:
-		return "double";
-	case schema_type::kind::bool_value:
-		return "bool";
-	case schema_type::kind::object_value:
-		return type.object_name;
-	case schema_type::kind::array_value:
-		if (!type.element_type) {
-			throw std::invalid_argument("array schema must include an element type");
-		}
-		return "std::vector<" + cpp_type(*type.element_type) + ">";
-	}
-	throw std::invalid_argument("unsupported schema type");
-}
-
 std::string request_type_name(const api_model &model, const endpoint_model &endpoint) {
 	return model.cpp_namespace + "::" + endpoint.request.name;
 }
 
 std::string response_type_name(const api_model &model, const endpoint_model &endpoint) {
 	return model.cpp_namespace + "::" + endpoint.result_name;
+}
+
+std::string route_alias_name(const endpoint_model &endpoint) {
+	if (endpoint.query_route.has_value()) {
+		return endpoint.query_route->spec_name;
+	}
+	return endpoint.request.name + "_route";
+}
+
+std::string request_contract_alias_name(const endpoint_model &endpoint) {
+	return endpoint.request.name + "_contract";
+}
+
+std::string response_contract_alias_name(const endpoint_model &endpoint) {
+	return endpoint.result_name + "_contract";
+}
+
+std::string generated_detail_namespace(const api_model &model) {
+	return model.cpp_namespace + "::codegen_detail";
+}
+
+std::string qualified_generated_detail_name(const api_model &model, const std::string &name) {
+	return generated_detail_namespace(model) + "::" + name;
+}
+
+std::string endpoint_binding_alias_name(const endpoint_model &endpoint) {
+	return endpoint.request.name + "_endpoint";
+}
+
+std::string handler_selector_name(const endpoint_model &endpoint) {
+	return endpoint.request.name + "_handler_selector";
 }
 
 [[nodiscard]] bool contains_parameter(const std::vector<std::string> &parameters, std::string_view name) {
@@ -114,11 +124,25 @@ std::string query_constraint_expression(const query_route_model &query_route, co
 	return "warp::http::forbidden_query<" + cpp_string_literal(parameter_name) + ">";
 }
 
+void emit_route_alias(std::string &output, const endpoint_model &endpoint) {
+	std::string alias = "using " + route_alias_name(endpoint) + " = warp::http::route_spec<" +
+	                    method_expression(endpoint.method) + ", " + cpp_string_literal(endpoint.path);
+	alias.append(">;");
+	append_line(output, alias);
+}
+
 void emit_query_route_spec_aliases(std::string &output, const resource_model &resource) {
+	for (const auto &endpoint : resource.endpoints) {
+		if (endpoint.query_route.has_value()) {
+			continue;
+		}
+		emit_route_alias(output, endpoint);
+	}
+
 	for (const auto &group : resource.route_groups) {
 		for (const auto endpoint_index : group.query_route_endpoint_indices) {
 			const auto &endpoint = resource.endpoints[endpoint_index];
-			std::string alias = "using " + endpoint.query_route->spec_name + " = warp::http::route_spec<" +
+			std::string alias = "using " + route_alias_name(endpoint) + " = warp::http::route_spec<" +
 			                    method_expression(endpoint.method) + ", " + cpp_string_literal(endpoint.path);
 			for (const auto &parameter : group.routing_query_parameters) {
 				alias.append(", ");
@@ -132,117 +156,123 @@ void emit_query_route_spec_aliases(std::string &output, const resource_model &re
 			continue;
 		}
 
-		std::string assertion = "\tstatic_assert(warp::http::deterministic_route_definitions<";
+		std::string assertion = "static_assert(warp::http::deterministic_route_definitions<";
 		for (std::size_t i = 0; i < group.query_route_endpoint_indices.size(); ++i) {
 			if (i > 0) {
 				assertion.append(", ");
 			}
-			const auto &endpoint = resource.endpoints[group.query_route_endpoint_indices[i]];
-			assertion.append(endpoint.query_route->spec_name);
+			assertion.append(route_alias_name(resource.endpoints[group.query_route_endpoint_indices[i]]));
 		}
 		assertion.append(">(), \"generated query routes must resolve deterministically\");");
 		append_line(output, assertion);
 	}
 }
 
+std::string binding_expression(const std::string &request_type, const parameter_model &parameter) {
+	const auto member = "&" + request_type + "::" + parameter.member_name;
+	const auto source_name = cpp_string_literal(parameter.source_name);
+	switch (parameter.location) {
+	case parameter_location::path:
+		return "warp::codegen::path_binding<" + member + ", " + source_name + ">";
+	case parameter_location::query:
+		return "warp::codegen::query_binding<" + member + ", " + source_name + ">";
+	case parameter_location::header:
+		return "warp::codegen::header_binding<" + member + ", " + source_name + ">";
+	}
+	throw std::invalid_argument("unsupported parameter location");
+}
+
 void emit_request_contract_traits(std::string &output, const api_model &model, const endpoint_model &endpoint) {
 	const auto request_type = request_type_name(model, endpoint);
+	const auto contract_alias = qualified_generated_detail_name(model, request_contract_alias_name(endpoint));
 	append_line(output, "template <>");
-	append_line(output, "struct request_contract_traits<" + request_type + "> {");
-	append_line(output, "\tstatic parse_result<" + request_type + "> parse(const request &req) {");
-	append_line(output, "\t\t" + request_type + " out;");
-
-	for (const auto &parameter : endpoint.request.parameters) {
-		const std::string parser = parameter.location == parameter_location::path ? "required_path_param"
-		                           : parameter.location == parameter_location::query
-		                               ? (parameter.required ? "required_query_param" : "optional_query_param")
-		                               : (parameter.required ? "required_header_param" : "optional_header_param");
-		const std::string parsed_name = "parsed_" + parameter.member_name;
-		append_line(output, "\t\tauto " + parsed_name + " = " + parser + "<" + cpp_type(parameter.type) + ">(req, " +
-		                        cpp_string_literal(parameter.source_name) + ");");
-		append_line(output, "\t\tif (!" + parsed_name + ".has_value()) {");
-		append_line(output, "\t\t\treturn parse_result<" + request_type + ">::failure(" + parsed_name + ".error());");
-		append_line(output, "\t\t}");
-		append_line(output, "\t\tout." + parameter.member_name + " = std::move(" + parsed_name + ").value();");
-	}
-
-	if (endpoint.request.body_type_name.has_value()) {
-		append_line(output, "\t\tauto parsed_body = json_body<" + model.cpp_namespace +
-		                        "::" + *endpoint.request.body_type_name + ">(req);");
-		append_line(output, "\t\tif (!parsed_body.has_value()) {");
-		append_line(output, "\t\t\treturn parse_result<" + request_type + ">::failure(parsed_body.error());");
-		append_line(output, "\t\t}");
-		append_line(output, "\t\tout.body = std::move(parsed_body).value();");
-	}
-
-	append_line(output, "\t\treturn parse_result<" + request_type + ">::success(std::move(out));");
-	append_line(output, "\t}");
-	append_line(output, "};");
+	append_line(output, "struct request_contract_traits<" + request_type + "> : " + contract_alias + " {};");
 	append_line(output);
 }
 
 void emit_response_contract_traits(std::string &output, const api_model &model, const endpoint_model &endpoint) {
 	const auto response_type = response_type_name(model, endpoint);
+	const auto contract_alias = qualified_generated_detail_name(model, response_contract_alias_name(endpoint));
 	append_line(output, "template <>");
-	append_line(output, "struct response_contract_traits<" + response_type + "> {");
-	append_line(output, "\tstatic constexpr unsigned status_code = " + response_type + "::status_code;");
-	if (endpoint.response.body_type_name.has_value()) {
-		append_line(output, "\tstatic constexpr bool has_body = true;");
-		append_line(output, "\tstatic const " + model.cpp_namespace + "::" + *endpoint.response.body_type_name +
-		                        " &body(const " + response_type + " &value) {");
-		append_line(output, "\t\treturn value.body;");
-		append_line(output, "\t}");
-	} else {
-		append_line(output, "\tstatic constexpr bool has_body = false;");
+	append_line(output, "struct response_contract_traits<" + response_type + "> : " + contract_alias + " {};");
+	append_line(output);
+}
+
+void emit_request_contract_alias(std::string &output, const endpoint_model &endpoint) {
+	append_line(output, "using " + request_contract_alias_name(endpoint) +
+	                        " = warp::codegen::generated_request_contract<" + endpoint.request.name);
+	for (const auto &parameter : endpoint.request.parameters) {
+		append_line(output, "    , " + binding_expression(endpoint.request.name, parameter));
 	}
+	if (endpoint.request.body_type_name.has_value()) {
+		append_line(output, "    , warp::codegen::json_body_binding<&" + endpoint.request.name + "::body>");
+	}
+	append_line(output, ">;");
+}
+
+void emit_response_contract_alias(std::string &output, const endpoint_model &endpoint) {
+	if (endpoint.response.body_type_name.has_value()) {
+		append_line(output, "using " + response_contract_alias_name(endpoint) +
+		                        " = warp::codegen::body_response_contract<" + endpoint.result_name + ", &" +
+		                        endpoint.result_name + "::body>;");
+	} else {
+		append_line(output, "using " + response_contract_alias_name(endpoint) +
+		                        " = warp::codegen::empty_response_contract<" + endpoint.result_name + ">;");
+	}
+}
+
+void emit_handler_selector(std::string &output, const endpoint_model &endpoint) {
+	append_line(output, "struct " + handler_selector_name(endpoint) + " {");
+	append_line(output, "    template <typename Signature, typename Service>");
+	append_line(output, "    static consteval bool matches() {");
+	append_line(output,
+	            "        return requires { static_cast<Signature>(&Service::" + endpoint.handler_name + "); };");
+	append_line(output, "    }");
+	append_line(output, "    template <typename Signature, typename Service>");
+	append_line(output, "    static constexpr Signature get() {");
+	append_line(output, "        return static_cast<Signature>(&Service::" + endpoint.handler_name + ");");
+	append_line(output, "    }");
 	append_line(output, "};");
+}
+
+void emit_endpoint_binding_alias(std::string &output, const api_model &model, const endpoint_model &endpoint) {
+	const auto endpoint_alias = endpoint_binding_alias_name(endpoint);
+	const auto request_type = request_type_name(model, endpoint);
+	const auto response_type = response_type_name(model, endpoint);
+	const auto selector_name = qualified_generated_detail_name(model, handler_selector_name(endpoint));
+	append_line(output, "template <typename Service>");
+	append_line(output, "using " + endpoint_alias + " = warp::codegen::endpoint_binding<");
+	append_line(output, "    Service,");
+	append_line(output, "    " + route_alias_name(endpoint) + ",");
+	append_line(output, "    warp::codegen::request_contract_traits<" + request_type + ">,");
+	append_line(output, "    " + response_type + ",");
+	append_line(output, "    [](Service &service, " + request_type + " &&typed_request) -> decltype(auto) {");
+	append_line(output, "        return warp::codegen::invoke_endpoint_handler_overload<");
+	append_line(output, "            " + response_type + ",");
+	append_line(output, "            " + request_type + ",");
+	append_line(output, "            Service,");
+	append_line(output, "            " + selector_name + ">(service, std::move(typed_request));");
+	append_line(output, "    }>;");
 	append_line(output);
 }
 
 void emit_resource_routes(std::string &output, const api_model &model, const resource_model &resource) {
-	append_line(output, "template <typename Service>");
-	append_line(output, "class " + resource.routes_class_name + " {");
-	append_line(output, "public:");
-	append_line(output, "\texplicit " + resource.routes_class_name + "(std::shared_ptr<Service> service)");
-	append_line(output, "\t    : service_(std::move(service)) {");
-	append_line(output, "\t\tif (!service_) {");
-	append_line(output, "\t\t\tthrow std::invalid_argument(\"service must not be null\");");
-	append_line(output, "\t\t}");
-	append_line(output, "\t}");
-	append_line(output);
 	emit_query_route_spec_aliases(output, resource);
 	if (!resource.endpoints.empty()) {
 		append_line(output);
 	}
-	append_line(output, "\tvoid register_routes(warp::http::server_builder &builder) const {");
+
 	for (const auto &endpoint : resource.endpoints) {
-		const auto request_type = request_type_name(model, endpoint);
-		const auto response_type = response_type_name(model, endpoint);
-		const auto route_registration = endpoint.query_route.has_value() ? endpoint.query_route->spec_name + " {}"
-		                                                                 : method_expression(endpoint.method) + ", " +
-		                                                                       cpp_string_literal(endpoint.path);
-		append_line(output, "\t\tbuilder.route(" + route_registration +
-		                        ", [service = service_](warp::request req) -> warp::awaitable<warp::response> {");
-		append_line(output, "\t\t\tconst auto version = req.version();");
-		append_line(output, "\t\t\tauto typed_request = warp::codegen::parse_http_request<" + request_type + ">(req);");
-		append_line(output, "\t\t\tif (!typed_request.has_value()) {");
-		append_line(output,
-		            "\t\t\t\tauto response = warp::codegen::to_error_response(typed_request.error(), version);");
-		append_line(output, "\t\t\t\tco_return response;");
-		append_line(output, "\t\t\t}");
-		append_line(output, "\t\t\tauto typed_response = co_await warp::codegen::invoke_user_handler<" + response_type +
-		                        ">([service, typed_request = std::move(typed_request).value()]() mutable {");
-		append_line(output, "\t\t\t\treturn service->" + endpoint.handler_name + "(std::move(typed_request));");
-		append_line(output, "\t\t\t});");
-		append_line(output, "\t\t\tauto response = warp::codegen::to_http_response(typed_response, version);");
-		append_line(output, "\t\t\tco_return response;");
-		append_line(output, "\t\t});");
+		emit_endpoint_binding_alias(output, model, endpoint);
 	}
-	append_line(output, "\t}");
-	append_line(output);
-	append_line(output, "private:");
-	append_line(output, "\tstd::shared_ptr<Service> service_;");
-	append_line(output, "};");
+
+	append_line(output, "template <typename Service>");
+	append_line(output, "using " + resource.routes_class_name + " = warp::codegen::generated_resource<");
+	append_line(output, "    Service");
+	for (const auto &endpoint : resource.endpoints) {
+		append_line(output, "    , " + endpoint_binding_alias_name(endpoint) + "<Service>");
+	}
+	append_line(output, ">;");
 	append_line(output);
 }
 
@@ -267,9 +297,19 @@ std::string resource_stub_emitter::emit_header(const api_model &model,
 	}
 	append_line(output, "#include \"warp/codegen/http_adapter.hpp\"");
 	append_line(output);
-	append_line(output, "#include <memory>");
-	append_line(output, "#include <stdexcept>");
-	append_line(output, "#include <utility>");
+	append_line(output, "namespace " + generated_detail_namespace(model) + " {");
+	append_line(output);
+
+	for (const auto &resource : model.resources) {
+		for (const auto &endpoint : resource.endpoints) {
+			emit_request_contract_alias(output, endpoint);
+			emit_response_contract_alias(output, endpoint);
+			emit_handler_selector(output, endpoint);
+			append_line(output);
+		}
+	}
+
+	append_line(output, "} // namespace " + generated_detail_namespace(model));
 	append_line(output);
 	append_line(output, "namespace warp::codegen {");
 	append_line(output);

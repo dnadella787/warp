@@ -1,0 +1,21 @@
+cpp_namespace: generated_overloaded_handler_api
+resources:
+  - name: users
+    endpoints:
+      - name: health
+        method: GET
+        path: /users/{user_id}/health
+        request:
+          parameters:
+            - name: user_id
+              in: path
+              type: string
+        response:
+          status: 200
+  - name: admin
+    endpoints:
+      - name: health
+        method: GET
+        path: /admin/health
+        response:
+          status: 204
