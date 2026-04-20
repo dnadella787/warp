@@ -1,0 +1,66 @@
+#pragma once
+
+#include <string_view>
+
+#include "../../../src/http/router/route_pattern.hpp"
+
+#include "route_fixed_string.hpp"
+
+namespace warp::http {
+
+namespace detail {
+
+template <route_pattern_validation_error Error>
+consteval void fail_route_pattern_validation() {
+	if constexpr (Error == route_pattern_validation_error::empty_path) {
+		static_assert(Error != Error, "route path must not be empty");
+	} else if constexpr (Error == route_pattern_validation_error::missing_leading_slash) {
+		static_assert(Error != Error, "route path must start with '/'");
+	} else if constexpr (Error == route_pattern_validation_error::contains_fragment) {
+		static_assert(Error != Error, "route path must not contain a fragment");
+	} else if constexpr (Error == route_pattern_validation_error::contains_query_string) {
+		static_assert(Error != Error, "route pattern must not contain a query string");
+	} else if constexpr (Error == route_pattern_validation_error::empty_segment) {
+		static_assert(Error != Error, "route path contains an empty segment");
+	} else if constexpr (Error == route_pattern_validation_error::malformed_parameter_segment) {
+		static_assert(Error != Error, "route parameter segments must use the form '{name}'");
+	} else if constexpr (Error == route_pattern_validation_error::empty_parameter_name) {
+		static_assert(Error != Error, "route parameter name cannot be empty");
+	} else if constexpr (Error == route_pattern_validation_error::parameter_name_contains_braces) {
+		static_assert(Error != Error, "route parameter name cannot contain braces");
+	} else if constexpr (Error == route_pattern_validation_error::duplicate_parameter_name) {
+		static_assert(Error != Error, "route parameter names must be unique within a path");
+	}
+}
+
+template <fixed_string Path>
+consteval route_pattern_validation_result checked_route_path() {
+	constexpr auto validation = validate_route_pattern(Path.view());
+	if constexpr (validation.error != route_pattern_validation_error::none) {
+		fail_route_pattern_validation<validation.error>();
+	}
+	return validation;
+}
+
+} // namespace detail
+
+template <fixed_string Path>
+struct route_path {
+private:
+	static constexpr route_pattern_validation_result validation_ = detail::checked_route_path<Path>();
+
+public:
+	static constexpr auto literal = Path;
+	static constexpr std::size_t segment_count = validation_.segment_count;
+	static constexpr std::size_t parameter_count = validation_.parameter_count;
+
+	[[nodiscard]] static constexpr std::string_view view() noexcept {
+		return Path.view();
+	}
+
+	constexpr operator std::string_view() const noexcept {
+		return view();
+	}
+};
+
+} // namespace warp::http
