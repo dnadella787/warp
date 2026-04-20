@@ -266,6 +266,39 @@ resources:
 	EXPECT_NE(item.message.find("GET"), std::string::npos);
 }
 
+TEST(ApiModelTest, LeavesSingletonRequiredQueryEndpointsUnconstrained) {
+	const auto spec = parse_api_spec(R"(
+resources:
+  - name: reports
+    endpoints:
+      - name: fetch_report_summary
+        method: GET
+        path: /reports/{report_id}
+        request:
+          parameters:
+            - name: report_id
+              in: path
+              type: string
+              required: true
+            - name: summary
+              in: query
+              type: bool
+              required: true
+        response:
+          status: 204
+)");
+
+	const auto model = build_api_model(spec);
+
+	ASSERT_EQ(model.resources.size(), 1U);
+	const auto &resource = model.resources.front();
+	ASSERT_EQ(resource.endpoints.size(), 1U);
+	ASSERT_EQ(resource.route_groups.size(), 1U);
+	EXPECT_FALSE(resource.endpoints.front().query_route.has_value());
+	EXPECT_TRUE(resource.route_groups.front().query_route_endpoint_indices.empty());
+	EXPECT_TRUE(resource.route_groups.front().routing_query_parameters.empty());
+}
+
 TEST(ApiModelTest, RejectsResponseBodyForNoContentStatuses) {
 	const auto spec = parse_api_spec(R"(
 resources:

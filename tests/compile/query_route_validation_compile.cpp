@@ -19,6 +19,13 @@ using summary_projection_route =
     warp::http::route_spec<warp::method::get, "/reports/{report_id}", warp::http::required_query<"summary">,
                            warp::http::required_query<"fields">>;
 using fallback_route = warp::http::route_spec<warp::method::get, "/reports/{report_id}">;
+using exact_mode_route =
+    warp::http::route_spec<warp::method::get, "/items", warp::http::required_query_value<"mode", "full">>;
+using broad_mode_route = warp::http::route_spec<warp::method::get, "/items", warp::http::required_query<"mode">>;
+using optional_exact_mode_route =
+    warp::http::route_spec<warp::method::get, "/items", warp::http::optional_query_value<"mode", "full">>;
+using optional_broad_mode_route =
+    warp::http::route_spec<warp::method::get, "/items", warp::http::optional_query<"mode">>;
 
 class compile_time_reports_service {
 public:
@@ -85,8 +92,25 @@ static_assert(has_generated_request_traits<generated::reports_fetch_report_reque
 static_assert(has_generated_request_traits<generated::reports_fetch_report_summary_request>);
 static_assert(has_generated_request_traits<generated::reports_fetch_report_projection_request>);
 static_assert(has_generated_request_traits<generated::reports_fetch_report_summary_projection_request>);
+static_assert(warp::http::detail::validate_query_constraint_name("priority") ==
+              warp::http::detail::query_constraint_name_error::reserved_priority_name);
+static_assert(warp::http::detail::validate_query_constraint_name("_priority") ==
+              warp::http::detail::query_constraint_name_error::reserved_priority_name);
+static_assert(warp::http::detail::validate_query_constraint_name("__priority") ==
+              warp::http::detail::query_constraint_name_error::reserved_priority_name);
+static_assert(warp::http::detail::validate_query_constraint_name("__warp_priority") ==
+              warp::http::detail::query_constraint_name_error::reserved_priority_name);
 static_assert(warp::http::deterministic_route_definitions<fallback_route, summary_route, projection_route,
                                                           summary_projection_route>());
+static_assert(warp::http::deterministic_route_definitions<exact_mode_route, broad_mode_route>());
+static_assert(!warp::http::deterministic_route_definitions<optional_exact_mode_route, optional_broad_mode_route>());
+static_assert(warp::http::detail::percent_encode_query_component("plus+space %") == "plus%2Bspace%20%25");
+static_assert(warp::http::detail::registered_query_constraint_fragment(warp::http::query_constraint_descriptor {
+                  .name = "plus+space %",
+                  .presence = warp::http::query_constraint_presence::optional,
+                  .has_exact_value = true,
+                  .exact_value = "a+b&c=d%",
+              }) == "~plus%2Bspace%20%25=a%2Bb%26c%3Dd%25");
 static_assert(generated_routes_registrable<compile_time_reports_service>);
 static_assert(warp::http::resource_registrable<generated::reports_api_routes<compile_time_reports_service> &>);
 

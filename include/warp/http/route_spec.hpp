@@ -3,6 +3,7 @@
 #include <array>
 #include <concepts>
 #include <cstddef>
+#include <optional>
 #include <string_view>
 
 #include "../../../src/http/router/route_pattern.hpp"
@@ -71,6 +72,160 @@ namespace detail {
 	return lhs.exact_value == rhs.exact_value;
 }
 
+struct query_match_score {
+	std::size_t matched_constraints {};
+	std::size_t matched_exact_constraints {};
+};
+
+template <std::size_t Capacity>
+struct constraint_name_set {
+	std::array<std::string_view, Capacity> names {};
+	std::size_t size {};
+};
+
+enum class query_value_state {
+	absent,
+	lhs_exact,
+	rhs_exact,
+	other_present,
+};
+
+[[nodiscard]] constexpr bool query_match_scores_equal(query_match_score lhs, query_match_score rhs) noexcept {
+	return lhs.matched_constraints == rhs.matched_constraints &&
+	       lhs.matched_exact_constraints == rhs.matched_exact_constraints;
+}
+
+[[nodiscard]] constexpr bool constraint_name_set_contains(const auto &names, std::string_view name) noexcept {
+	for (std::size_t i = 0; i < names.size; ++i) {
+		if (names.names[i] == name) {
+			return true;
+		}
+	}
+	return false;
+}
+
+template <typename Spec>
+[[nodiscard]] constexpr std::optional<query_constraint_descriptor>
+find_query_constraint_descriptor(std::string_view name) noexcept {
+	for (const auto &descriptor : Spec::query_constraints) {
+		if (descriptor.name == name) {
+			return descriptor;
+		}
+	}
+	return std::nullopt;
+}
+
+template <typename Lhs, typename Rhs>
+[[nodiscard]] constexpr auto combined_constraint_names() noexcept {
+	constexpr std::size_t capacity = Lhs::query_constraint_count + Rhs::query_constraint_count;
+	constraint_name_set<capacity> result;
+	for (const auto &descriptor : Lhs::query_constraints) {
+		result.names[result.size++] = descriptor.name;
+	}
+	for (const auto &descriptor : Rhs::query_constraints) {
+		if (!constraint_name_set_contains(result, descriptor.name)) {
+			result.names[result.size++] = descriptor.name;
+		}
+	}
+	return result;
+}
+
+[[nodiscard]] constexpr bool exact_value_matches_state(std::string_view exact_value, std::string_view lhs_exact_value,
+                                                       std::string_view rhs_exact_value,
+                                                       query_value_state state) noexcept {
+	switch (state) {
+	case query_value_state::absent:
+	case query_value_state::other_present:
+		return false;
+	case query_value_state::lhs_exact:
+		return !lhs_exact_value.empty() && exact_value == lhs_exact_value;
+	case query_value_state::rhs_exact:
+		return !rhs_exact_value.empty() && exact_value == rhs_exact_value;
+	}
+	return false;
+}
+
+[[nodiscard]] constexpr bool descriptor_accepts_state(const std::optional<query_constraint_descriptor> &descriptor,
+                                                      std::string_view lhs_exact_value,
+                                                      std::string_view rhs_exact_value,
+                                                      query_value_state state) noexcept {
+	if (!descriptor.has_value()) {
+		return true;
+	}
+	if (descriptor->presence == query_constraint_presence::forbidden) {
+		return state == query_value_state::absent;
+	}
+	if (state == query_value_state::absent) {
+		return descriptor->presence == query_constraint_presence::optional;
+	}
+	if (!descriptor->has_exact_value) {
+		return true;
+	}
+	return exact_value_matches_state(descriptor->exact_value, lhs_exact_value, rhs_exact_value, state);
+}
+
+[[nodiscard]] constexpr query_match_score descriptor_score(const std::optional<query_constraint_descriptor> &descriptor,
+                                                           query_value_state state) noexcept {
+	if (!descriptor.has_value()) {
+		return {};
+	}
+	if (descriptor->presence == query_constraint_presence::forbidden) {
+		return {.matched_constraints = 1};
+	}
+	if (state == query_value_state::absent) {
+		return {};
+	}
+	return {
+	    .matched_constraints = 1,
+	    .matched_exact_constraints = descriptor->has_exact_value ? 1U : 0U,
+	};
+}
+
+[[nodiscard]] constexpr query_match_score add_query_match_scores(query_match_score lhs,
+                                                                 query_match_score rhs) noexcept {
+	return {
+	    .matched_constraints = lhs.matched_constraints + rhs.matched_constraints,
+	    .matched_exact_constraints = lhs.matched_exact_constraints + rhs.matched_exact_constraints,
+	};
+}
+
+template <typename Lhs, typename Rhs, std::size_t Capacity>
+[[nodiscard]] consteval bool route_specs_can_tie_on_score(const constraint_name_set<Capacity> &names, std::size_t index,
+                                                          query_match_score lhs_score = {},
+                                                          query_match_score rhs_score = {}) {
+	if (index == names.size) {
+		return query_match_scores_equal(lhs_score, rhs_score);
+	}
+
+	const auto lhs_descriptor = find_query_constraint_descriptor<Lhs>(names.names[index]);
+	const auto rhs_descriptor = find_query_constraint_descriptor<Rhs>(names.names[index]);
+	const auto lhs_exact_value = lhs_descriptor.has_value() && lhs_descriptor->has_exact_value
+	                                 ? lhs_descriptor->exact_value
+	                                 : std::string_view {};
+	const auto rhs_exact_value = rhs_descriptor.has_value() && rhs_descriptor->has_exact_value
+	                                 ? rhs_descriptor->exact_value
+	                                 : std::string_view {};
+
+	constexpr std::array<query_value_state, 4> states {
+	    query_value_state::absent,
+	    query_value_state::lhs_exact,
+	    query_value_state::rhs_exact,
+	    query_value_state::other_present,
+	};
+	for (const auto state : states) {
+		if (!descriptor_accepts_state(lhs_descriptor, lhs_exact_value, rhs_exact_value, state) ||
+		    !descriptor_accepts_state(rhs_descriptor, lhs_exact_value, rhs_exact_value, state)) {
+			continue;
+		}
+		if (route_specs_can_tie_on_score<Lhs, Rhs>(
+		        names, index + 1, add_query_match_scores(lhs_score, descriptor_score(lhs_descriptor, state)),
+		        add_query_match_scores(rhs_score, descriptor_score(rhs_descriptor, state)))) {
+			return true;
+		}
+	}
+	return false;
+}
+
 template <typename Spec>
 concept route_registration_spec_impl = requires {
 	{ Spec::verb } -> std::convertible_to<method>;
@@ -97,12 +252,7 @@ template <route_registration_spec_impl Lhs, route_registration_spec_impl Rhs>
 			}
 		}
 	}
-
-	const auto match_counts_overlap =
-	    !(Lhs::query_constraint_count < Rhs::base_specificity || Rhs::query_constraint_count < Lhs::base_specificity);
-	const auto exact_counts_overlap = !(Lhs::exact_constraint_count < Rhs::required_exact_constraints ||
-	                                    Rhs::exact_constraint_count < Lhs::required_exact_constraints);
-	return match_counts_overlap && exact_counts_overlap;
+	return route_specs_can_tie_on_score<Lhs, Rhs>(combined_constraint_names<Lhs, Rhs>(), 0);
 }
 
 template <route_registration_spec_impl... Specs>

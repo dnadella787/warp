@@ -33,11 +33,15 @@ enum class query_constraint_name_error {
 	none,
 	empty_name,
 	contains_separator,
+	reserved_priority_name,
 };
 
 [[nodiscard]] constexpr query_constraint_name_error validate_query_constraint_name(std::string_view name) noexcept {
 	if (name.empty()) {
 		return query_constraint_name_error::empty_name;
+	}
+	if (name == "priority" || name == "_priority" || name == "__priority" || name == "__warp_priority") {
+		return query_constraint_name_error::reserved_priority_name;
 	}
 	for (const auto c : name) {
 		if (c == '&' || c == '=' || c == '?' || c == '#' || c == '!' || c == '~') {
@@ -53,6 +57,8 @@ consteval void fail_query_constraint_name_validation() {
 		static_assert(Error != Error, "query constraint name must not be empty");
 	} else if constexpr (Error == query_constraint_name_error::contains_separator) {
 		static_assert(Error != Error, "query constraint name must not contain '&', '=', '?', '#', '!', or '~'");
+	} else if constexpr (Error == query_constraint_name_error::reserved_priority_name) {
+		static_assert(Error != Error, "query constraint name is reserved for route priority metadata");
 	}
 }
 

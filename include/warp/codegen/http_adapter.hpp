@@ -224,6 +224,17 @@ using endpoint_member_signatures =
               Result (Service::*)(const Request &) const &, Result (Service::*)(const Request &&) const,
               Result (Service::*)(const Request &&) const &>;
 
+template <typename Service, typename Result, typename Request>
+using endpoint_member_noexcept_signatures = type_list<
+    Result (Service::*)(Request) noexcept, Result (Service::*)(Request) & noexcept,
+    Result (Service::*)(Request &&) noexcept, Result (Service::*)(Request &&) & noexcept,
+    Result (Service::*)(const Request &) noexcept, Result (Service::*)(const Request &) & noexcept,
+    Result (Service::*)(const Request &&) noexcept, Result (Service::*)(const Request &&) & noexcept,
+    Result (Service::*)(Request) const noexcept, Result (Service::*)(Request) const & noexcept,
+    Result (Service::*)(Request &&) const noexcept, Result (Service::*)(Request &&) const & noexcept,
+    Result (Service::*)(const Request &) const noexcept, Result (Service::*)(const Request &) const & noexcept,
+    Result (Service::*)(const Request &&) const noexcept, Result (Service::*)(const Request &&) const & noexcept>;
+
 } // namespace detail
 
 template <typename Contract>
@@ -309,6 +320,16 @@ parse_result<T> required_path_param(const request &req, std::string_view name) {
 }
 
 template <typename T>
+parse_result<T> required_path_param_unchecked(const request &req, std::string_view name) {
+	const auto value = req.path_param(name);
+	if (!value.has_value()) {
+		return parse_result<T>::failure(
+		    make_bad_request("missing_path_parameter", "missing required path parameter '" + std::string(name) + "'"));
+	}
+	return detail::parse_scalar_impl<T>(*value, name, "path parameter");
+}
+
+template <typename T>
 parse_result<T> required_query_param(const request &req, std::string_view name) {
 	if (const auto target_error = request_target_binding_error(req); target_error.has_value()) {
 		return parse_result<T>::failure(*target_error);
@@ -322,10 +343,33 @@ parse_result<T> required_query_param(const request &req, std::string_view name) 
 }
 
 template <typename T>
+parse_result<T> required_query_param_unchecked(const request &req, std::string_view name) {
+	const auto value = req.query_param(name);
+	if (!value.has_value()) {
+		return parse_result<T>::failure(make_bad_request(
+		    "missing_query_parameter", "missing required query parameter '" + std::string(name) + "'"));
+	}
+	return detail::parse_scalar_impl<T>(*value, name, "query parameter");
+}
+
+template <typename T>
 parse_result<std::optional<T>> optional_query_param(const request &req, std::string_view name) {
 	if (const auto target_error = request_target_binding_error(req); target_error.has_value()) {
 		return parse_result<std::optional<T>>::failure(*target_error);
 	}
+	const auto value = req.query_param(name);
+	if (!value.has_value()) {
+		return parse_result<std::optional<T>>::success(std::nullopt);
+	}
+	auto parsed = detail::parse_scalar_impl<T>(*value, name, "query parameter");
+	if (!parsed.has_value()) {
+		return parse_result<std::optional<T>>::failure(parsed.error());
+	}
+	return parse_result<std::optional<T>>::success(std::move(parsed).value());
+}
+
+template <typename T>
+parse_result<std::optional<T>> optional_query_param_unchecked(const request &req, std::string_view name) {
 	const auto value = req.query_param(name);
 	if (!value.has_value()) {
 		return parse_result<std::optional<T>>::success(std::nullopt);
@@ -402,6 +446,10 @@ struct path_binding {
 		return required_path_param<value_type>(req, Name.view());
 	}
 
+	static parse_result<value_type> parse_unchecked(const request &req) {
+		return required_path_param_unchecked<value_type>(req, Name.view());
+	}
+
 	static void set(request_type &out, value_type value) {
 		Accessor::set(out, std::move(value));
 	}
@@ -418,6 +466,14 @@ struct query_binding {
 			return optional_query_param<scalar_type>(req, Name.view());
 		} else {
 			return required_query_param<value_type>(req, Name.view());
+		}
+	}
+
+	static parse_result<value_type> parse_unchecked(const request &req) {
+		if constexpr (detail::optional_value_traits<value_type>::is_optional) {
+			return optional_query_param_unchecked<scalar_type>(req, Name.view());
+		} else {
+			return required_query_param_unchecked<value_type>(req, Name.view());
 		}
 	}
 
@@ -440,6 +496,10 @@ struct header_binding {
 		}
 	}
 
+	static parse_result<value_type> parse_unchecked(const request &req) {
+		return parse(req);
+	}
+
 	static void set(request_type &out, value_type value) {
 		Accessor::set(out, std::move(value));
 	}
@@ -455,6 +515,10 @@ struct json_body_binding {
 
 	static parse_result<value_type> parse(const request &req) {
 		return json_body<value_type>(req);
+	}
+
+	static parse_result<value_type> parse_unchecked(const request &req) {
+		return parse(req);
 	}
 
 	static void set(request_type &out, value_type value) {
@@ -485,13 +549,22 @@ struct generated_request_contract {
 private:
 	template <typename Binding>
 	static bool apply_binding(Request &out, const request &req, binding_error &error) {
-		auto parsed = Binding::parse(req);
+		auto parsed = parse_binding<Binding>(req);
 		if (!parsed.has_value()) {
 			error = parsed.error();
 			return false;
 		}
 		Binding::set(out, std::move(parsed).value());
 		return true;
+	}
+
+	template <typename Binding>
+	static auto parse_binding(const request &req) {
+		if constexpr (requires { Binding::parse_unchecked(req); }) {
+			return Binding::parse_unchecked(req);
+		} else {
+			return Binding::parse(req);
+		}
 	}
 };
 
@@ -595,10 +668,17 @@ awaitable<ResponseType> invoke_user_handler(Invocable &&invocable) {
 template <typename ResponseType, typename RequestType, typename Service, typename Selector>
 decltype(auto) invoke_endpoint_handler_overload(Service &service, RequestType &&request) {
 	using sync_signatures = detail::endpoint_member_signatures<Service, ResponseType, RequestType>;
+	using sync_noexcept_signatures = detail::endpoint_member_noexcept_signatures<Service, ResponseType, RequestType>;
 	using async_signatures = detail::endpoint_member_signatures<Service, awaitable<ResponseType>, RequestType>;
+	using async_noexcept_signatures =
+	    detail::endpoint_member_noexcept_signatures<Service, awaitable<ResponseType>, RequestType>;
 
 	constexpr auto sync_match_count = detail::matching_member_signature_count<Selector, Service>(sync_signatures {});
+	constexpr auto sync_noexcept_match_count =
+	    detail::matching_member_signature_count<Selector, Service>(sync_noexcept_signatures {});
 	constexpr auto async_match_count = detail::matching_member_signature_count<Selector, Service>(async_signatures {});
+	constexpr auto async_noexcept_match_count =
+	    detail::matching_member_signature_count<Selector, Service>(async_noexcept_signatures {});
 	constexpr auto total_match_count = sync_match_count + async_match_count;
 
 	static_assert(total_match_count > 0,
@@ -609,11 +689,21 @@ decltype(auto) invoke_endpoint_handler_overload(Service &service, RequestType &&
 	              "response contract");
 
 	if constexpr (sync_match_count == 1) {
-		return detail::invoke_matching_member<Selector>(service, std::forward<RequestType>(request),
-		                                                sync_signatures {});
+		if constexpr (sync_noexcept_match_count == 1) {
+			return detail::invoke_matching_member<Selector>(service, std::forward<RequestType>(request),
+			                                                sync_noexcept_signatures {});
+		} else {
+			return detail::invoke_matching_member<Selector>(service, std::forward<RequestType>(request),
+			                                                sync_signatures {});
+		}
 	} else {
-		return detail::invoke_matching_member<Selector>(service, std::forward<RequestType>(request),
-		                                                async_signatures {});
+		if constexpr (async_noexcept_match_count == 1) {
+			return detail::invoke_matching_member<Selector>(service, std::forward<RequestType>(request),
+			                                                async_noexcept_signatures {});
+		} else {
+			return detail::invoke_matching_member<Selector>(service, std::forward<RequestType>(request),
+			                                                async_signatures {});
+		}
 	}
 }
 
@@ -627,26 +717,52 @@ concept endpoint_handler = requires(HandlerFn handler_fn, Service &service, Requ
 template <request_contract RequestContract, typename ResponseType, typename Service, typename MemberFn>
     requires endpoint_handler<ResponseType, Service, MemberFn, typename RequestContract::request_type>
 auto bind_endpoint(std::shared_ptr<Service> service, MemberFn member_fn) {
-	return [service = std::move(service), member_fn](warp::request req) -> warp::awaitable<warp::response> {
-		const auto version = req.version();
-		const auto keep_alive = req.keep_alive();
+	using request_type = typename RequestContract::request_type;
+	using handler_result = std::remove_cvref_t<std::invoke_result_t<MemberFn, Service &, request_type>>;
 
-		auto typed_request = RequestContract::parse(req);
-		if (!typed_request.has_value()) {
-			auto response = warp::codegen::to_error_response(typed_request.error(), version);
+	if constexpr (std::is_same_v<handler_result, ResponseType>) {
+		return [service = std::move(service), member_fn](warp::request req) mutable -> warp::response {
+			const auto version = req.version();
+			const auto keep_alive = req.keep_alive();
+
+			auto typed_request = RequestContract::parse(req);
+			if (!typed_request.has_value()) {
+				auto response = warp::codegen::to_error_response(typed_request.error(), version);
+				response.keep_alive(keep_alive);
+				return response;
+			}
+
+			auto *service_ptr = service.get();
+			auto typed_response = std::invoke(member_fn, *service_ptr, std::move(typed_request).value());
+
+			auto response = warp::codegen::to_http_response(std::move(typed_response), version);
+			response.keep_alive(keep_alive);
+			return response;
+		};
+	} else {
+		static_assert(std::is_same_v<handler_result, awaitable<ResponseType>>);
+		return [service = std::move(service), member_fn](warp::request req) -> warp::awaitable<warp::response> {
+			const auto version = req.version();
+			const auto keep_alive = req.keep_alive();
+
+			auto typed_request = RequestContract::parse(req);
+			if (!typed_request.has_value()) {
+				auto response = warp::codegen::to_error_response(typed_request.error(), version);
+				response.keep_alive(keep_alive);
+				co_return response;
+			}
+
+			auto *service_ptr = service.get();
+			auto typed_response = co_await warp::codegen::invoke_user_handler<ResponseType>(
+			    [service_ptr, member_fn, typed_request = std::move(typed_request).value()]() mutable {
+				    return std::invoke(member_fn, *service_ptr, std::move(typed_request));
+			    });
+
+			auto response = warp::codegen::to_http_response(std::move(typed_response), version);
 			response.keep_alive(keep_alive);
 			co_return response;
-		}
-
-		auto typed_response = co_await warp::codegen::invoke_user_handler<ResponseType>(
-		    [service, member_fn, typed_request = std::move(typed_request).value()]() mutable {
-			    return std::invoke(member_fn, *service, std::move(typed_request));
-		    });
-
-		auto response = warp::codegen::to_http_response(std::move(typed_response), version);
-		response.keep_alive(keep_alive);
-		co_return response;
-	};
+		};
+	}
 }
 
 template <typename Service, typename Route, request_contract RequestContract, typename ResponseType, auto MemberFn>

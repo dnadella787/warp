@@ -3,6 +3,7 @@
 //
 
 #pragma once
+#include <string_view>
 #include <string>
 
 #include "http.hpp"
@@ -48,6 +49,47 @@ concept route_handler = is_async_route_handler<H> || is_sync_route_handler<H>;
 template <typename T>
 concept resource_registrable = std::is_lvalue_reference_v<T> &&
                                requires(T resource, server_builder &builder) { resource.register_routes(builder); };
+
+namespace detail {
+
+[[nodiscard]] constexpr bool is_unreserved_query_component_char(unsigned char ch) noexcept {
+	return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '-' || ch == '.' ||
+	       ch == '_' || ch == '~';
+}
+
+[[nodiscard]] constexpr std::string percent_encode_query_component(std::string_view input) {
+	constexpr std::string_view hex_digits = "0123456789ABCDEF";
+	std::string output;
+	output.reserve(input.size());
+	for (const auto ch : input) {
+		const auto byte = static_cast<unsigned char>(ch);
+		if (is_unreserved_query_component_char(byte)) {
+			output.push_back(static_cast<char>(byte));
+			continue;
+		}
+		output.push_back('%');
+		output.push_back(hex_digits[(byte >> 4U) & 0x0FU]);
+		output.push_back(hex_digits[byte & 0x0FU]);
+	}
+	return output;
+}
+
+[[nodiscard]] constexpr std::string registered_query_constraint_fragment(query_constraint_descriptor constraint) {
+	std::string fragment;
+	if (constraint.presence == query_constraint_presence::forbidden) {
+		fragment.push_back('!');
+	} else if (constraint.presence == query_constraint_presence::optional) {
+		fragment.push_back('~');
+	}
+	fragment += percent_encode_query_component(constraint.name);
+	if (constraint.has_exact_value) {
+		fragment.push_back('=');
+		fragment += percent_encode_query_component(constraint.exact_value);
+	}
+	return fragment;
+}
+
+} // namespace detail
 
 class server_builder {
 private:
@@ -175,16 +217,7 @@ private:
 		for (const auto &constraint : Spec::query_constraints) {
 			path.push_back(first ? '?' : '&');
 			first = false;
-			if (constraint.presence == query_constraint_presence::forbidden) {
-				path.push_back('!');
-			} else if (constraint.presence == query_constraint_presence::optional) {
-				path.push_back('~');
-			}
-			path.append(constraint.name);
-			if (constraint.has_exact_value) {
-				path.push_back('=');
-				path.append(constraint.exact_value);
-			}
+			path += detail::registered_query_constraint_fragment(constraint);
 		}
 		return path;
 	}

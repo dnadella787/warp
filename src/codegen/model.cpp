@@ -445,7 +445,7 @@ struct model_builder {
 		return query_route;
 	}
 
-	void validate_route_group(const resource_model &resource, route_group_model &group) {
+	void validate_route_group(resource_model &resource, route_group_model &group) {
 		group.query_route_endpoint_indices.clear();
 		group.fallback_endpoint_index.reset();
 		group.routing_query_parameters.clear();
@@ -466,6 +466,15 @@ struct model_builder {
 				         " requires deterministic query constraints or a single fallback endpoint");
 			}
 			group.fallback_endpoint_index = endpoint_index;
+		}
+
+		if (group.endpoint_indices.size() == 1 && group.query_route_endpoint_indices.size() == 1) {
+			// A singleton endpoint does not need route-level query gating. Keeping it unconstrained
+			// preserves binder-driven 400s for missing required query parameters.
+			resource.endpoints.at(group.query_route_endpoint_indices.front()).query_route.reset();
+			group.query_route_endpoint_indices.clear();
+			group.routing_query_parameters.clear();
+			return;
 		}
 
 		if (group.query_route_endpoint_indices.empty()) {

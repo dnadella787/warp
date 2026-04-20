@@ -7,6 +7,7 @@
 #include <boost/beast/http/verb.hpp>
 
 #include <string>
+#include <string_view>
 
 #include "support/test_helpers.hpp"
 
@@ -72,14 +73,14 @@ TEST(RegistryTest, FindAppliesPathParametersForParameterizedRoutes) {
 	registry routes;
 	routes.add(warp::method::get, "/users/{id}", [](const warp::request &req) -> warp::response {
 		return warp::response::ok(
-		    warp::body_builder().set("id", std::string(req.path_param("id").value_or(""))).build());
+		    warp::body_builder().set("id", std::string(req.path_param(std::string_view {"id"}).value_or(""))).build());
 	});
 
 	warp::request req(verb::get, "/users/42?verbose=true", 11);
 	auto handler = routes.find(req);
 	ASSERT_NE(handler, nullptr);
-	ASSERT_TRUE(req.path_param("id").has_value());
-	EXPECT_EQ(*req.path_param("id"), "42");
+	ASSERT_TRUE(req.path_param(std::string_view {"id"}).has_value());
+	EXPECT_EQ(*req.path_param(std::string_view {"id"}), "42");
 
 	auto resp = warp::test::run_handler(*handler, std::move(req));
 	auto body = warp::test::parse_json_object(resp.body());
@@ -89,15 +90,16 @@ TEST(RegistryTest, FindAppliesPathParametersForParameterizedRoutes) {
 TEST(RegistryTest, FindPercentDecodesPathParameters) {
 	registry routes;
 	routes.add(warp::method::get, "/files/{path}", [](const warp::request &req) -> warp::response {
-		return warp::response::ok(
-		    warp::body_builder().set("path", std::string(req.path_param("path").value_or(""))).build());
+		return warp::response::ok(warp::body_builder()
+		                              .set("path", std::string(req.path_param(std::string_view {"path"}).value_or("")))
+		                              .build());
 	});
 
 	warp::request req(verb::get, "/files/%2Fv1%2Fping", 11);
 	auto handler = routes.find(req);
 	ASSERT_NE(handler, nullptr);
-	ASSERT_TRUE(req.path_param("path").has_value());
-	EXPECT_EQ(*req.path_param("path"), "/v1/ping");
+	ASSERT_TRUE(req.path_param(std::string_view {"path"}).has_value());
+	EXPECT_EQ(*req.path_param(std::string_view {"path"}), "/v1/ping");
 }
 
 TEST(RegistryTest, FindRejectsMalformedPercentEncodingInPathParameters) {
@@ -119,15 +121,16 @@ TEST(RegistryTest, FindRejectsMalformedPercentEncodingInPathParameters) {
 TEST(RegistryTest, FindKeepsPlusSignsLiteralInPathParameters) {
 	registry routes;
 	routes.add(warp::method::get, "/files/{path}", [](const warp::request &req) -> warp::response {
-		return warp::response::ok(
-		    warp::body_builder().set("path", std::string(req.path_param("path").value_or(""))).build());
+		return warp::response::ok(warp::body_builder()
+		                              .set("path", std::string(req.path_param(std::string_view {"path"}).value_or("")))
+		                              .build());
 	});
 
 	warp::request req(verb::get, "/files/a+b", 11);
 	auto handler = routes.find(req);
 	ASSERT_NE(handler, nullptr);
-	ASSERT_TRUE(req.path_param("path").has_value());
-	EXPECT_EQ(*req.path_param("path"), "a+b");
+	ASSERT_TRUE(req.path_param(std::string_view {"path"}).has_value());
+	EXPECT_EQ(*req.path_param(std::string_view {"path"}), "a+b");
 }
 
 TEST(RegistryTest, FindPrefersLiteralRouteOverParameterRoute) {
@@ -148,6 +151,30 @@ TEST(RegistryTest, FindPrefersLiteralRouteOverParameterRoute) {
 	EXPECT_EQ(body.at("route").as_string(), "literal");
 }
 
+TEST(RegistryTest, FindFallsBackToParameterSiblingWhenLiteralQueryRouteDoesNotMatch) {
+	registry routes;
+	routes.add(warp::method::get, "/users/me?summary", [](const warp::request &) -> warp::response {
+		return warp::response::ok(warp::body_builder().set("route", "literal_summary").build());
+	});
+	routes.add(warp::method::get, "/users/{id}", [](const warp::request &req) -> warp::response {
+		return warp::response::ok(warp::body_builder()
+		                              .set("route", "parameter")
+		                              .set("id", std::string(req.path_param(std::string_view {"id"}).value_or("")))
+		                              .build());
+	});
+
+	warp::request req(verb::get, "/users/me", 11);
+	auto handler = routes.find(req);
+	ASSERT_NE(handler, nullptr);
+	ASSERT_TRUE(req.path_param(std::string_view {"id"}).has_value());
+	EXPECT_EQ(*req.path_param(std::string_view {"id"}), "me");
+
+	auto resp = warp::test::run_handler(*handler, std::move(req));
+	auto body = warp::test::parse_json_object(resp.body());
+	EXPECT_EQ(body.at("route").as_string(), "parameter");
+	EXPECT_EQ(body.at("id").as_string(), "me");
+}
+
 TEST(RegistryTest, FindPrefersMostSpecificQueryAwareRoute) {
 	registry routes;
 	routes.add(warp::method::get, "/reports/{id}",
@@ -162,8 +189,8 @@ TEST(RegistryTest, FindPrefersMostSpecificQueryAwareRoute) {
 	warp::request req(verb::get, "/reports/42?summary=true&fields=name", 11);
 	auto handler = routes.find(req);
 	ASSERT_NE(handler, nullptr);
-	ASSERT_TRUE(req.path_param("id").has_value());
-	EXPECT_EQ(*req.path_param("id"), "42");
+	ASSERT_TRUE(req.path_param(std::string_view {"id"}).has_value());
+	EXPECT_EQ(*req.path_param(std::string_view {"id"}), "42");
 
 	const auto response = warp::test::run_handler(*handler, std::move(req));
 	const auto body = warp::test::parse_json_object(response.body());
@@ -269,13 +296,13 @@ TEST(RegistryTest, FindClearsStalePathParamsOnMiss) {
 
 	warp::request req(verb::get, "/users/42", 11);
 	ASSERT_NE(routes.find(req), nullptr);
-	ASSERT_TRUE(req.path_param("id").has_value());
-	EXPECT_EQ(*req.path_param("id"), "42");
+	ASSERT_TRUE(req.path_param(std::string_view {"id"}).has_value());
+	EXPECT_EQ(*req.path_param(std::string_view {"id"}), "42");
 
 	req.target("/accounts/42");
 	req.refresh_target_metadata();
 	EXPECT_EQ(routes.find(req), nullptr);
-	EXPECT_FALSE(req.path_param("id").has_value());
+	EXPECT_FALSE(req.path_param(std::string_view {"id"}).has_value());
 }
 
 TEST(RegistryTest, AddRejectsInvalidRoutePatterns) {
@@ -309,7 +336,7 @@ TEST(RegistryTest, CopyConstructorPreservesRouteTree) {
 	registry original;
 	original.add(warp::method::get, "/copy/{id}", [](const warp::request &req) -> warp::response {
 		return warp::response::ok(
-		    warp::body_builder().set("id", std::string(req.path_param("id").value_or(""))).build());
+		    warp::body_builder().set("id", std::string(req.path_param(std::string_view {"id"}).value_or(""))).build());
 	});
 
 	registry copied = original;

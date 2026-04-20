@@ -88,12 +88,16 @@ private:
 
 	static node clone_node(const node &source);
 	[[nodiscard]] static parsed_route parse_registered_route(std::string_view route);
-	[[nodiscard]] static const route_entry *match_route(const node &root, const request &req);
+	[[nodiscard]] static const route_entry *match_route(const node &root, const request &req,
+	                                                    const std::vector<std::string_view> &segments,
+	                                                    std::size_t segment_index = 0);
+	[[nodiscard]] static const route_entry *match_leaf_routes(const node &current, const request &req);
 	[[nodiscard]] static std::optional<query_match_score> match_query_constraints(const route_entry &route,
 	                                                                              const request &req);
 	[[nodiscard]] static bool is_better_match(const route_entry &candidate, query_match_score candidate_score,
 	                                          const route_entry &current_best, query_match_score current_best_score);
-	static void apply_path_params(request &req, std::string_view path, const route_entry &route);
+	static void apply_path_params(request &req, const std::vector<std::string_view> &segments,
+	                              const route_entry &route);
 
 	std::unordered_map<method, node, method_hash> method_roots_;
 	std::size_t next_registration_order_ {};

@@ -287,4 +287,34 @@ resources:
 	EXPECT_NE(output.find("using reports_api_routes = warp::codegen::generated_resource<"), std::string::npos);
 }
 
+TEST(ResourceEmitterTest, KeepsSingletonRequiredQueryRoutesUnconstrained) {
+	const auto spec = parse_api_spec(R"(
+resources:
+  - name: reports
+    endpoints:
+      - name: fetch_report_summary
+        method: GET
+        path: /reports/{report_id}
+        request:
+          parameters:
+            - name: report_id
+              in: path
+              type: string
+            - name: summary
+              in: query
+              type: bool
+              required: true
+        response:
+          status: 204
+)");
+
+	const auto output = resource_emitter().emit_header(build_api_model(spec, "generated_api"));
+
+	EXPECT_NE(output.find("using reports_fetch_report_summary_request_route = "
+	                      "warp::http::route_spec<warp::method::get, \"/reports/{report_id}\">;"),
+	          std::string::npos);
+	EXPECT_EQ(output.find("reports_fetch_report_summary_query_route"), std::string::npos);
+	EXPECT_EQ(output.find("warp::http::required_query<\"summary\">"), std::string::npos);
+}
+
 } // namespace

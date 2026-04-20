@@ -2,7 +2,6 @@
 
 #include <cstddef>
 #include <optional>
-#include <ranges>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -255,7 +254,7 @@ inline std::string_view strip_query_string(std::string_view target) {
 	return target.substr(0, target.find('?'));
 }
 
-inline std::vector<std::string> split_route_path(std::string_view path) {
+inline std::vector<std::string_view> split_route_path_views(std::string_view path) {
 	if (path.empty()) {
 		throw std::invalid_argument("route path must not be empty");
 	}
@@ -274,20 +273,32 @@ inline std::vector<std::string> split_route_path(std::string_view path) {
 		return {};
 	}
 
-	auto split_view = clean.substr(1) | std::views::split('/') | std::views::transform([](auto &&rng) -> std::string {
-		                  // Convert the sub-range back into a string_view
-		                  std::string_view segment {rng.data(), rng.size()};
-		                  // error on // pattern
-		                  if (segment.empty())
-			                  throw std::invalid_argument("route path contains an empty segment");
-		                  return std::string(segment);
-	                  });
-
-	std::vector<std::string> segments;
+	std::vector<std::string_view> segments;
 	segments.reserve(6);
+	for (std::size_t start = 1; start <= clean.size();) {
+		const auto segment = detail::route_segment_at(clean, start);
+		if (segment.empty()) {
+			throw std::invalid_argument("route path contains an empty segment");
+		}
 
-	for (auto &&seg : split_view)
-		segments.push_back(std::move(seg));
+		segments.push_back(segment);
+
+		const auto end = clean.find('/', start);
+		if (end == std::string_view::npos) {
+			break;
+		}
+		start = end + 1;
+	}
+	return segments;
+}
+
+inline std::vector<std::string> split_route_path(std::string_view path) {
+	const auto raw_segments = split_route_path_views(path);
+	std::vector<std::string> segments;
+	segments.reserve(raw_segments.size());
+	for (const auto segment : raw_segments) {
+		segments.emplace_back(segment);
+	}
 	return segments;
 }
 

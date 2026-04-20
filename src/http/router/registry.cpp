@@ -110,8 +110,15 @@ const handler *registry::find(request &req) const {
 		return nullptr;
 	}
 
-	if (const auto *route = match_route(it->second, req)) {
-		apply_path_params(req, req.path(), *route);
+	std::vector<std::string_view> segments;
+	try {
+		segments = split_route_path_views(req.path());
+	} catch (const std::invalid_argument &) {
+		return nullptr;
+	}
+
+	if (const auto *route = match_route(it->second, req, segments)) {
+		apply_path_params(req, segments, *route);
 		return &route->handler;
 	}
 
@@ -232,44 +239,31 @@ registry::parsed_route registry::parse_registered_route(std::string_view route) 
 	return parsed;
 }
 
-const registry::route_entry *registry::match_route(const node &root, const request &req) {
-	std::vector<std::string> segments;
-	try {
-		segments = split_route_path(req.path());
-	} catch (const std::invalid_argument &) {
-		return nullptr;
+const registry::route_entry *registry::match_route(const node &root, const request &req,
+                                                   const std::vector<std::string_view> &segments,
+                                                   std::size_t segment_index) {
+	if (segment_index == segments.size()) {
+		return match_leaf_routes(root, req);
 	}
 
-	const node *current = &root;
-	if (segments.empty()) {
-		const route_entry *best = nullptr;
-		query_match_score best_score {};
-		for (const auto &route : current->routes) {
-			const auto score = match_query_constraints(route, req);
-			if (!score.has_value()) {
-				continue;
-			}
-			if (best == nullptr || is_better_match(route, *score, *best, best_score)) {
-				best = &route;
-				best_score = *score;
-			}
-		}
-		return best;
-	}
-
-	for (const auto &token : segments) {
-		if (auto it = current->literal_children.find(token); it != current->literal_children.end()) {
-			current = it->second.get();
-		} else if (current->parameter_child) {
-			current = current->parameter_child.get();
-		} else {
-			return nullptr;
+	const auto &token = segments[segment_index];
+	if (auto it = root.literal_children.find(token); it != root.literal_children.end()) {
+		if (const auto *literal_match = match_route(*it->second, req, segments, segment_index + 1)) {
+			return literal_match;
 		}
 	}
 
+	if (root.parameter_child) {
+		return match_route(*root.parameter_child, req, segments, segment_index + 1);
+	}
+
+	return nullptr;
+}
+
+const registry::route_entry *registry::match_leaf_routes(const node &current, const request &req) {
 	const route_entry *best = nullptr;
 	query_match_score best_score {};
-	for (const auto &route : current->routes) {
+	for (const auto &route : current.routes) {
 		const auto score = match_query_constraints(route, req);
 		if (!score.has_value()) {
 			continue;
@@ -328,12 +322,12 @@ bool registry::is_better_match(const route_entry &candidate, query_match_score c
 	return candidate.registration_order < current_best.registration_order;
 }
 
-void registry::apply_path_params(request &req, std::string_view path, const route_entry &route) {
+void registry::apply_path_params(request &req, const std::vector<std::string_view> &segments,
+                                 const route_entry &route) {
 	std::unordered_map<std::string, std::string> params;
 	params.reserve(route.parameters.size());
 
 	if (!route.parameters.empty()) {
-		const auto segments = split_route_path(path);
 		for (const auto &parameter : route.parameters) {
 			if (parameter.index >= segments.size()) {
 				break;

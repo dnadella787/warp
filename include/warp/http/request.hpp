@@ -37,10 +37,14 @@ public:
 
 	[[nodiscard]] std::string_view path() const noexcept;
 	[[nodiscard]] const std::unordered_map<std::string, std::string> &query_params() const noexcept;
+	[[nodiscard]] std::optional<std::string_view> query_param(const char *key) const;
+	[[nodiscard]] std::optional<std::string_view> query_param(const std::string &key) const;
 	[[nodiscard]] std::optional<std::string_view> query_param(std::string_view key) const;
 
 	void set_path_params(std::unordered_map<std::string, std::string> params);
 	[[nodiscard]] const std::unordered_map<std::string, std::string> &path_params() const noexcept;
+	[[nodiscard]] std::optional<std::string_view> path_param(const char *key) const;
+	[[nodiscard]] std::optional<std::string_view> path_param(const std::string &key) const;
 	[[nodiscard]] std::optional<std::string_view> path_param(std::string_view key) const;
 	[[nodiscard]] const std::optional<target_parse_error> &target_error() const noexcept;
 	void set_target_error(target_parse_error error);
@@ -99,6 +103,17 @@ inline const std::unordered_map<std::string, std::string> &request::query_params
 	return query_params_;
 }
 
+inline std::optional<std::string_view> request::query_param(const char *key) const {
+	return query_param(std::string_view {key});
+}
+
+inline std::optional<std::string_view> request::query_param(const std::string &key) const {
+	if (auto it = query_params_.find(key); it != query_params_.end()) {
+		return it->second;
+	}
+	return std::nullopt;
+}
+
 inline std::optional<std::string_view> request::query_param(std::string_view key) const {
 	if (auto it = query_params_.find(std::string(key)); it != query_params_.end()) {
 		return it->second;
@@ -112,6 +127,17 @@ inline void request::set_path_params(std::unordered_map<std::string, std::string
 
 inline const std::unordered_map<std::string, std::string> &request::path_params() const noexcept {
 	return path_params_;
+}
+
+inline std::optional<std::string_view> request::path_param(const char *key) const {
+	return path_param(std::string_view {key});
+}
+
+inline std::optional<std::string_view> request::path_param(const std::string &key) const {
+	if (auto it = path_params_.find(key); it != path_params_.end()) {
+		return it->second;
+	}
+	return std::nullopt;
 }
 
 inline std::optional<std::string_view> request::path_param(std::string_view key) const {
