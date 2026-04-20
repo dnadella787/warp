@@ -59,19 +59,24 @@ resources:
 	EXPECT_NE(output.find("using users_create_user_request_contract = warp::codegen::generated_request_contract<"
 	                      "users_create_user_request"),
 	          std::string::npos);
+	EXPECT_NE(output.find("struct users_create_user_request_user_id_accessor {"), std::string::npos);
 	EXPECT_NE(output.find("struct request_contract_traits<generated_api::users_create_user_request> : "
 	                      "generated_api::codegen_detail::users_create_user_request_contract {};"),
 	          std::string::npos);
-	EXPECT_NE(output.find("warp::codegen::path_binding<&users_create_user_request::user_id, "
+	EXPECT_NE(output.find("warp::codegen::path_binding<users_create_user_request_user_id_accessor, "
 	                      "\"user_id\">"),
 	          std::string::npos);
-	EXPECT_NE(output.find("warp::codegen::query_binding<&users_create_user_request::verbose, "
+	EXPECT_NE(output.find("warp::codegen::query_binding<users_create_user_request_verbose_accessor, "
 	                      "\"verbose\">"),
 	          std::string::npos);
-	EXPECT_NE(output.find("warp::codegen::header_binding<&users_create_user_request::x_trace_id, "
+	EXPECT_NE(output.find("warp::codegen::header_binding<users_create_user_request_x_trace_id_accessor, "
 	                      "\"x-trace-id\">"),
 	          std::string::npos);
-	EXPECT_NE(output.find("warp::codegen::json_body_binding<&users_create_user_request::body>"), std::string::npos);
+	EXPECT_NE(output.find("warp::codegen::json_body_binding<users_create_user_request_body_accessor>"),
+	          std::string::npos);
+	EXPECT_NE(output.find("warp::codegen::body_response_contract<users_create_user_response, "
+	                      "users_create_user_response_body_accessor>;"),
+	          std::string::npos);
 	EXPECT_NE(output.find("struct response_contract_traits<generated_api::users_health_response> : "
 	                      "generated_api::codegen_detail::users_health_response_contract {};"),
 	          std::string::npos);
@@ -152,7 +157,7 @@ resources:
 	    output.find(
 	        R"(using users_fetch_user_request_route = warp::http::route_spec<warp::method::get, "/users/\"quoted\"">;)"),
 	    std::string::npos);
-	EXPECT_NE(output.find(R"(warp::codegen::header_binding<&users_fetch_user_request::x_trace, "x-\"trace\"">)"),
+	EXPECT_NE(output.find(R"(warp::codegen::header_binding<users_fetch_user_request_x_trace_accessor, "x-\"trace\"">)"),
 	          std::string::npos);
 }
 

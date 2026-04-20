@@ -33,16 +33,15 @@ public:
 	}
 
 	generated::users_create_user_response create_user(generated::users_create_user_request request) {
-		observed_->user_id = request.user_id;
-		observed_->verbose = request.verbose;
-		observed_->trace_id = request.x_trace_id;
-		observed_->name = request.body.name;
-		observed_->nickname = request.body.nickname;
+		observed_->user_id = request.user_id();
+		observed_->verbose = request.verbose();
+		observed_->trace_id = request.x_trace_id();
+		observed_->name = request.body().name();
+		observed_->nickname = request.body().nickname();
 
-		generated::users_create_user_response response;
-		response.body.id = 42;
-		response.body.active = true;
-		return response;
+		return generated::users_create_user_response::builder()
+		    .body(generated::users_create_user_response_body::builder().id(42).active(true).build())
+		    .build();
 	}
 
 	awaitable<generated::users_health_response> health(generated::users_health_request) {

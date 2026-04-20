@@ -39,34 +39,40 @@ public:
 	generated::reports_fetch_report_response fetch_report(generated::reports_fetch_report_request request) {
 		observations_->fast_finished.store(true, std::memory_order_release);
 
-		generated::reports_fetch_report_response response;
-		response.body.route = "full";
-		response.body.report_id = request.report_id;
-		response.body.saw_slow_started = observations_->slow_started.load(std::memory_order_acquire);
-		return response;
+		return generated::reports_fetch_report_response::builder()
+		    .body(generated::reports_fetch_report_response_body::builder()
+		              .route("full")
+		              .report_id(request.report_id())
+		              .saw_slow_started(observations_->slow_started.load(std::memory_order_acquire))
+		              .build())
+		    .build();
 	}
 
 	generated::reports_fetch_report_summary_response
 	fetch_report_summary(generated::reports_fetch_report_summary_request request) {
-		generated::reports_fetch_report_summary_response response;
-		response.body.route = "summary";
-		response.body.report_id = request.report_id;
-		response.body.summary = request.summary;
-		return response;
+		return generated::reports_fetch_report_summary_response::builder()
+		    .body(generated::reports_fetch_report_summary_response_body::builder()
+		              .route("summary")
+		              .report_id(request.report_id())
+		              .summary(request.summary())
+		              .build())
+		    .build();
 	}
 
 	generated::reports_fetch_report_projection_response
 	fetch_report_projection(generated::reports_fetch_report_projection_request request) {
-		generated::reports_fetch_report_projection_response response;
-		response.body.route = "projection";
-		response.body.report_id = request.report_id;
-		response.body.fields = request.fields;
-		return response;
+		return generated::reports_fetch_report_projection_response::builder()
+		    .body(generated::reports_fetch_report_projection_response_body::builder()
+		              .route("projection")
+		              .report_id(request.report_id())
+		              .fields(request.fields())
+		              .build())
+		    .build();
 	}
 
 	warp::awaitable<generated::reports_fetch_report_summary_projection_response>
 	fetch_report_summary_projection(generated::reports_fetch_report_summary_projection_request request) {
-		if (request.report_id == "slow") {
+		if (request.report_id() == "slow") {
 			observations_->slow_started.store(true, std::memory_order_release);
 			const auto executor = co_await asio::this_coro::executor;
 			asio::steady_timer timer(executor);
@@ -74,13 +80,15 @@ public:
 			co_await timer.async_wait(asio::use_awaitable);
 		}
 
-		generated::reports_fetch_report_summary_projection_response response;
-		response.body.route = "summary_projection";
-		response.body.report_id = request.report_id;
-		response.body.summary = request.summary;
-		response.body.fields = request.fields;
-		response.body.fast_finished_before_return = observations_->fast_finished.load(std::memory_order_acquire);
-		co_return response;
+		co_return generated::reports_fetch_report_summary_projection_response::builder()
+		    .body(generated::reports_fetch_report_summary_projection_response_body::builder()
+		              .route("summary_projection")
+		              .report_id(request.report_id())
+		              .summary(request.summary())
+		              .fields(request.fields())
+		              .fast_finished_before_return(observations_->fast_finished.load(std::memory_order_acquire))
+		              .build())
+		    .build();
 	}
 
 private:

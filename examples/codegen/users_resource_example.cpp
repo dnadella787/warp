@@ -10,10 +10,12 @@ public:
 	explicit users_resource() = default;
 
 	generated_api::users_create_user_response create_user(generated_api::users_create_user_request request) {
-		generated_api::users_create_user_response response;
-		response.body.id = 42;
-		response.body.active = !request.body.name.empty();
-		return response;
+		return generated_api::users_create_user_response::builder()
+		    .body(generated_api::users_create_user_response_body::builder()
+		              .id(42)
+		              .active(!request.body().name().empty())
+		              .build())
+		    .build();
 	}
 
 	generated_api::users_health_response health(generated_api::users_health_request request) {

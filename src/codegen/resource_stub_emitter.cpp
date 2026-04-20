@@ -70,6 +70,35 @@ std::string method_expression(http_method method) {
 	throw std::invalid_argument("unsupported HTTP method");
 }
 
+std::string cpp_type(const schema_type &type) {
+	switch (type.type) {
+	case schema_type::kind::string_value:
+		return "std::string";
+	case schema_type::kind::int64_value:
+		return "std::int64_t";
+	case schema_type::kind::double_value:
+		return "double";
+	case schema_type::kind::bool_value:
+		return "bool";
+	case schema_type::kind::object_value:
+		if (type.object_name.empty()) {
+			throw std::invalid_argument("object schema reference must include a type name");
+		}
+		return type.object_name;
+	case schema_type::kind::array_value:
+		if (!type.element_type) {
+			throw std::invalid_argument("array schema must include an element type");
+		}
+		return "std::vector<" + cpp_type(*type.element_type) + ">";
+	}
+	throw std::invalid_argument("unsupported schema type");
+}
+
+std::string field_cpp_type(const schema_type &type, bool required) {
+	const auto base = cpp_type(type);
+	return required ? base : "std::optional<" + base + ">";
+}
+
 std::string request_type_name(const api_model &model, const endpoint_model &endpoint) {
 	return model.cpp_namespace + "::" + endpoint.request.name;
 }
@@ -107,6 +136,10 @@ std::string endpoint_binding_alias_name(const endpoint_model &endpoint) {
 
 std::string handler_selector_name(const endpoint_model &endpoint) {
 	return endpoint.request.name + "_handler_selector";
+}
+
+std::string accessor_name(const std::string &type_name, const std::string &field_name) {
+	return type_name + "_" + field_name + "_accessor";
 }
 
 [[nodiscard]] bool contains_parameter(const std::vector<std::string> &parameters, std::string_view name) {
@@ -169,17 +202,58 @@ void emit_query_route_spec_aliases(std::string &output, const resource_model &re
 }
 
 std::string binding_expression(const std::string &request_type, const parameter_model &parameter) {
-	const auto member = "&" + request_type + "::" + parameter.member_name;
+	const auto accessor = accessor_name(request_type, parameter.member_name);
 	const auto source_name = cpp_string_literal(parameter.source_name);
 	switch (parameter.location) {
 	case parameter_location::path:
-		return "warp::codegen::path_binding<" + member + ", " + source_name + ">";
+		return "warp::codegen::path_binding<" + accessor + ", " + source_name + ">";
 	case parameter_location::query:
-		return "warp::codegen::query_binding<" + member + ", " + source_name + ">";
+		return "warp::codegen::query_binding<" + accessor + ", " + source_name + ">";
 	case parameter_location::header:
-		return "warp::codegen::header_binding<" + member + ", " + source_name + ">";
+		return "warp::codegen::header_binding<" + accessor + ", " + source_name + ">";
 	}
 	throw std::invalid_argument("unsupported parameter location");
+}
+
+void emit_request_field_accessor(std::string &output, const std::string &request_type, const std::string &value_type,
+                                 const std::string &field_name) {
+	append_line(output, "struct " + accessor_name(request_type, field_name) + " {");
+	append_line(output, "    using class_type = " + request_type + ";");
+	append_line(output, "    using value_type = " + value_type + ";");
+	append_line(output, "    static void set(class_type &value, value_type member_value) {");
+	append_line(output, "        value.set_" + field_name + "(std::move(member_value));");
+	append_line(output, "    }");
+	append_line(output, "};");
+}
+
+void emit_response_field_accessor(std::string &output, const std::string &response_type, const std::string &value_type,
+                                  const std::string &field_name) {
+	append_line(output, "struct " + accessor_name(response_type, field_name) + " {");
+	append_line(output, "    using class_type = " + response_type + ";");
+	append_line(output, "    using value_type = " + value_type + ";");
+	append_line(output, "    [[nodiscard]] static const value_type &get(const class_type &value) noexcept {");
+	append_line(output, "        return value." + field_name + "();");
+	append_line(output, "    }");
+	append_line(output, "    [[nodiscard]] static value_type &&get(class_type &&value) noexcept {");
+	append_line(output, "        return std::move(value)." + field_name + "();");
+	append_line(output, "    }");
+	append_line(output, "};");
+}
+
+void emit_endpoint_accessors(std::string &output, const endpoint_model &endpoint) {
+	for (const auto &parameter : endpoint.request.parameters) {
+		emit_request_field_accessor(output, endpoint.request.name, field_cpp_type(parameter.type, parameter.required),
+		                            parameter.member_name);
+		append_line(output);
+	}
+	if (endpoint.request.body_type_name.has_value()) {
+		emit_request_field_accessor(output, endpoint.request.name, *endpoint.request.body_type_name, "body");
+		append_line(output);
+	}
+	if (endpoint.response.body_type_name.has_value()) {
+		emit_response_field_accessor(output, endpoint.result_name, *endpoint.response.body_type_name, "body");
+		append_line(output);
+	}
 }
 
 void emit_request_contract_traits(std::string &output, const api_model &model, const endpoint_model &endpoint) {
@@ -205,7 +279,8 @@ void emit_request_contract_alias(std::string &output, const endpoint_model &endp
 		append_line(output, "    , " + binding_expression(endpoint.request.name, parameter));
 	}
 	if (endpoint.request.body_type_name.has_value()) {
-		append_line(output, "    , warp::codegen::json_body_binding<&" + endpoint.request.name + "::body>");
+		append_line(output,
+		            "    , warp::codegen::json_body_binding<" + accessor_name(endpoint.request.name, "body") + ">");
 	}
 	append_line(output, ">;");
 }
@@ -213,8 +288,8 @@ void emit_request_contract_alias(std::string &output, const endpoint_model &endp
 void emit_response_contract_alias(std::string &output, const endpoint_model &endpoint) {
 	if (endpoint.response.body_type_name.has_value()) {
 		append_line(output, "using " + response_contract_alias_name(endpoint) +
-		                        " = warp::codegen::body_response_contract<" + endpoint.result_name + ", &" +
-		                        endpoint.result_name + "::body>;");
+		                        " = warp::codegen::body_response_contract<" + endpoint.result_name + ", " +
+		                        accessor_name(endpoint.result_name, "body") + ">;");
 	} else {
 		append_line(output, "using " + response_contract_alias_name(endpoint) +
 		                        " = warp::codegen::empty_response_contract<" + endpoint.result_name + ">;");
@@ -302,6 +377,7 @@ std::string resource_stub_emitter::emit_header(const api_model &model,
 
 	for (const auto &resource : model.resources) {
 		for (const auto &endpoint : resource.endpoints) {
+			emit_endpoint_accessors(output, endpoint);
 			emit_request_contract_alias(output, endpoint);
 			emit_response_contract_alias(output, endpoint);
 			emit_handler_selector(output, endpoint);

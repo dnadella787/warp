@@ -117,15 +117,6 @@ template <typename... Ts>
 struct type_list {};
 
 template <typename T>
-struct member_pointer_traits;
-
-template <typename Class, typename Value>
-struct member_pointer_traits<Value Class::*> {
-	using class_type = Class;
-	using value_type = Value;
-};
-
-template <typename T>
 struct optional_value_traits {
 	static constexpr bool is_optional = false;
 	using value_type = T;
@@ -399,30 +390,28 @@ parse_result<RequestContract> parse_http_request(const request &req) {
 	return request_contract_traits<RequestContract>::parse(req);
 }
 
-template <auto Member, http::fixed_string Name>
+template <typename Accessor, http::fixed_string Name>
 struct path_binding {
-	using pointer_traits = detail::member_pointer_traits<decltype(Member)>;
-	using request_type = typename pointer_traits::class_type;
-	using value_type = typename pointer_traits::value_type;
+	using request_type = typename Accessor::class_type;
+	using value_type = typename Accessor::value_type;
 
 	static_assert(!detail::optional_value_traits<value_type>::is_optional,
 	              "path bindings must target a non-optional member");
 
-	static constexpr auto member = Member;
-
 	static parse_result<value_type> parse(const request &req) {
 		return required_path_param<value_type>(req, Name.view());
 	}
+
+	static void set(request_type &out, value_type value) {
+		Accessor::set(out, std::move(value));
+	}
 };
 
-template <auto Member, http::fixed_string Name>
+template <typename Accessor, http::fixed_string Name>
 struct query_binding {
-	using pointer_traits = detail::member_pointer_traits<decltype(Member)>;
-	using request_type = typename pointer_traits::class_type;
-	using value_type = typename pointer_traits::value_type;
+	using request_type = typename Accessor::class_type;
+	using value_type = typename Accessor::value_type;
 	using scalar_type = typename detail::optional_value_traits<value_type>::value_type;
-
-	static constexpr auto member = Member;
 
 	static parse_result<value_type> parse(const request &req) {
 		if constexpr (detail::optional_value_traits<value_type>::is_optional) {
@@ -431,16 +420,17 @@ struct query_binding {
 			return required_query_param<value_type>(req, Name.view());
 		}
 	}
+
+	static void set(request_type &out, value_type value) {
+		Accessor::set(out, std::move(value));
+	}
 };
 
-template <auto Member, http::fixed_string Name>
+template <typename Accessor, http::fixed_string Name>
 struct header_binding {
-	using pointer_traits = detail::member_pointer_traits<decltype(Member)>;
-	using request_type = typename pointer_traits::class_type;
-	using value_type = typename pointer_traits::value_type;
+	using request_type = typename Accessor::class_type;
+	using value_type = typename Accessor::value_type;
 	using scalar_type = typename detail::optional_value_traits<value_type>::value_type;
-
-	static constexpr auto member = Member;
 
 	static parse_result<value_type> parse(const request &req) {
 		if constexpr (detail::optional_value_traits<value_type>::is_optional) {
@@ -449,21 +439,26 @@ struct header_binding {
 			return required_header_param<value_type>(req, Name.view());
 		}
 	}
+
+	static void set(request_type &out, value_type value) {
+		Accessor::set(out, std::move(value));
+	}
 };
 
-template <auto Member>
+template <typename Accessor>
 struct json_body_binding {
-	using pointer_traits = detail::member_pointer_traits<decltype(Member)>;
-	using request_type = typename pointer_traits::class_type;
-	using value_type = typename pointer_traits::value_type;
+	using request_type = typename Accessor::class_type;
+	using value_type = typename Accessor::value_type;
 
 	static_assert(!detail::optional_value_traits<value_type>::is_optional,
 	              "JSON body bindings must target a non-optional member");
 
-	static constexpr auto member = Member;
-
 	static parse_result<value_type> parse(const request &req) {
 		return json_body<value_type>(req);
+	}
+
+	static void set(request_type &out, value_type value) {
+		Accessor::set(out, std::move(value));
 	}
 };
 
@@ -495,7 +490,7 @@ private:
 			error = parsed.error();
 			return false;
 		}
-		out.*(Binding::member) = std::move(parsed).value();
+		Binding::set(out, std::move(parsed).value());
 		return true;
 	}
 };
@@ -506,13 +501,17 @@ struct empty_response_contract {
 	static constexpr bool has_body = false;
 };
 
-template <typename Response, auto BodyMember>
+template <typename Response, typename BodyAccessor>
 struct body_response_contract {
 	static constexpr unsigned status_code = Response::status_code;
 	static constexpr bool has_body = true;
 
 	static decltype(auto) body(const Response &value) {
-		return value.*BodyMember;
+		return BodyAccessor::get(value);
+	}
+
+	static decltype(auto) body(Response &&value) {
+		return BodyAccessor::get(std::move(value));
 	}
 };
 
@@ -552,6 +551,27 @@ response to_http_response(const ResponseContract &typed, unsigned version = 11) 
 		    .status(traits::status_code)
 		    .version(version)
 		    .body(boost::json::value_from(traits::body(typed)))
+		    .build();
+	} else {
+		response resp(static_cast<boost::beast::http::status>(traits::status_code), version);
+		return resp;
+	}
+}
+
+template <typename ResponseContract>
+    requires(!std::is_lvalue_reference_v<ResponseContract>)
+response to_http_response(ResponseContract &&typed, unsigned version = 11) {
+	using response_type = std::remove_cvref_t<ResponseContract>;
+	using traits = response_contract_traits<response_type>;
+
+	if constexpr (traits::has_body) {
+		if (status_forbids_body(static_cast<boost::beast::http::status>(traits::status_code))) {
+			throw std::invalid_argument("response status must not include a body");
+		}
+		return response_builder()
+		    .status(traits::status_code)
+		    .version(version)
+		    .body(boost::json::value_from(traits::body(std::forward<ResponseContract>(typed))))
 		    .build();
 	} else {
 		response resp(static_cast<boost::beast::http::status>(traits::status_code), version);
@@ -623,7 +643,7 @@ auto bind_endpoint(std::shared_ptr<Service> service, MemberFn member_fn) {
 			    return std::invoke(member_fn, *service, std::move(typed_request));
 		    });
 
-		auto response = warp::codegen::to_http_response(typed_response, version);
+		auto response = warp::codegen::to_http_response(std::move(typed_response), version);
 		response.keep_alive(keep_alive);
 		co_return response;
 	};

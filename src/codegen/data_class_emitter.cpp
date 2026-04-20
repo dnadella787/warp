@@ -71,19 +71,129 @@ std::string field_cpp_type(const schema_type &type, bool required) {
 	return required ? base : "std::optional<" + base + ">";
 }
 
-void emit_object_schema(std::string &output, const object_schema_model &schema) {
-	append_line(output, "struct " + schema.name + " {");
+struct generated_field {
+	std::string type_name;
+	std::string accessor_name;
+	std::string storage_name;
+	std::optional<std::string> json_name;
+};
+
+std::vector<generated_field> schema_fields(const object_schema_model &schema) {
+	std::vector<generated_field> fields;
+	fields.reserve(schema.fields.size());
 	for (const auto &field : schema.fields) {
-		append_line(output, "\t" + field_cpp_type(field.type, field.required) + " " + field.member_name + " {};");
+		fields.push_back({.type_name = field_cpp_type(field.type, field.required),
+		                  .accessor_name = field.member_name,
+		                  .storage_name = field.member_name + "_",
+		                  .json_name = field.json_name});
+	}
+	return fields;
+}
+
+std::vector<generated_field> request_fields(const endpoint_model &endpoint) {
+	std::vector<generated_field> fields;
+	fields.reserve(endpoint.request.parameters.size() + (endpoint.request.body_type_name.has_value() ? 1U : 0U));
+	for (const auto &parameter : endpoint.request.parameters) {
+		fields.push_back({.type_name = field_cpp_type(parameter.type, parameter.required),
+		                  .accessor_name = parameter.member_name,
+		                  .storage_name = parameter.member_name + "_"});
+	}
+	if (endpoint.request.body_type_name.has_value()) {
+		fields.push_back(
+		    {.type_name = *endpoint.request.body_type_name, .accessor_name = "body", .storage_name = "body_"});
+	}
+	return fields;
+}
+
+std::vector<generated_field> response_fields(const endpoint_model &endpoint) {
+	if (!endpoint.response.body_type_name.has_value()) {
+		return {};
+	}
+	return {{.type_name = *endpoint.response.body_type_name, .accessor_name = "body", .storage_name = "body_"}};
+}
+
+void emit_data_class(std::string &output, const std::string &name, const std::vector<generated_field> &fields,
+                     const std::vector<std::string> &extra_public_lines = {}) {
+	append_line(output, "class " + name + " {");
+	append_line(output, "public:");
+	append_line(output, "\tclass Builder {");
+	append_line(output, "\tpublic:");
+	for (const auto &field : fields) {
+		append_line(output, "\t\tBuilder &" + field.accessor_name + "(" + field.type_name + " value) {");
+		append_line(output, "\t\t\t" + field.storage_name + " = std::move(value);");
+		append_line(output, "\t\t\treturn *this;");
+		append_line(output, "\t\t}");
+	}
+	append_line(output);
+	append_line(output, "\t\t[[nodiscard]] " + name + " build() && {");
+	append_line(output, "\t\t\t" + name + " out;");
+	for (const auto &field : fields) {
+		append_line(output, "\t\t\tout." + field.storage_name + " = std::move(" + field.storage_name + ");");
+	}
+	append_line(output, "\t\t\treturn out;");
+	append_line(output, "\t\t}");
+	append_line(output);
+	append_line(output, "\t\t[[nodiscard]] " + name + " build() const & {");
+	append_line(output, "\t\t\t" + name + " out;");
+	for (const auto &field : fields) {
+		append_line(output, "\t\t\tout." + field.storage_name + " = " + field.storage_name + ";");
+	}
+	append_line(output, "\t\t\treturn out;");
+	append_line(output, "\t\t}");
+	append_line(output);
+	append_line(output, "\tprivate:");
+	for (const auto &field : fields) {
+		append_line(output, "\t\t" + field.type_name + " " + field.storage_name + " {};");
+	}
+	append_line(output, "\t};");
+	append_line(output);
+	append_line(output, "\t" + name + "() = default;");
+	for (const auto &line : extra_public_lines) {
+		append_line(output, "\t" + line);
+	}
+	append_line(output, "\t[[nodiscard]] static Builder builder() {");
+	append_line(output, "\t\treturn Builder {};");
+	append_line(output, "\t}");
+	for (const auto &field : fields) {
+		append_line(output);
+		append_line(output,
+		            "\t[[nodiscard]] const " + field.type_name + " &" + field.accessor_name + "() const & noexcept {");
+		append_line(output, "\t\treturn " + field.storage_name + ";");
+		append_line(output, "\t}");
+		append_line(output);
+		append_line(output, "\t[[nodiscard]] " + field.type_name + " &" + field.accessor_name + "() & noexcept {");
+		append_line(output, "\t\treturn " + field.storage_name + ";");
+		append_line(output, "\t}");
+		append_line(output);
+		append_line(output, "\t[[nodiscard]] " + field.type_name + " &&" + field.accessor_name + "() && noexcept {");
+		append_line(output, "\t\treturn std::move(" + field.storage_name + ");");
+		append_line(output, "\t}");
+		append_line(output);
+		append_line(output, "\t" + name + " &set_" + field.accessor_name + "(" + field.type_name + " value) {");
+		append_line(output, "\t\t" + field.storage_name + " = std::move(value);");
+		append_line(output, "\t\treturn *this;");
+		append_line(output, "\t}");
+	}
+	append_line(output);
+	append_line(output, "private:");
+	for (const auto &field : fields) {
+		append_line(output, "\t" + field.type_name + " " + field.storage_name + " {};");
 	}
 	append_line(output, "};");
 	append_line(output);
+}
+
+void emit_object_schema(std::string &output, const object_schema_model &schema) {
+	const auto fields = schema_fields(schema);
+	emit_data_class(output, schema.name, fields);
 
 	append_line(output, "inline " + schema.name + " tag_invoke(boost::json::value_to_tag<" + schema.name +
 	                        ">, const boost::json::value &value) {");
 	append_line(output, "\tconst auto &obj = value.as_object();");
 	append_line(output, "\t" + schema.name + " out;");
-	for (const auto &field : schema.fields) {
+	for (std::size_t i = 0; i < schema.fields.size(); ++i) {
+		const auto &field = schema.fields[i];
+		const auto &generated = fields[i];
 		const auto json_key = escape_string_literal(field.json_name);
 		const auto raw_name = "raw_" + field.member_name;
 		const auto base_type = cpp_type(field.type);
@@ -93,12 +203,12 @@ void emit_object_schema(std::string &output, const object_schema_model &schema) 
 			append_line(output, "\t\tthrow std::invalid_argument(\"missing required field '" + json_key + "' for " +
 			                        schema.name + "\");");
 			append_line(output, "\t}");
-			append_line(output, "\tout." + field.member_name + " = boost::json::value_to<" + base_type + ">(*" +
-			                        raw_name + ");");
+			append_line(output, "\tout.set_" + generated.accessor_name + "(boost::json::value_to<" + base_type + ">(*" +
+			                        raw_name + "));");
 		} else {
 			append_line(output, "\tif (" + raw_name + " != nullptr) {");
-			append_line(output, "\t\tout." + field.member_name + " = boost::json::value_to<" + base_type + ">(*" +
-			                        raw_name + ");");
+			append_line(output, "\t\tout.set_" + generated.accessor_name + "(boost::json::value_to<" + base_type +
+			                        ">(*" + raw_name + "));");
 			append_line(output, "\t}");
 		}
 	}
@@ -110,15 +220,41 @@ void emit_object_schema(std::string &output, const object_schema_model &schema) 
 	append_line(output, "\t                    boost::json::value &value,");
 	append_line(output, "\t                    const " + schema.name + " &input) {");
 	append_line(output, "\tboost::json::object obj;");
-	for (const auto &field : schema.fields) {
+	for (std::size_t i = 0; i < schema.fields.size(); ++i) {
+		const auto &field = schema.fields[i];
+		const auto &generated = fields[i];
 		const auto json_key = escape_string_literal(field.json_name);
 		if (field.required) {
-			append_line(output,
-			            "\tobj[\"" + json_key + "\"] = boost::json::value_from(input." + field.member_name + ");");
+			append_line(output, "\tobj[\"" + json_key + "\"] = boost::json::value_from(input." +
+			                        generated.accessor_name + "());");
 		} else {
-			append_line(output, "\tif (input." + field.member_name + ".has_value()) {");
-			append_line(output,
-			            "\t\tobj[\"" + json_key + "\"] = boost::json::value_from(*input." + field.member_name + ");");
+			append_line(output, "\tif (input." + generated.accessor_name + "().has_value()) {");
+			append_line(output, "\t\tobj[\"" + json_key + "\"] = boost::json::value_from(*input." +
+			                        generated.accessor_name + "());");
+			append_line(output, "\t}");
+		}
+	}
+	append_line(output, "\tvalue = std::move(obj);");
+	append_line(output, "}");
+	append_line(output);
+
+	append_line(output, "inline void tag_invoke(boost::json::value_from_tag,");
+	append_line(output, "\t                    boost::json::value &value,");
+	append_line(output, "\t                    " + schema.name + " &&input) {");
+	append_line(output, "\tboost::json::object obj;");
+	for (std::size_t i = 0; i < schema.fields.size(); ++i) {
+		const auto &field = schema.fields[i];
+		const auto &generated = fields[i];
+		const auto json_key = escape_string_literal(field.json_name);
+		if (field.required) {
+			append_line(output, "\tobj[\"" + json_key + "\"] = boost::json::value_from(std::move(input)." +
+			                        generated.accessor_name + "());");
+		} else {
+			append_line(output, "\tauto " + generated.storage_name + "value = std::move(input)." +
+			                        generated.accessor_name + "();");
+			append_line(output, "\tif (" + generated.storage_name + "value.has_value()) {");
+			append_line(output, "\t\tobj[\"" + json_key + "\"] = boost::json::value_from(std::move(*" +
+			                        generated.storage_name + "value));");
 			append_line(output, "\t}");
 		}
 	}
@@ -160,27 +296,12 @@ void emit_schema_with_dependencies(std::string &output, const api_model &model, 
 }
 
 void emit_request_contract(std::string &output, const endpoint_model &endpoint) {
-	append_line(output, "struct " + endpoint.request.name + " {");
-	for (const auto &parameter : endpoint.request.parameters) {
-		append_line(output,
-		            "\t" + field_cpp_type(parameter.type, parameter.required) + " " + parameter.member_name + " {};");
-	}
-	if (endpoint.request.body_type_name.has_value()) {
-		append_line(output, "\t" + *endpoint.request.body_type_name + " body {};");
-	}
-	append_line(output, "};");
-	append_line(output);
+	emit_data_class(output, endpoint.request.name, request_fields(endpoint));
 }
 
 void emit_result_contract(std::string &output, const endpoint_model &endpoint) {
-	append_line(output, "struct " + endpoint.result_name + " {");
-	append_line(output,
-	            "\tstatic constexpr unsigned status_code = " + std::to_string(endpoint.response.status_code) + ";");
-	if (endpoint.response.body_type_name.has_value()) {
-		append_line(output, "\t" + *endpoint.response.body_type_name + " body {};");
-	}
-	append_line(output, "};");
-	append_line(output);
+	emit_data_class(output, endpoint.result_name, response_fields(endpoint),
+	                {"static constexpr unsigned status_code = " + std::to_string(endpoint.response.status_code) + ";"});
 }
 
 } // namespace

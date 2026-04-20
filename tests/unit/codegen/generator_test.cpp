@@ -49,11 +49,12 @@ resources:
 	    api_stub_generator().generate(spec, {.namespace_name = "generated_api", .model_header_name = "models.hpp"});
 
 	EXPECT_NE(generated.model_header.find("namespace generated_api {"), std::string::npos);
-	EXPECT_NE(generated.model_header.find("struct users_create_user_request"), std::string::npos);
+	EXPECT_NE(generated.model_header.find("class users_create_user_request {"), std::string::npos);
 	EXPECT_NE(generated.resource_header.find("#include \"models.hpp\""), std::string::npos);
 	EXPECT_NE(generated.resource_header.find("using users_api_routes = warp::codegen::generated_resource<"),
 	          std::string::npos);
 	EXPECT_NE(generated.resource_header.find("namespace generated_api::codegen_detail {"), std::string::npos);
+	EXPECT_NE(generated.resource_header.find("struct users_create_user_request_user_id_accessor {"), std::string::npos);
 	EXPECT_NE(generated.resource_header.find("using users_create_user_request_contract = "
 	                                         "warp::codegen::generated_request_contract<"
 	                                         "users_create_user_request"),
