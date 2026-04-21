@@ -605,15 +605,17 @@ struct generated_request_contract {
 	              "all bindings in a request contract must target the same request type");
 
 	static parse_result<Request> parse(const request &req) {
-		if (const auto target_error = request_target_binding_error(req); target_error.has_value()) {
+		// this will be true if there was a parse error when converting the beast http request into
+		// the warp::request object in the parser (basically when the query/path params are being
+		// parsed since beast doesnt do this by default for you).
+		if (const auto target_error = request_target_binding_error(req); target_error.has_value())
 			return parse_result<Request>::failure(*target_error);
-		}
 
 		Request out;
 		binding_error error;
-		if (!(apply_binding<Bindings>(out, req, error) && ...)) {
+		if (!(apply_binding<Bindings>(out, req, error) && ...))
 			return parse_result<Request>::failure(std::move(error));
-		}
+
 		return parse_result<Request>::success(std::move(out));
 	}
 

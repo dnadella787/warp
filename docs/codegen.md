@@ -280,9 +280,9 @@ cmake --build build-test --target warp_http_unit_tests warp_http_integration_tes
 
 ## Example files
 
-- example YAML: [examples/codegen/users_api.yaml](/Users/dnadella/Projects/warp/examples/codegen/users_api.yaml)
-- CLI example target source: [codegen_cli.cpp](/Users/dnadella/Projects/warp/src/codegen/codegen_cli.cpp)
-- CMake helper module: [WarpCodegen.cmake](/Users/dnadella/Projects/warp/cmake/WarpCodegen.cmake)
-- header generation example: [examples/codegen/generate_users_headers.cpp](/Users/dnadella/Projects/warp/examples/codegen/generate_users_headers.cpp)
-- illustrative consumer flow: [examples/codegen/users_resource_example.cpp](/Users/dnadella/Projects/warp/examples/codegen/users_resource_example.cpp)
-- runtime integration test: [generated_api_integration_test.cpp](/Users/dnadella/Projects/warp/tests/integration/generated_api_integration_test.cpp)
+- example YAML: [examples/codegen/users_api.yaml](warp/examples/codegen/users_api.yaml)
+- CLI example target source: [codegen_cli.cpp](warp/src/codegen/codegen_cli.cpp)
+- CMake helper module: [WarpCodegen.cmake](warp/cmake/WarpCodegen.cmake)
+- header generation example: [examples/codegen/generate_users_headers.cpp](warp/examples/codegen/generate_users_headers.cpp)
+- illustrative consumer flow: [examples/codegen/users_resource_example.cpp](warp/examples/codegen/users_resource_example.cpp)
+- runtime integration test: [generated_api_integration_test.cpp](warp/tests/integration/generated_api_integration_test.cpp)

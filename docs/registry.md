@@ -18,8 +18,8 @@ The registry does not perform socket I/O, request parsing, or response serializa
 
 The implementation lives in:
 
-- [registry.hpp](/Users/dnadella/Projects/warp/src/http/router/registry.hpp)
-- [registry.cpp](/Users/dnadella/Projects/warp/src/http/router/registry.cpp)
+- [registry.hpp](warp/src/http/router/registry.hpp)
+- [registry.cpp](warp/src/http/router/registry.cpp)
 
 Important types:
 

@@ -90,8 +90,8 @@ The difference between the two modes is how steps 1, 2, 5, and 8 are driven inte
 
 Callback mode uses:
 
-- [listener.cpp](/Users/dnadella/Projects/warp/src/http/listener/listener.cpp)
-- [http_session.cpp](/Users/dnadella/Projects/warp/src/http/session/http_session.cpp)
+- [listener.cpp](warp/src/http/listener/listener.cpp)
+- [http_session.cpp](warp/src/http/session/http_session.cpp)
 
 Flow:
 
@@ -108,8 +108,8 @@ Flow:
 
 Coroutine mode uses:
 
-- [coroutine_listener.cpp](/Users/dnadella/Projects/warp/src/http/listener/coroutine_listener.cpp)
-- [coroutine_http_session.cpp](/Users/dnadella/Projects/warp/src/http/session/coroutine_http_session.cpp)
+- [coroutine_listener.cpp](warp/src/http/listener/coroutine_listener.cpp)
+- [coroutine_http_session.cpp](warp/src/http/session/coroutine_http_session.cpp)
 
 Flow:
 
@@ -191,7 +191,7 @@ That means:
 
 ## Benchmarking
 
-The callback event loop is still the default because it currently has the lower event-loop overhead on Warp's local round-trip benchmark. The latest measurements are documented in [benchmarking.md](/Users/dnadella/Projects/warp/docs/benchmarking.md).
+The callback event loop is still the default because it currently has the lower event-loop overhead on Warp's local round-trip benchmark. The latest measurements are documented in [benchmarking.md](warp/docs/benchmarking.md).
 
 ## Summary
 

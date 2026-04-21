@@ -146,9 +146,9 @@ Two supported workflows:
 - ahead of time with the `warp_codegen` CLI
 - during the build with the `warp_generate_stubs(...)` CMake function
 
-- Docs: [docs/codegen.md](/Users/dnadella/Projects/warp/docs/codegen.md)
-- Example YAML: [examples/codegen/users_api.yaml](/Users/dnadella/Projects/warp/examples/codegen/users_api.yaml)
-- Example usage: [examples/codegen/users_resource_example.cpp](/Users/dnadella/Projects/warp/examples/codegen/users_resource_example.cpp)
+- Docs: [docs/codegen.md](warp/docs/codegen.md)
+- Example YAML: [examples/codegen/users_api.yaml](warp/examples/codegen/users_api.yaml)
+- Example usage: [examples/codegen/users_resource_example.cpp](warp/examples/codegen/users_resource_example.cpp)
 
 ### Benchmarking
 
@@ -174,4 +174,4 @@ cmake --build build-bench --target warp_http_event_loop_benchmark -j4
 You can optionally enable the sync db query as well (it may error out, read the benchmarking doc for more info) using ``
 If your shell is running under Rosetta on Apple Silicon, prefix configure, build, and run with `arch -arm64`.
 
-See [docs/benchmarking.md](/Users/dnadella/Projects/warp/docs/benchmarking.md) for DB setup and interpretation notes.
+See [docs/benchmarking.md](warp/docs/benchmarking.md) for DB setup and interpretation notes.
