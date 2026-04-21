@@ -1,6 +1,7 @@
 #include "warp/codegen/resource_stub_emitter.hpp"
 
 #include <algorithm>
+#include <optional>
 #include <stdexcept>
 #include <string>
 
@@ -105,16 +106,33 @@ std::string handler_selector_name(const endpoint_model &endpoint) {
 	return endpoint.request.name + "_handler_selector";
 }
 
-[[nodiscard]] bool contains_parameter(const std::vector<std::string> &parameters, std::string_view name) {
-	return std::find(parameters.begin(), parameters.end(), name) != parameters.end();
+[[nodiscard]] std::optional<warp::http::compiled_query_constraint>
+find_query_constraint(const query_route_model &query_route, std::string_view name) {
+	for (const auto constraint : query_route.constraints) {
+		if (constraint.name == name) {
+			return constraint;
+		}
+	}
+	return std::nullopt;
 }
 
-std::string query_constraint_expression(const query_route_model &query_route, const route_group_model &group,
-                                        std::string_view parameter_name) {
-	if (contains_parameter(query_route.required_parameters, parameter_name)) {
+std::string query_constraint_expression(const query_route_model &query_route, std::string_view parameter_name) {
+	const auto constraint = find_query_constraint(query_route, parameter_name);
+	if (!constraint.has_value()) {
+		return "warp::http::forbidden_query<" + cpp_string_literal(parameter_name) + ">";
+	}
+	if (constraint->value.has_value()) {
+		if (constraint->presence == warp::http::query_constraint_presence::required) {
+			return "warp::http::required_query_value<" + cpp_string_literal(parameter_name) + ", " +
+			       cpp_string_literal(*constraint->value) + ">";
+		}
+		return "warp::http::optional_query_value<" + cpp_string_literal(parameter_name) + ", " +
+		       cpp_string_literal(*constraint->value) + ">";
+	}
+	if (constraint->presence == warp::http::query_constraint_presence::required) {
 		return "warp::http::required_query<" + cpp_string_literal(parameter_name) + ">";
 	}
-	if (contains_parameter(query_route.accepted_parameters, parameter_name)) {
+	if (constraint->presence == warp::http::query_constraint_presence::optional) {
 		return "warp::http::optional_query<" + cpp_string_literal(parameter_name) + ">";
 	}
 	return "warp::http::forbidden_query<" + cpp_string_literal(parameter_name) + ">";
@@ -142,7 +160,7 @@ void emit_query_route_spec_aliases(std::string &output, const resource_model &re
 			                    method_expression(endpoint.method) + ", " + cpp_string_literal(endpoint.path);
 			for (const auto &parameter : group.routing_query_parameters) {
 				alias.append(", ");
-				alias.append(query_constraint_expression(*endpoint.query_route, group, parameter));
+				alias.append(query_constraint_expression(*endpoint.query_route, parameter));
 			}
 			alias.append(">;");
 			append_line(output, alias);

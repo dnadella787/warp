@@ -8,9 +8,9 @@
 #include <string>
 #include <string_view>
 
-#include "compiled_route.hpp"
 #include "http.hpp"
 #include "query_constraints.hpp"
+#include "query_constraint_semantics.hpp"
 #include "route_path.hpp"
 #include "route_pattern.hpp"
 
@@ -54,48 +54,11 @@ namespace detail {
 	}
 }
 
-[[nodiscard]] constexpr bool descriptors_can_overlap(query_constraint_descriptor lhs,
-                                                     query_constraint_descriptor rhs) noexcept {
-	if (lhs.presence == query_constraint_presence::forbidden && rhs.presence == query_constraint_presence::forbidden) {
-		return true;
-	}
-	if (lhs.presence == query_constraint_presence::forbidden) {
-		return rhs.presence != query_constraint_presence::required;
-	}
-	if (rhs.presence == query_constraint_presence::forbidden) {
-		return lhs.presence != query_constraint_presence::required;
-	}
-	if (lhs.presence != query_constraint_presence::required && rhs.presence != query_constraint_presence::required) {
-		return true;
-	}
-	if (!lhs.has_exact_value || !rhs.has_exact_value) {
-		return true;
-	}
-	return lhs.exact_value == rhs.exact_value;
-}
-
-struct query_match_score {
-	std::size_t matched_constraints {};
-	std::size_t matched_exact_constraints {};
-};
-
 template <std::size_t Capacity>
 struct constraint_name_set {
 	std::array<std::string_view, Capacity> names {};
 	std::size_t size {};
 };
-
-enum class query_value_state {
-	absent,
-	lhs_exact,
-	rhs_exact,
-	other_present,
-};
-
-[[nodiscard]] constexpr bool query_match_scores_equal(query_match_score lhs, query_match_score rhs) noexcept {
-	return lhs.matched_constraints == rhs.matched_constraints &&
-	       lhs.matched_exact_constraints == rhs.matched_exact_constraints;
-}
 
 [[nodiscard]] constexpr bool constraint_name_set_contains(const auto &names, std::string_view name) noexcept {
 	for (std::size_t i = 0; i < names.size; ++i) {
@@ -132,69 +95,10 @@ template <typename Lhs, typename Rhs>
 	return result;
 }
 
-[[nodiscard]] constexpr bool exact_value_matches_state(std::string_view exact_value, std::string_view lhs_exact_value,
-                                                       std::string_view rhs_exact_value,
-                                                       query_value_state state) noexcept {
-	switch (state) {
-	case query_value_state::absent:
-	case query_value_state::other_present:
-		return false;
-	case query_value_state::lhs_exact:
-		return !lhs_exact_value.empty() && exact_value == lhs_exact_value;
-	case query_value_state::rhs_exact:
-		return !rhs_exact_value.empty() && exact_value == rhs_exact_value;
-	}
-	return false;
-}
-
-[[nodiscard]] constexpr bool descriptor_accepts_state(const std::optional<query_constraint_descriptor> &descriptor,
-                                                      std::string_view lhs_exact_value,
-                                                      std::string_view rhs_exact_value,
-                                                      query_value_state state) noexcept {
-	if (!descriptor.has_value()) {
-		return true;
-	}
-	if (descriptor->presence == query_constraint_presence::forbidden) {
-		return state == query_value_state::absent;
-	}
-	if (state == query_value_state::absent) {
-		return descriptor->presence == query_constraint_presence::optional;
-	}
-	if (!descriptor->has_exact_value) {
-		return true;
-	}
-	return exact_value_matches_state(descriptor->exact_value, lhs_exact_value, rhs_exact_value, state);
-}
-
-[[nodiscard]] constexpr query_match_score descriptor_score(const std::optional<query_constraint_descriptor> &descriptor,
-                                                           query_value_state state) noexcept {
-	if (!descriptor.has_value()) {
-		return {};
-	}
-	if (descriptor->presence == query_constraint_presence::forbidden) {
-		return {.matched_constraints = 1};
-	}
-	if (state == query_value_state::absent) {
-		return {};
-	}
-	return {
-	    .matched_constraints = 1,
-	    .matched_exact_constraints = descriptor->has_exact_value ? 1U : 0U,
-	};
-}
-
-[[nodiscard]] constexpr query_match_score add_query_match_scores(query_match_score lhs,
-                                                                 query_match_score rhs) noexcept {
-	return {
-	    .matched_constraints = lhs.matched_constraints + rhs.matched_constraints,
-	    .matched_exact_constraints = lhs.matched_exact_constraints + rhs.matched_exact_constraints,
-	};
-}
-
 template <typename Lhs, typename Rhs, std::size_t Capacity>
 [[nodiscard]] consteval bool route_specs_can_tie_on_score(const constraint_name_set<Capacity> &names, std::size_t index,
-                                                          query_match_score lhs_score = {},
-                                                          query_match_score rhs_score = {}) {
+                                                          query_constraint_match_score lhs_score = {},
+                                                          query_constraint_match_score rhs_score = {}) {
 	if (index == names.size) {
 		return query_match_scores_equal(lhs_score, rhs_score);
 	}
@@ -215,13 +119,13 @@ template <typename Lhs, typename Rhs, std::size_t Capacity>
 	    query_value_state::other_present,
 	};
 	for (const auto state : states) {
-		if (!descriptor_accepts_state(lhs_descriptor, lhs_exact_value, rhs_exact_value, state) ||
-		    !descriptor_accepts_state(rhs_descriptor, lhs_exact_value, rhs_exact_value, state)) {
+		if (!query_constraint_accepts_state(lhs_descriptor, lhs_exact_value, rhs_exact_value, state) ||
+		    !query_constraint_accepts_state(rhs_descriptor, lhs_exact_value, rhs_exact_value, state)) {
 			continue;
 		}
 		if (route_specs_can_tie_on_score<Lhs, Rhs>(
-		        names, index + 1, add_query_match_scores(lhs_score, descriptor_score(lhs_descriptor, state)),
-		        add_query_match_scores(rhs_score, descriptor_score(rhs_descriptor, state)))) {
+		        names, index + 1, add_query_match_scores(lhs_score, query_constraint_score(lhs_descriptor, state)),
+		        add_query_match_scores(rhs_score, query_constraint_score(rhs_descriptor, state)))) {
 			return true;
 		}
 	}
@@ -249,7 +153,7 @@ template <route_registration_spec_impl Lhs, route_registration_spec_impl Rhs>
 	}
 	for (const auto &lhs : Lhs::query_constraints) {
 		for (const auto &rhs : Rhs::query_constraints) {
-			if (lhs.name == rhs.name && !descriptors_can_overlap(lhs, rhs)) {
+			if (lhs.name == rhs.name && !query_constraints_can_overlap(lhs, rhs)) {
 				return false;
 			}
 		}

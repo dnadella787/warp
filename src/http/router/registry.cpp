@@ -248,7 +248,7 @@ const registry::route_entry *registry::match_route(const node &root, const reque
 
 const registry::route_entry *registry::match_leaf_routes(const node &current, const request &req) {
 	const route_entry *best = nullptr;
-	query_match_score best_score {};
+	detail::query_constraint_match_score best_score {};
 	for (const auto &route : current.routes) {
 		const auto score = match_query_constraints(route, req);
 		if (!score.has_value()) {
@@ -262,9 +262,9 @@ const registry::route_entry *registry::match_leaf_routes(const node &current, co
 	return best;
 }
 
-std::optional<registry::query_match_score> registry::match_query_constraints(const route_entry &route,
-                                                                             const request &req) {
-	query_match_score score;
+std::optional<detail::query_constraint_match_score> registry::match_query_constraints(const route_entry &route,
+                                                                                      const request &req) {
+	detail::query_constraint_match_score score;
 	for (const auto &constraint : route.query_constraints) {
 		const auto actual = req.query_param(constraint.name);
 		if (constraint.presence == query_constraint_presence::forbidden) {
@@ -294,8 +294,9 @@ std::optional<registry::query_match_score> registry::match_query_constraints(con
 	return score;
 }
 
-bool registry::is_better_match(const route_entry &candidate, query_match_score candidate_score,
-                               const route_entry &current_best, query_match_score current_best_score) {
+bool registry::is_better_match(const route_entry &candidate, detail::query_constraint_match_score candidate_score,
+                               const route_entry &current_best,
+                               detail::query_constraint_match_score current_best_score) {
 	if (candidate_score.matched_constraints != current_best_score.matched_constraints) {
 		return candidate_score.matched_constraints > current_best_score.matched_constraints;
 	}

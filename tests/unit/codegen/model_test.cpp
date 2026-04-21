@@ -216,10 +216,34 @@ resources:
 
 	const auto model = build_api_model(spec);
 	ASSERT_EQ(model.resources.size(), 1U);
-	ASSERT_EQ(model.resources.front().endpoints.size(), 4U);
+	const auto &resource = model.resources.front();
+	ASSERT_EQ(resource.endpoints.size(), 4U);
+	ASSERT_EQ(resource.route_groups.size(), 1U);
+	EXPECT_EQ(resource.route_groups.front().routing_query_parameters, (std::vector<std::string> {"summary", "fields"}));
+
+	ASSERT_TRUE(resource.endpoints[1].query_route.has_value());
+	ASSERT_EQ(resource.endpoints[1].query_route->constraints.size(), 1U);
+	EXPECT_EQ(resource.endpoints[1].query_route->constraints.front().name, "summary");
+	EXPECT_EQ(resource.endpoints[1].query_route->constraints.front().presence,
+	          warp::http::query_constraint_presence::required);
+
+	ASSERT_TRUE(resource.endpoints[2].query_route.has_value());
+	ASSERT_EQ(resource.endpoints[2].query_route->constraints.size(), 1U);
+	EXPECT_EQ(resource.endpoints[2].query_route->constraints.front().name, "fields");
+	EXPECT_EQ(resource.endpoints[2].query_route->constraints.front().presence,
+	          warp::http::query_constraint_presence::required);
+
+	ASSERT_TRUE(resource.endpoints[3].query_route.has_value());
+	ASSERT_EQ(resource.endpoints[3].query_route->constraints.size(), 2U);
+	EXPECT_EQ(resource.endpoints[3].query_route->constraints.front().name, "fields");
+	EXPECT_EQ(resource.endpoints[3].query_route->constraints.front().presence,
+	          warp::http::query_constraint_presence::required);
+	EXPECT_EQ(resource.endpoints[3].query_route->constraints.back().name, "summary");
+	EXPECT_EQ(resource.endpoints[3].query_route->constraints.back().presence,
+	          warp::http::query_constraint_presence::required);
 }
 
-TEST(ApiModelTest, RejectsAmbiguousOverlappingQueryRouteSets) {
+TEST(ApiModelTest, AcceptsDeterministicRequiredAndOptionalQueryRouteSets) {
 	const auto spec = parse_api_spec(R"(
 resources:
   - name: reports
@@ -260,10 +284,62 @@ resources:
           status: 204
 )");
 
+	const auto model = build_api_model(spec);
+	ASSERT_EQ(model.resources.size(), 1U);
+	ASSERT_EQ(model.resources.front().endpoints.size(), 2U);
+	ASSERT_EQ(model.resources.front().route_groups.size(), 1U);
+	EXPECT_EQ(model.resources.front().route_groups.front().routing_query_parameters,
+	          (std::vector<std::string> {"summary", "fields"}));
+}
+
+TEST(ApiModelTest, RejectsQueryRoutesThatRemainAmbiguousAfterForbiddenExpansion) {
+	const auto spec = parse_api_spec(R"(
+resources:
+  - name: reports
+    endpoints:
+      - name: fetch_report_summary_with_optional_fields
+        method: GET
+        path: /reports/{report_id}
+        request:
+          parameters:
+            - name: report_id
+              in: path
+              type: string
+              required: true
+            - name: summary
+              in: query
+              type: bool
+              required: true
+            - name: fields
+              in: query
+              type: string
+              required: false
+        response:
+          status: 204
+      - name: fetch_report_summary_with_optional_locale
+        method: GET
+        path: /reports/{report_id}
+        request:
+          parameters:
+            - name: report_id
+              in: path
+              type: string
+              required: true
+            - name: summary
+              in: query
+              type: bool
+              required: true
+            - name: locale
+              in: query
+              type: string
+              required: false
+        response:
+          status: 204
+)");
+
 	const auto item = capture_diagnostic([&] { static_cast<void>(build_api_model(spec)); });
-	EXPECT_TRUE(item.code == "model.duplicate_route" || item.code == "model.ambiguous_query_route");
-	EXPECT_NE(item.message.find("route"), std::string::npos);
-	EXPECT_NE(item.message.find("GET"), std::string::npos);
+	EXPECT_EQ(item.code, "model.ambiguous_query_route");
+	EXPECT_NE(item.message.find("query-aware routes"), std::string::npos);
 }
 
 TEST(ApiModelTest, LeavesSingletonRequiredQueryEndpointsUnconstrained) {

@@ -38,6 +38,9 @@ using typed_summary_projection_route =
     warp::http::route_spec<warp::method::get, "/reports/{id}", warp::http::required_query<"summary">,
                            warp::http::required_query<"fields">>;
 using typed_fallback_route = warp::http::route_spec<warp::method::get, "/reports/{id}">;
+using typed_exact_mode_route =
+    warp::http::route_spec<warp::method::get, "/items", warp::http::required_query_value<"mode", "full">>;
+using typed_broad_mode_route = warp::http::route_spec<warp::method::get, "/items", warp::http::required_query<"mode">>;
 using typed_encoded_query_route =
     warp::http::route_spec<warp::method::get, "/filters", warp::http::optional_query_value<"plus+space %", "a+b %">>;
 
@@ -266,6 +269,17 @@ TEST(RegistryTest, AddCompiledPreservesTypedQuerySpecificity) {
 	EXPECT_EQ(matched_route_name(routes, warp::request(verb::get, "/reports/42?summary=true&fields=name", 11)),
 	          "summary_projection");
 	EXPECT_EQ(matched_route_name(routes, warp::request(verb::get, "/reports/42?unused=1", 11)), "fallback");
+}
+
+TEST(RegistryTest, AddCompiledPrefersExactValueConstraintsOverBroadMatches) {
+	registry routes;
+	routes.add_compiled(warp::http::detail::compile_route_spec<typed_broad_mode_route>(),
+	                    [](const warp::request &) -> warp::response { return route_response("broad"); });
+	routes.add_compiled(warp::http::detail::compile_route_spec<typed_exact_mode_route>(),
+	                    [](const warp::request &) -> warp::response { return route_response("exact"); });
+
+	EXPECT_EQ(matched_route_name(routes, warp::request(verb::get, "/items?mode=full", 11)), "exact");
+	EXPECT_EQ(matched_route_name(routes, warp::request(verb::get, "/items?mode=compact", 11)), "broad");
 }
 
 TEST(RegistryTest, AddCompiledRejectsTypedDuplicatesWithReorderedConstraints) {

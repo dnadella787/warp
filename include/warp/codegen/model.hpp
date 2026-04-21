@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "warp/codegen/spec_model.hpp"
+#include "warp/http/query_constraint_semantics.hpp"
 #include "warp/http/route_pattern.hpp"
 
 namespace warp::codegen {
@@ -83,8 +84,7 @@ struct response_model {
 struct query_route_model {
 	source_span span {};
 	std::string spec_name;
-	std::vector<std::string> required_parameters;
-	std::vector<std::string> accepted_parameters;
+	std::vector<warp::http::compiled_query_constraint> constraints;
 };
 
 struct endpoint_model {

@@ -301,8 +301,23 @@ resources:
 
 	EXPECT_NE(output.find("using reports_fetch_report_summary_query_route = warp::http::route_spec<"),
 	          std::string::npos);
+	EXPECT_NE(output.find("using reports_fetch_report_summary_query_route = warp::http::route_spec<warp::method::get, "
+	                      "\"/reports/{report_id}\", warp::http::required_query<\"summary\">, "
+	                      "warp::http::forbidden_query<\"fields\">>;"),
+	          std::string::npos);
+	EXPECT_NE(
+	    output.find("using reports_fetch_report_projection_query_route = warp::http::route_spec<warp::method::get, "
+	                "\"/reports/{report_id}\", warp::http::forbidden_query<\"summary\">, "
+	                "warp::http::required_query<\"fields\">>;"),
+	    std::string::npos);
+	EXPECT_NE(output.find("using reports_fetch_report_summary_projection_query_route = warp::http::route_spec<"
+	                      "warp::method::get, \"/reports/{report_id}\", warp::http::required_query<\"summary\">, "
+	                      "warp::http::required_query<\"fields\">>;"),
+	          std::string::npos);
 	EXPECT_NE(output.find("warp::http::required_query<\"summary\">"), std::string::npos);
 	EXPECT_NE(output.find("warp::http::required_query<\"fields\">"), std::string::npos);
+	EXPECT_NE(output.find("warp::http::forbidden_query<\"fields\">"), std::string::npos);
+	EXPECT_NE(output.find("warp::http::forbidden_query<\"summary\">"), std::string::npos);
 	EXPECT_NE(output.find("static_assert(warp::http::deterministic_route_definitions<"), std::string::npos);
 	EXPECT_NE(output.find("reports_fetch_report_summary_query_route,"), std::string::npos);
 	EXPECT_NE(output.find("reports_fetch_report_summary_projection_query_route,"), std::string::npos);
