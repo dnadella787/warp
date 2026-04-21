@@ -755,7 +755,7 @@ response to_http_response(handler_result<ResponseType> typed, unsigned version =
 	if (typed.has_raw_response()) {
 		return std::move(typed).raw_response();
 	}
-	return warp::codegen::to_http_response(std::move(typed).typed_response(), version);
+	return codegen::to_http_response(std::move(typed).typed_response(), version);
 }
 
 template <typename ResponseContract, typename ResponseType>
@@ -765,7 +765,7 @@ response to_http_response(handler_result<ResponseType> typed, unsigned version =
 	if (typed.has_raw_response()) {
 		return std::move(typed).raw_response();
 	}
-	return warp::codegen::to_http_response<ResponseContract>(std::move(typed).typed_response(), version);
+	return codegen::to_http_response<ResponseContract>(std::move(typed).typed_response(), version);
 }
 
 template <typename ResponseContract>
@@ -944,16 +944,21 @@ auto bind_endpoint(std::shared_ptr<Service> service, MemberFn member_fn) {
 			const auto keep_alive = req.keep_alive();
 
 			auto typed_request = RequestContract::parse(req);
+			// if the warp::response obj could not be parsed into the typed response object
+			// then we return error 400: invalid parameter (act msg is more specific)
+			// note that we just preserve client keep alive instead of giving the server a chance to
+			// make its own decision about it
+			// TODO: maybe make this behavior configurable to drop nefarious connections faster?
 			if (!typed_request.has_value()) {
-				return warp::codegen::normalize_handler_response(
-				    warp::codegen::to_error_response(typed_request.error(), version), version, keep_alive);
+				return codegen::normalize_handler_response(codegen::to_error_response(typed_request.error(), version),
+				                                           version, keep_alive);
 			}
 
 			auto *service_ptr = service.get();
 			auto typed_response = std::invoke(member_fn, *service_ptr, std::move(typed_request).value());
 
-			return warp::codegen::normalize_handler_response(
-			    warp::codegen::to_http_response(std::move(typed_response), version), version, keep_alive);
+			return codegen::normalize_handler_response(codegen::to_http_response(std::move(typed_response), version),
+			                                           version, keep_alive);
 		};
 	} else if constexpr (std::is_same_v<handler_return, handler_result<ResponseType>>) {
 		return [service = std::move(service), member_fn](warp::request req) mutable -> warp::response {
@@ -962,14 +967,14 @@ auto bind_endpoint(std::shared_ptr<Service> service, MemberFn member_fn) {
 
 			auto typed_request = RequestContract::parse(req);
 			if (!typed_request.has_value()) {
-				return warp::codegen::normalize_handler_response(
-				    warp::codegen::to_error_response(typed_request.error(), version), version, keep_alive);
+				return codegen::normalize_handler_response(codegen::to_error_response(typed_request.error(), version),
+				                                           version, keep_alive);
 			}
 
 			auto *service_ptr = service.get();
-			return warp::codegen::normalize_handler_response(
-			    warp::codegen::to_http_response(std::invoke(member_fn, *service_ptr, std::move(typed_request).value()),
-			                                    version),
+			return codegen::normalize_handler_response(
+			    codegen::to_http_response(std::invoke(member_fn, *service_ptr, std::move(typed_request).value()),
+			                              version),
 			    version, keep_alive);
 		};
 	} else {
@@ -984,23 +989,23 @@ auto bind_endpoint(std::shared_ptr<Service> service, MemberFn member_fn) {
 
 			auto typed_request = RequestContract::parse(req);
 			if (!typed_request.has_value()) {
-				co_return warp::codegen::normalize_handler_response(
-				    warp::codegen::to_error_response(typed_request.error(), version), version, keep_alive);
+				co_return codegen::normalize_handler_response(
+				    codegen::to_error_response(typed_request.error(), version), version, keep_alive);
 			}
 
 			auto *service_ptr = service.get();
 			if constexpr (std::is_same_v<handler_return, awaitable<ResponseType>>) {
-				auto typed_response = co_await warp::codegen::invoke_user_handler<ResponseType>(
+				auto typed_response = co_await codegen::invoke_user_handler<ResponseType>(
 				    [service_ptr, member_fn, typed_request = std::move(typed_request).value()]() mutable {
 					    return std::invoke(member_fn, *service_ptr, std::move(typed_request));
 				    });
 
-				co_return warp::codegen::normalize_handler_response(
-				    warp::codegen::to_http_response(std::move(typed_response), version), version, keep_alive);
+				co_return codegen::normalize_handler_response(
+				    codegen::to_http_response(std::move(typed_response), version), version, keep_alive);
 			} else {
 				auto mixed_response = co_await std::invoke(member_fn, *service_ptr, std::move(typed_request).value());
-				co_return warp::codegen::normalize_handler_response(
-				    warp::codegen::to_http_response(std::move(mixed_response), version), version, keep_alive);
+				co_return codegen::normalize_handler_response(
+				    codegen::to_http_response(std::move(mixed_response), version), version, keep_alive);
 			}
 		};
 	}
@@ -1021,17 +1026,16 @@ auto bind_generated_endpoint(std::shared_ptr<Service> service) {
 
 			auto typed_request = RequestContract::parse(req);
 			if (!typed_request.has_value()) {
-				return warp::codegen::normalize_handler_response(
-				    warp::codegen::to_error_response(typed_request.error(), version), version, keep_alive);
+				return codegen::normalize_handler_response(codegen::to_error_response(typed_request.error(), version),
+				                                           version, keep_alive);
 			}
 
 			auto *service_ptr = service.get();
 			auto typed_response = invoke_endpoint_handler_overload<response_type, request_type, Service, Selector>(
 			    *service_ptr, std::move(typed_request).value());
 
-			return warp::codegen::normalize_handler_response(
-			    warp::codegen::to_http_response<ResponseContract>(std::move(typed_response), version), version,
-			    keep_alive);
+			return codegen::normalize_handler_response(
+			    codegen::to_http_response<ResponseContract>(std::move(typed_response), version), version, keep_alive);
 		};
 	} else if constexpr (std::is_same_v<handler_return, handler_result<response_type>>) {
 		return [service = std::move(service)](warp::request req) mutable -> warp::response {
@@ -1040,16 +1044,15 @@ auto bind_generated_endpoint(std::shared_ptr<Service> service) {
 
 			auto typed_request = RequestContract::parse(req);
 			if (!typed_request.has_value()) {
-				return warp::codegen::normalize_handler_response(
-				    warp::codegen::to_error_response(typed_request.error(), version), version, keep_alive);
+				return codegen::normalize_handler_response(codegen::to_error_response(typed_request.error(), version),
+				                                           version, keep_alive);
 			}
 
 			auto *service_ptr = service.get();
 			auto mixed_response = invoke_endpoint_handler_overload<response_type, request_type, Service, Selector>(
 			    *service_ptr, std::move(typed_request).value());
-			return warp::codegen::normalize_handler_response(
-			    warp::codegen::to_http_response<ResponseContract>(std::move(mixed_response), version), version,
-			    keep_alive);
+			return codegen::normalize_handler_response(
+			    codegen::to_http_response<ResponseContract>(std::move(mixed_response), version), version, keep_alive);
 		};
 	} else {
 		static_assert(std::is_same_v<handler_return, awaitable<response_type>> ||
@@ -1063,8 +1066,8 @@ auto bind_generated_endpoint(std::shared_ptr<Service> service) {
 
 			auto typed_request = RequestContract::parse(req);
 			if (!typed_request.has_value()) {
-				co_return warp::codegen::normalize_handler_response(
-				    warp::codegen::to_error_response(typed_request.error(), version), version, keep_alive);
+				co_return codegen::normalize_handler_response(
+				    codegen::to_error_response(typed_request.error(), version), version, keep_alive);
 			}
 
 			auto *service_ptr = service.get();
@@ -1073,15 +1076,15 @@ auto bind_generated_endpoint(std::shared_ptr<Service> service) {
 				    co_await invoke_endpoint_handler_overload<response_type, request_type, Service, Selector>(
 				        *service_ptr, std::move(typed_request).value());
 
-				co_return warp::codegen::normalize_handler_response(
-				    warp::codegen::to_http_response<ResponseContract>(std::move(typed_response), version), version,
+				co_return codegen::normalize_handler_response(
+				    codegen::to_http_response<ResponseContract>(std::move(typed_response), version), version,
 				    keep_alive);
 			} else {
 				auto mixed_response =
 				    co_await invoke_endpoint_handler_overload<response_type, request_type, Service, Selector>(
 				        *service_ptr, std::move(typed_request).value());
-				co_return warp::codegen::normalize_handler_response(
-				    warp::codegen::to_http_response<ResponseContract>(std::move(mixed_response), version), version,
+				co_return codegen::normalize_handler_response(
+				    codegen::to_http_response<ResponseContract>(std::move(mixed_response), version), version,
 				    keep_alive);
 			}
 		};
