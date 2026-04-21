@@ -1,0 +1,22 @@
+cpp_namespace: generated_singleton_required_query_api
+resources:
+  - name: reports
+    endpoints:
+      - name: search
+        method: GET
+        path: /reports/search
+        request:
+          parameters:
+            - name: query
+              in: query
+              type: string
+              required: true
+        response:
+          status: 200
+          body:
+            type: object
+            fields:
+              - name: route
+                type: string
+              - name: query
+                type: string
