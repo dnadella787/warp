@@ -20,7 +20,66 @@
   - targeted `ctest --test-dir build -R 'RequestTest|RegistryTest|ApiModelTest|ResourceEmitterTest|GeneratedApiIntegrationTest|GeneratedQueryRoutingIntegrationTest' --output-on-failure`
   - 52 tests passed; several socket-based integration tests were skipped in this environment
 
-# Executive Summary
+# Current Status Update
+
+This document began as a point-in-time audit of the last six commits in the reviewed range above. The repository has
+changed materially since then. Another agent reading this file should treat the findings below as historical context,
+not as the current source of truth for what still needs to be fixed.
+
+Current status in the repo/worktree as of 2026-04-21:
+
+Resolved since the original audit:
+
+- literal-first trie fallback bug is fixed; the router now falls back from a failing literal branch to a parameter
+  sibling, and there is a regression test covering it
+- request query/path lookup now supports true heterogeneous `std::string_view` lookup through transparent maps
+- singleton required-query generated endpoints now stay unconstrained, preserving binder-driven `400` responses, and
+  there is now a dedicated integration test covering this behavior
+- compile coverage for `noexcept` generated handlers exists
+- reserved route-priority query names are rejected at compile time
+- typed route registration no longer round-trips through `route_spec -> string -> runtime parse`; the repo now has a
+  real `compiled_route` type, `compile_route_spec(...)`, and `registry.add_compiled(...)`
+- public headers no longer depend directly on `src/` router internals; shared route helpers now live under
+  `include/warp/http/...`
+- generated sync handlers no longer always pay the async-wrapper path; sync generated handlers register as sync
+  handlers when possible
+- generated request parsing now uses unchecked inner path/query helpers after the outer target-error guard, avoiding
+  redundant target-error checks per binding
+- response-side codegen no longer uses fragile getter-member-pointer `static_cast` contracts; generated response traits
+  call accessors directly
+
+Still open and still worth work:
+
+- request-path traversal still allocates a `std::vector<std::string_view>` via `split_route_path_views(...)`; the
+  original "split twice" finding is no longer current, but a lower-allocation offset/view traversal is still an
+  available hot-path improvement
+- same-leaf query variant resolution is still a linear `O(v * q)` scan; no indexed/query-mask dispatch exists yet
+- route semantics are still duplicated across three layers:
+  compile-time ambiguity logic in `route_spec.hpp`, codegen query-route grouping in `src/codegen/model.cpp`, and
+  runtime route matching/scoring in `registry.cpp`
+- the compile-time exact-value ambiguity checker still appears to be a separate algorithm from runtime winner
+  selection; existing compile coverage is better, but the deeper semantic unification has not happened
+- generated builder/accessor surface area remains large; the build-time/code-size recommendation to shrink or make that
+  surface optional is still open
+- trie/node storage is still pointer-heavy (`unordered_map` + `unique_ptr` per node); the arena/flat-layout redesign
+  remains open
+- codegen still emits one route/binding per endpoint rather than a deeper group-level dispatcher for overlapping
+  same-path query groups
+
+Recommended remaining work, in priority order:
+
+1. If request-path performance matters, replace `split_route_path_views(...)` with a lower-allocation path traversal
+   that carries captures directly into path-param extraction.
+2. If same-path query route groups are growing, replace leaf-local linear scans with an indexed/query-mask decision
+   path.
+3. If more query-routing features are planned, unify route semantics further around the existing `compiled_route`
+   foundation instead of keeping compile-time, codegen, and runtime logic partially separate.
+4. Revisit the compile-time exact-value ambiguity algorithm only if deterministic exact-value route sets continue to be
+   rejected incorrectly in practice.
+5. Tackle generated-code build-time/code-size and trie-layout work only after correctness/semantic-unification needs
+   are stable.
+
+# Historical Executive Summary
 
 - Overall risk level: High
 - The biggest correctness issue is in the router, not codegen: the trie still commits to a literal branch before query scoring, so a literal leaf whose query constraints fail can hide a parameter sibling that should have matched.
@@ -363,4 +422,3 @@ Tests or instrumentation to add later:
 3. The serialization issue for special query characters is strongly suggested by the code path, but it was not exercised end-to-end here.
 4. I did not benchmark the actual crossover point where leaf-local linear scans become a measurable bottleneck; that should be measured before selecting between a simple sort order and a mask/table redesign.
 5. Several socket-based integration tests were skipped in this environment, so transport-level behavior was audited primarily by code inspection rather than live execution.
-
