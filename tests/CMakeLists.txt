@@ -83,6 +83,7 @@ set(warp_http_unit_test_sources
     unit/request_test.cpp
     unit/response_test.cpp
     unit/registry_test.cpp
+    unit/codegen/json_object_contract_test.cpp
     unit/codegen/model_test.cpp
     unit/codegen/spec_parser_test.cpp
     unit/codegen/data_class_emitter_test.cpp

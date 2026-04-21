@@ -26,7 +26,7 @@ void server::server_impl<_>::run(bool blocking) {
 		}
 
 		state_ = lifecycle_state::starting;
-		io_ctx_.restart();
+		io_ctx_.restart(); // this is a noop on the first try, otherwise it actually resets the io_ctx for reuse
 		guard_.emplace(boost::asio::make_work_guard(io_ctx_));
 
 		try {
@@ -66,15 +66,22 @@ void server::server_impl<Mode>::stop() {
 
 	{
 		std::unique_lock lock(lifecycle_mutex_);
-		if (state_ == lifecycle_state::stopped) {
+		// server is already stopped by another caller, so just exit
+		if (state_ == lifecycle_state::stopped)
 			return;
-		}
 
+		// server is currently in the process of stopping due to another caller
 		if (state_ == lifecycle_state::stopping) {
-			if (stopping_thread_id_ == std::this_thread::get_id()) {
+			// if the thread that is currently stopping the server is the same as this
+			// instance of the stop call, then exit immediately, although this technically should
+			// not be possible? unless a request handler calls server::stop() which triggers
+			// another stop via implicit destructor call
+			if (stopping_thread_id_ == std::this_thread::get_id())
 				return;
-			}
 
+			// wait till the stopping thread notifies this thread for when
+			// the state is stopped (it will also spuriously wake up and go to sleep/move on
+			// based on the state moving to stopped or not)
 			lifecycle_cv_.wait(lock, [this]() {
 				return state_ == lifecycle_state::stopped;
 			});
@@ -85,14 +92,16 @@ void server::server_impl<Mode>::stop() {
 		stopping_thread_id_ = std::this_thread::get_id();
 		threads_to_join = stop_io_ctx();
 	}
-
-	join_runner_threads(std::move(threads_to_join), std::this_thread::get_id());
+	
+	join_runner_threads(std::move(threads_to_join), stopping_thread_id_.value());
 
 	{
 		std::lock_guard lock(lifecycle_mutex_);
 		state_ = lifecycle_state::stopped;
 		stopping_thread_id_.reset();
 	}
+	// release the lock before notifying so that waiting threads don't wake up and just
+	// go back to sleep
 	lifecycle_cv_.notify_all();
 }
 

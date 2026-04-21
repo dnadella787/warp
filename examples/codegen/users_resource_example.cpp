@@ -9,16 +9,17 @@ class users_resource {
 public:
 	explicit users_resource() = default;
 
-	generated_api::users_create_user_response create_user(generated_api::users_create_user_request request) {
+	generated_api::users_create_user_request_handler_result
+	create_user(generated_api::users_create_user_request request) {
+		if (request.body().name().empty()) {
+			return warp::response::bad_request("name must not be empty");
+		}
 		return generated_api::users_create_user_response::builder()
-		    .body(generated_api::users_create_user_response_body::builder()
-		              .id(42)
-		              .active(!request.body().name().empty())
-		              .build())
+		    .body(generated_api::users_create_user_response_body::builder().id(42).active(true).build())
 		    .build();
 	}
 
-	generated_api::users_health_response health(generated_api::users_health_request request) {
+	generated_api::users_health_request_handler_result health(generated_api::users_health_request request) {
 		generated_api::users_health_response response;
 		return response;
 	}

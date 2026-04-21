@@ -56,46 +56,55 @@ resources:
 
 	EXPECT_NE(output.find("#include \"generated_models.hpp\""), std::string::npos);
 	EXPECT_NE(output.find("namespace generated_api::codegen_detail {"), std::string::npos);
-	EXPECT_NE(output.find("using users_create_user_request_contract = warp::codegen::generated_request_contract<"
-	                      "users_create_user_request"),
-	          std::string::npos);
-	EXPECT_NE(output.find("struct users_create_user_request_user_id_accessor {"), std::string::npos);
 	EXPECT_NE(output.find("struct request_contract_traits<generated_api::users_create_user_request> : "
-	                      "generated_api::codegen_detail::users_create_user_request_contract {};"),
+	                      "warp::codegen::generated_request_contract<"),
 	          std::string::npos);
-	EXPECT_NE(output.find("warp::codegen::path_binding<users_create_user_request_user_id_accessor, "
+	EXPECT_NE(output.find("warp::codegen::path_setter_binding<&generated_api::users_create_user_request::set_user_id, "
 	                      "\"user_id\">"),
 	          std::string::npos);
-	EXPECT_NE(output.find("warp::codegen::query_binding<users_create_user_request_verbose_accessor, "
+	EXPECT_NE(output.find("warp::codegen::query_setter_binding<&generated_api::users_create_user_request::set_verbose, "
 	                      "\"verbose\">"),
 	          std::string::npos);
-	EXPECT_NE(output.find("warp::codegen::header_binding<users_create_user_request_x_trace_id_accessor, "
-	                      "\"x-trace-id\">"),
+	EXPECT_NE(
+	    output.find("warp::codegen::header_setter_binding<&generated_api::users_create_user_request::set_x_trace_id, "
+	                "\"x-trace-id\">"),
+	    std::string::npos);
+	EXPECT_NE(
+	    output.find("warp::codegen::json_body_setter_binding<&generated_api::users_create_user_request::set_body>"),
+	    std::string::npos);
+	EXPECT_NE(output.find("struct response_contract_traits<generated_api::users_create_user_response> : "
+	                      "warp::codegen::deduced_body_response_contract<"),
 	          std::string::npos);
-	EXPECT_NE(output.find("warp::codegen::json_body_binding<users_create_user_request_body_accessor>"),
-	          std::string::npos);
-	EXPECT_NE(output.find("warp::codegen::body_response_contract<users_create_user_response, "
-	                      "users_create_user_response_body_accessor>;"),
+	EXPECT_NE(output.find("static_cast<const generated_api::users_create_user_response_body "
+	                      "&(generated_api::users_create_user_response::*)() const & noexcept>"
+	                      "(&generated_api::users_create_user_response::body)"),
 	          std::string::npos);
 	EXPECT_NE(output.find("struct response_contract_traits<generated_api::users_health_response> : "
-	                      "generated_api::codegen_detail::users_health_response_contract {};"),
+	                      "warp::codegen::empty_response_contract<generated_api::users_health_response> {};"),
 	          std::string::npos);
-	EXPECT_NE(output.find("using users_health_response_contract = "
-	                      "warp::codegen::empty_response_contract<users_health_response>;"),
+	EXPECT_NE(output.find("using users_create_user_request_endpoint = warp::codegen::generated_endpoint_binding<"),
 	          std::string::npos);
-	EXPECT_NE(output.find("using users_create_user_request_endpoint = warp::codegen::endpoint_binding<"),
+	EXPECT_NE(output.find("using users_create_user_request_handler_result = "
+	                      "warp::codegen::handler_result<generated_api::users_create_user_response>;"),
 	          std::string::npos);
 	EXPECT_NE(output.find("using users_api_routes = warp::codegen::generated_resource<"), std::string::npos);
 	EXPECT_NE(output.find("struct users_create_user_request_handler_selector {"), std::string::npos);
-	EXPECT_NE(output.find("[](Service &service, generated_api::users_create_user_request &&typed_request) "
-	                      "-> decltype(auto) {"),
+	EXPECT_NE(output.find("warp::codegen::request_contract_traits<generated_api::users_create_user_request>,"),
 	          std::string::npos);
-	EXPECT_NE(output.find("return warp::codegen::invoke_endpoint_handler_overload<"), std::string::npos);
-	EXPECT_NE(output.find("generated_api::codegen_detail::users_create_user_request_handler_selector>("),
+	EXPECT_NE(output.find("warp::codegen::response_contract_traits<generated_api::users_create_user_response>,"),
+	          std::string::npos);
+	EXPECT_NE(output.find("generated_api::codegen_detail::users_create_user_request_handler_selector>;"),
+	          std::string::npos);
+	EXPECT_EQ(output.find("struct users_create_user_request_user_id_accessor {"), std::string::npos);
+	EXPECT_EQ(output.find("struct users_create_user_response_body_accessor {"), std::string::npos);
+	EXPECT_EQ(output.find("using users_create_user_request_contract ="), std::string::npos);
+	EXPECT_EQ(output.find("using users_create_user_response_contract ="), std::string::npos);
+	EXPECT_EQ(output.find("[](Service &service, generated_api::users_create_user_request &&typed_request) "
+	                      "-> decltype(auto) {"),
 	          std::string::npos);
 }
 
-TEST(ResourceEmitterTest, EmitsTypedDispatchLambdasForOverloadedHandlerNames) {
+TEST(ResourceEmitterTest, EmitsTypedDispatchBindingsForOverloadedHandlerNames) {
 	const auto spec = parse_api_spec(R"(
 cpp_namespace: generated_api
 resources:
@@ -124,15 +133,23 @@ resources:
 
 	EXPECT_NE(output.find("struct users_health_request_handler_selector {"), std::string::npos);
 	EXPECT_NE(output.find("struct admin_health_request_handler_selector {"), std::string::npos);
-	EXPECT_NE(output.find("[](Service &service, generated_api::users_health_request &&typed_request) "
-	                      "-> decltype(auto) {"),
+	EXPECT_NE(output.find("using users_health_request_endpoint = warp::codegen::generated_endpoint_binding<"),
 	          std::string::npos);
-	EXPECT_NE(output.find("[](Service &service, generated_api::admin_health_request &&typed_request) "
-	                      "-> decltype(auto) {"),
+	EXPECT_NE(output.find("using admin_health_request_endpoint = warp::codegen::generated_endpoint_binding<"),
 	          std::string::npos);
-	EXPECT_NE(output.find("generated_api::codegen_detail::users_health_request_handler_selector>("), std::string::npos);
-	EXPECT_NE(output.find("generated_api::codegen_detail::admin_health_request_handler_selector>("), std::string::npos);
+	EXPECT_NE(output.find("warp::codegen::request_contract_traits<generated_api::users_health_request>,"),
+	          std::string::npos);
+	EXPECT_NE(output.find("warp::codegen::response_contract_traits<generated_api::admin_health_response>,"),
+	          std::string::npos);
+	EXPECT_NE(output.find("generated_api::codegen_detail::users_health_request_handler_selector>;"), std::string::npos);
+	EXPECT_NE(output.find("generated_api::codegen_detail::admin_health_request_handler_selector>;"), std::string::npos);
 	EXPECT_NE(output.find("static_cast<Signature>(&Service::health);"), std::string::npos);
+	EXPECT_EQ(output.find("[](Service &service, generated_api::users_health_request &&typed_request) "
+	                      "-> decltype(auto) {"),
+	          std::string::npos);
+	EXPECT_EQ(output.find("[](Service &service, generated_api::admin_health_request &&typed_request) "
+	                      "-> decltype(auto) {"),
+	          std::string::npos);
 }
 
 TEST(ResourceEmitterTest, EscapesSpecDerivedStringLiteralsInGeneratedOutput) {
@@ -157,11 +174,13 @@ resources:
 	    output.find(
 	        R"(using users_fetch_user_request_route = warp::http::route_spec<warp::method::get, "/users/\"quoted\"">;)"),
 	    std::string::npos);
-	EXPECT_NE(output.find(R"(warp::codegen::header_binding<users_fetch_user_request_x_trace_accessor, "x-\"trace\"">)"),
-	          std::string::npos);
+	EXPECT_NE(
+	    output.find(
+	        R"(warp::codegen::header_setter_binding<&generated_api::users_fetch_user_request::set_x_trace, "x-\"trace\"">)"),
+	    std::string::npos);
 }
 
-TEST(ResourceEmitterTest, ScopesHelperContractAliasesToGeneratedApiNamespace) {
+TEST(ResourceEmitterTest, EmitsNamespaceQualifiedTraitSpecializationsWithoutAliasGlue) {
 	const auto primary_spec = parse_api_spec(R"(
 cpp_namespace: generated_primary_api
 resources:
@@ -189,18 +208,12 @@ resources:
 	const auto secondary_output = resource_emitter().emit_header(build_api_model(secondary_spec));
 
 	EXPECT_NE(primary_output.find("namespace generated_primary_api::codegen_detail {"), std::string::npos);
-	EXPECT_NE(primary_output.find("using users_health_request_contract = "
-	                              "warp::codegen::generated_request_contract<users_health_request"),
-	          std::string::npos);
 	EXPECT_NE(primary_output.find("struct request_contract_traits<generated_primary_api::users_health_request> : "
-	                              "generated_primary_api::codegen_detail::users_health_request_contract {};"),
+	                              "warp::codegen::generated_request_contract<"),
 	          std::string::npos);
 	EXPECT_NE(secondary_output.find("namespace generated_secondary_api::codegen_detail {"), std::string::npos);
-	EXPECT_NE(secondary_output.find("using users_health_request_contract = "
-	                                "warp::codegen::generated_request_contract<users_health_request"),
-	          std::string::npos);
 	EXPECT_NE(secondary_output.find("struct request_contract_traits<generated_secondary_api::users_health_request> : "
-	                                "generated_secondary_api::codegen_detail::users_health_request_contract {};"),
+	                                "warp::codegen::generated_request_contract<"),
 	          std::string::npos);
 	EXPECT_EQ(primary_output.find("struct request_contract_traits<generated_primary_api::users_health_request> : "
 	                              "users_health_request_contract {};"),
@@ -214,6 +227,8 @@ resources:
 	EXPECT_EQ(secondary_output.find("struct request_contract_traits<generated_secondary_api::users_health_request> : "
 	                                "generated_secondary_api::users_health_request_contract {};"),
 	          std::string::npos);
+	EXPECT_EQ(primary_output.find("using users_health_request_contract ="), std::string::npos);
+	EXPECT_EQ(secondary_output.find("using users_health_request_contract ="), std::string::npos);
 }
 
 TEST(ResourceEmitterTest, EmitsQueryRouteSpecsForOverlappingGeneratedRoutes) {

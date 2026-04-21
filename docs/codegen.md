@@ -158,16 +158,41 @@ int main() {
 `warp::codegen::api_stub_generator` emits two headers:
 
 - model header: JSON body structs, typed request envelopes, typed result structs
-- resource header: request/response contract aliases and a generated route-registration alias per resource
+  The generated body types now carry compact compile-time JSON field contracts and namespace-level generic `tag_invoke`
+  adapters instead of large per-type handwritten parse/serialize bodies.
+- resource header: request/response trait specializations, handler selectors, and a generated route-registration alias per resource
 
 The generated resource adapter shape is:
 
 ```cpp
+namespace warp::codegen {
+
+template <>
+struct request_contract_traits<generated_api::users_create_user_request>
+    : generated_request_contract<
+          generated_api::users_create_user_request,
+          path_setter_binding<&generated_api::users_create_user_request::set_user_id, "user_id">,
+          json_body_setter_binding<&generated_api::users_create_user_request::set_body>> {};
+
+template <>
+struct response_contract_traits<generated_api::users_create_user_response>
+    : deduced_body_response_contract<
+          static_cast<const generated_api::users_create_user_response_body &(
+              generated_api::users_create_user_response::*)() const & noexcept>(
+              &generated_api::users_create_user_response::body),
+          static_cast<generated_api::users_create_user_response_body &&(
+              generated_api::users_create_user_response::*)() && noexcept>(
+              &generated_api::users_create_user_response::body)> {};
+
+} // namespace warp::codegen
+
 template <typename Service>
-using users_api_routes = warp::codegen::generated_resource<
+using users_create_user_request_endpoint = warp::codegen::generated_endpoint_binding<
     Service,
-    users_create_user_request_endpoint<Service>,
-    users_health_request_endpoint<Service>>;
+    users_create_user_request_route,
+    warp::codegen::request_contract_traits<generated_api::users_create_user_request>,
+    warp::codegen::response_contract_traits<generated_api::users_create_user_response>,
+    generated_api::codegen_detail::users_create_user_request_handler_selector>;
 ```
 
 The resource class implements handlers like:
@@ -180,7 +205,35 @@ public:
 } 
 ```
 
-Handlers may return either the generated result type directly or `warp::awaitable<result_type>`. Route registration dispatches through `warp::codegen::invoke_user_handler`, so sync and coroutine handlers both work.
+Handlers may return:
+
+- the generated result type directly
+- `warp::awaitable<result_type>`
+- the generated `<endpoint>_handler_result` alias when one implementation needs to return either the typed result or a raw `warp::response`
+- `warp::awaitable<..._handler_result>`
+
+Route registration dispatches through `warp::codegen::generated_endpoint_binding` and keeps overload selection static, so sync and coroutine handlers both work.
+
+Example:
+
+```cpp
+class users_resource {
+public:
+    generated_api::users_create_user_request_handler_result create_user(
+        generated_api::users_create_user_request request) {
+        if (request.body().name().empty()) {
+            return warp::response::bad_request("name must not be empty");
+        }
+
+        return generated_api::users_create_user_response::builder()
+            .body(generated_api::users_create_user_response_body::builder()
+                      .id(42)
+                      .active(true)
+                      .build())
+            .build();
+    }
+};
+```
 
 Register the class with the server builder like:
 ```cpp
@@ -198,13 +251,16 @@ int main() {
 Each generated endpoint binds the incoming `warp::request` exactly once into a typed request envelope:
 
 - path/query/header parameters are parsed with explicit type checks
+- the resource header now uses reusable pointer-to-member binding templates instead of emitting one accessor struct per field
+- generated model headers describe JSON object schemas through reusable pointer-to-setter/getter metadata in `warp/codegen/json_object_contract.hpp`
 - JSON bodies require `Content-Type: application/json` and are converted with `boost::json::value_to`
 - invalid bindings become `400 Bad Request` responses with an error payload
 
-Responses are serialized from the generated result type using `response_contract_traits`:
+Responses are serialized from the generated result type using reusable response contracts:
 
 - endpoints with a body serialize JSON automatically
 - endpoints without a body emit the configured HTTP status and an empty body
+- generated route adapters still expose `request_contract_traits` / `response_contract_traits` specializations for direct use when needed
 
 ## Adding new endpoints or resources
 

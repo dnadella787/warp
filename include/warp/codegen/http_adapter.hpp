@@ -1,5 +1,6 @@
 #pragma once
 
+#include "warp/codegen/detail/type_traits.hpp"
 #include "warp/http/response_builder.hpp"
 #include "warp/http/server.hpp"
 
@@ -109,24 +110,6 @@ template <typename T>
 struct response_contract_traits;
 
 namespace detail {
-
-template <typename T>
-inline constexpr bool always_false_v = false;
-
-template <typename... Ts>
-struct type_list {};
-
-template <typename T>
-struct optional_value_traits {
-	static constexpr bool is_optional = false;
-	using value_type = T;
-};
-
-template <typename T>
-struct optional_value_traits<std::optional<T>> {
-	static constexpr bool is_optional = true;
-	using value_type = T;
-};
 
 template <typename T>
 constexpr std::string_view scalar_type_name() {
@@ -434,6 +417,70 @@ parse_result<RequestContract> parse_http_request(const request &req) {
 	return request_contract_traits<RequestContract>::parse(req);
 }
 
+template <typename Class, typename Value, auto Setter>
+struct member_setter {
+	using class_type = Class;
+	using value_type = Value;
+
+	static_assert(std::is_invocable_v<decltype(Setter), class_type &, value_type>,
+	              "member_setter requires an invocable setter with signature compatible with (Class&, Value)");
+
+	static void set(class_type &out, value_type value) noexcept(noexcept(std::invoke(Setter, out, std::move(value)))) {
+		static_cast<void>(std::invoke(Setter, out, std::move(value)));
+	}
+};
+
+template <auto Setter>
+struct deduced_member_setter {
+	using traits = detail::member_function_traits<decltype(Setter)>;
+	using class_type = typename traits::class_type;
+	using value_type = typename traits::argument_type;
+
+	static void set(class_type &out, value_type value) noexcept(noexcept(std::invoke(Setter, out, std::move(value)))) {
+		static_cast<void>(std::invoke(Setter, out, std::move(value)));
+	}
+};
+
+template <typename Class, typename Value, auto ConstGetter, auto MoveGetter>
+struct member_getter {
+	using class_type = Class;
+	using value_type = Value;
+
+	static_assert(std::is_invocable_r_v<const value_type &, decltype(ConstGetter), const class_type &>,
+	              "member_getter requires a const lvalue getter returning const Value&");
+	static_assert(std::is_invocable_r_v<value_type &&, decltype(MoveGetter), class_type &&>,
+	              "member_getter requires an rvalue getter returning Value&&");
+
+	static decltype(auto) get(const class_type &value) noexcept(noexcept(std::invoke(ConstGetter, value))) {
+		return std::invoke(ConstGetter, value);
+	}
+
+	static decltype(auto) get(class_type &&value) noexcept(noexcept(std::invoke(MoveGetter, std::move(value)))) {
+		return std::invoke(MoveGetter, std::move(value));
+	}
+};
+
+template <auto ConstGetter, auto MoveGetter = ConstGetter>
+struct deduced_member_getter {
+	using const_traits = detail::member_function_traits<decltype(ConstGetter)>;
+	using move_traits = detail::member_function_traits<decltype(MoveGetter)>;
+	using class_type = typename const_traits::class_type;
+	using value_type = typename const_traits::value_type;
+
+	static_assert(std::is_same_v<class_type, typename move_traits::class_type>,
+	              "deduced_member_getter requires getters from the same class");
+	static_assert(std::is_same_v<value_type, typename move_traits::value_type>,
+	              "deduced_member_getter requires getters for the same value type");
+
+	static decltype(auto) get(const class_type &value) noexcept(noexcept(std::invoke(ConstGetter, value))) {
+		return std::invoke(ConstGetter, value);
+	}
+
+	static decltype(auto) get(class_type &&value) noexcept(noexcept(std::invoke(MoveGetter, std::move(value)))) {
+		return std::invoke(MoveGetter, std::move(value));
+	}
+};
+
 template <typename Accessor, http::fixed_string Name>
 struct path_binding {
 	using request_type = typename Accessor::class_type;
@@ -526,6 +573,30 @@ struct json_body_binding {
 	}
 };
 
+template <typename Request, typename Value, auto Setter, http::fixed_string Name>
+using path_member_binding = path_binding<member_setter<Request, Value, Setter>, Name>;
+
+template <typename Request, typename Value, auto Setter, http::fixed_string Name>
+using query_member_binding = query_binding<member_setter<Request, Value, Setter>, Name>;
+
+template <typename Request, typename Value, auto Setter, http::fixed_string Name>
+using header_member_binding = header_binding<member_setter<Request, Value, Setter>, Name>;
+
+template <typename Request, typename Value, auto Setter>
+using json_body_member_binding = json_body_binding<member_setter<Request, Value, Setter>>;
+
+template <auto Setter, http::fixed_string Name>
+using path_setter_binding = path_binding<deduced_member_setter<Setter>, Name>;
+
+template <auto Setter, http::fixed_string Name>
+using query_setter_binding = query_binding<deduced_member_setter<Setter>, Name>;
+
+template <auto Setter, http::fixed_string Name>
+using header_setter_binding = header_binding<deduced_member_setter<Setter>, Name>;
+
+template <auto Setter>
+using json_body_setter_binding = json_body_binding<deduced_member_setter<Setter>>;
+
 template <typename Request, typename... Bindings>
 struct generated_request_contract {
 	using request_type = Request;
@@ -570,12 +641,14 @@ private:
 
 template <typename Response>
 struct empty_response_contract {
+	using response_type = Response;
 	static constexpr unsigned status_code = Response::status_code;
 	static constexpr bool has_body = false;
 };
 
 template <typename Response, typename BodyAccessor>
 struct body_response_contract {
+	using response_type = Response;
 	static constexpr unsigned status_code = Response::status_code;
 	static constexpr bool has_body = true;
 
@@ -588,6 +661,15 @@ struct body_response_contract {
 	}
 };
 
+template <typename Response, typename Body, auto ConstGetter, auto MoveGetter>
+using member_body_response_contract =
+    body_response_contract<Response, member_getter<Response, Body, ConstGetter, MoveGetter>>;
+
+template <auto ConstGetter, auto MoveGetter = ConstGetter>
+using deduced_body_response_contract =
+    body_response_contract<typename deduced_member_getter<ConstGetter, MoveGetter>::class_type,
+                           deduced_member_getter<ConstGetter, MoveGetter>>;
+
 template <typename T>
 struct endpoint_response {
 	boost::beast::http::status status {boost::beast::http::status::ok};
@@ -598,6 +680,60 @@ template <>
 struct endpoint_response<void> {
 	boost::beast::http::status status {boost::beast::http::status::no_content};
 };
+
+template <typename ResponseType>
+class handler_result {
+public:
+	handler_result(ResponseType value) : storage_(std::in_place_index<0>, std::move(value)) {
+	}
+
+	handler_result(response value) : storage_(std::in_place_index<1>, std::move(value)) {
+	}
+
+	[[nodiscard]] bool has_typed_response() const noexcept {
+		return std::holds_alternative<ResponseType>(storage_);
+	}
+
+	[[nodiscard]] bool has_raw_response() const noexcept {
+		return std::holds_alternative<response>(storage_);
+	}
+
+	[[nodiscard]] ResponseType &typed_response() & {
+		return std::get<ResponseType>(storage_);
+	}
+
+	[[nodiscard]] const ResponseType &typed_response() const & {
+		return std::get<ResponseType>(storage_);
+	}
+
+	[[nodiscard]] ResponseType &&typed_response() && {
+		return std::move(std::get<ResponseType>(storage_));
+	}
+
+	[[nodiscard]] response &raw_response() & {
+		return std::get<response>(storage_);
+	}
+
+	[[nodiscard]] const response &raw_response() const & {
+		return std::get<response>(storage_);
+	}
+
+	[[nodiscard]] response &&raw_response() && {
+		return std::move(std::get<response>(storage_));
+	}
+
+private:
+	std::variant<ResponseType, response> storage_;
+};
+
+template <typename ResponseContract, typename Response>
+    requires requires { typename ResponseContract::response_type; } &&
+             std::same_as<typename ResponseContract::response_type, std::remove_cvref_t<Response>>
+response to_http_response(Response &&typed, unsigned version = 11);
+
+template <typename ResponseContract>
+    requires(!std::is_lvalue_reference_v<ResponseContract>)
+response to_http_response(ResponseContract &&typed, unsigned version = 11);
 
 template <typename T>
 response to_http_response(endpoint_response<T> typed, unsigned version = 11) {
@@ -610,6 +746,24 @@ response to_http_response(endpoint_response<T> typed, unsigned version = 11) {
 inline response to_http_response(endpoint_response<void> typed, unsigned version = 11) {
 	response resp(typed.status, version);
 	return resp;
+}
+
+template <typename ResponseType>
+response to_http_response(handler_result<ResponseType> typed, unsigned version = 11) {
+	if (typed.has_raw_response()) {
+		return std::move(typed).raw_response();
+	}
+	return warp::codegen::to_http_response(std::move(typed).typed_response(), version);
+}
+
+template <typename ResponseContract, typename ResponseType>
+    requires requires { typename ResponseContract::response_type; } &&
+             std::same_as<typename ResponseContract::response_type, ResponseType>
+response to_http_response(handler_result<ResponseType> typed, unsigned version = 11) {
+	if (typed.has_raw_response()) {
+		return std::move(typed).raw_response();
+	}
+	return warp::codegen::to_http_response<ResponseContract>(std::move(typed).typed_response(), version);
 }
 
 template <typename ResponseContract>
@@ -631,9 +785,28 @@ response to_http_response(const ResponseContract &typed, unsigned version = 11) 
 	}
 }
 
+template <typename ResponseContract, typename Response>
+    requires requires { typename ResponseContract::response_type; } &&
+             std::same_as<typename ResponseContract::response_type, std::remove_cvref_t<Response>>
+response to_http_response(Response &&typed, unsigned version) {
+	if constexpr (ResponseContract::has_body) {
+		if (status_forbids_body(static_cast<boost::beast::http::status>(ResponseContract::status_code))) {
+			throw std::invalid_argument("response status must not include a body");
+		}
+		return response_builder()
+		    .status(ResponseContract::status_code)
+		    .version(version)
+		    .body(boost::json::value_from(ResponseContract::body(std::forward<Response>(typed))))
+		    .build();
+	} else {
+		response resp(static_cast<boost::beast::http::status>(ResponseContract::status_code), version);
+		return resp;
+	}
+}
+
 template <typename ResponseContract>
     requires(!std::is_lvalue_reference_v<ResponseContract>)
-response to_http_response(ResponseContract &&typed, unsigned version = 11) {
+response to_http_response(ResponseContract &&typed, unsigned version) {
 	using response_type = std::remove_cvref_t<ResponseContract>;
 	using traits = response_contract_traits<response_type>;
 
@@ -665,6 +838,12 @@ awaitable<ResponseType> invoke_user_handler(Invocable &&invocable) {
 	}
 }
 
+inline response normalize_handler_response(response resp, unsigned version, bool keep_alive) {
+	resp.version(version);
+	resp.keep_alive(keep_alive);
+	return resp;
+}
+
 template <typename ResponseType, typename RequestType, typename Service, typename Selector>
 decltype(auto) invoke_endpoint_handler_overload(Service &service, RequestType &&request) {
 	using sync_signatures = detail::endpoint_member_signatures<Service, ResponseType, RequestType>;
@@ -672,6 +851,14 @@ decltype(auto) invoke_endpoint_handler_overload(Service &service, RequestType &&
 	using async_signatures = detail::endpoint_member_signatures<Service, awaitable<ResponseType>, RequestType>;
 	using async_noexcept_signatures =
 	    detail::endpoint_member_noexcept_signatures<Service, awaitable<ResponseType>, RequestType>;
+	using mixed_sync_signatures =
+	    detail::endpoint_member_signatures<Service, handler_result<ResponseType>, RequestType>;
+	using mixed_sync_noexcept_signatures =
+	    detail::endpoint_member_noexcept_signatures<Service, handler_result<ResponseType>, RequestType>;
+	using mixed_async_signatures =
+	    detail::endpoint_member_signatures<Service, awaitable<handler_result<ResponseType>>, RequestType>;
+	using mixed_async_noexcept_signatures =
+	    detail::endpoint_member_noexcept_signatures<Service, awaitable<handler_result<ResponseType>>, RequestType>;
 
 	constexpr auto sync_match_count = detail::matching_member_signature_count<Selector, Service>(sync_signatures {});
 	constexpr auto sync_noexcept_match_count =
@@ -679,14 +866,23 @@ decltype(auto) invoke_endpoint_handler_overload(Service &service, RequestType &&
 	constexpr auto async_match_count = detail::matching_member_signature_count<Selector, Service>(async_signatures {});
 	constexpr auto async_noexcept_match_count =
 	    detail::matching_member_signature_count<Selector, Service>(async_noexcept_signatures {});
-	constexpr auto total_match_count = sync_match_count + async_match_count;
+	constexpr auto mixed_sync_match_count =
+	    detail::matching_member_signature_count<Selector, Service>(mixed_sync_signatures {});
+	constexpr auto mixed_sync_noexcept_match_count =
+	    detail::matching_member_signature_count<Selector, Service>(mixed_sync_noexcept_signatures {});
+	constexpr auto mixed_async_match_count =
+	    detail::matching_member_signature_count<Selector, Service>(mixed_async_signatures {});
+	constexpr auto mixed_async_noexcept_match_count =
+	    detail::matching_member_signature_count<Selector, Service>(mixed_async_noexcept_signatures {});
+	constexpr auto total_match_count =
+	    sync_match_count + async_match_count + mixed_sync_match_count + mixed_async_match_count;
 
 	static_assert(total_match_count > 0,
 	              "generated endpoint handler resolution could not find an overload matching the endpoint request/"
-	              "response contract");
+	              "response contract or warp::codegen::handler_result<ResponseType>");
 	static_assert(total_match_count == 1,
 	              "generated endpoint handler resolution is ambiguous: multiple overloads match the endpoint request/"
-	              "response contract");
+	              "response contract or warp::codegen::handler_result<ResponseType>");
 
 	if constexpr (sync_match_count == 1) {
 		if constexpr (sync_noexcept_match_count == 1) {
@@ -696,13 +892,29 @@ decltype(auto) invoke_endpoint_handler_overload(Service &service, RequestType &&
 			return detail::invoke_matching_member<Selector>(service, std::forward<RequestType>(request),
 			                                                sync_signatures {});
 		}
-	} else {
+	} else if constexpr (async_match_count == 1) {
 		if constexpr (async_noexcept_match_count == 1) {
 			return detail::invoke_matching_member<Selector>(service, std::forward<RequestType>(request),
 			                                                async_noexcept_signatures {});
 		} else {
 			return detail::invoke_matching_member<Selector>(service, std::forward<RequestType>(request),
 			                                                async_signatures {});
+		}
+	} else if constexpr (mixed_sync_match_count == 1) {
+		if constexpr (mixed_sync_noexcept_match_count == 1) {
+			return detail::invoke_matching_member<Selector>(service, std::forward<RequestType>(request),
+			                                                mixed_sync_noexcept_signatures {});
+		} else {
+			return detail::invoke_matching_member<Selector>(service, std::forward<RequestType>(request),
+			                                                mixed_sync_signatures {});
+		}
+	} else {
+		if constexpr (mixed_async_noexcept_match_count == 1) {
+			return detail::invoke_matching_member<Selector>(service, std::forward<RequestType>(request),
+			                                                mixed_async_noexcept_signatures {});
+		} else {
+			return detail::invoke_matching_member<Selector>(service, std::forward<RequestType>(request),
+			                                                mixed_async_signatures {});
 		}
 	}
 }
@@ -712,55 +924,164 @@ concept endpoint_handler = requires(HandlerFn handler_fn, Service &service, Requ
 	{ std::invoke(handler_fn, service, std::move(request)) } -> std::same_as<ResponseType>;
 } || requires(HandlerFn handler_fn, Service &service, RequestType request) {
 	{ std::invoke(handler_fn, service, std::move(request)) } -> std::same_as<awaitable<ResponseType>>;
+} || requires(HandlerFn handler_fn, Service &service, RequestType request) {
+	{ std::invoke(handler_fn, service, std::move(request)) } -> std::same_as<handler_result<ResponseType>>;
+} || requires(HandlerFn handler_fn, Service &service, RequestType request) {
+	{ std::invoke(handler_fn, service, std::move(request)) } -> std::same_as<awaitable<handler_result<ResponseType>>>;
 };
 
 template <request_contract RequestContract, typename ResponseType, typename Service, typename MemberFn>
     requires endpoint_handler<ResponseType, Service, MemberFn, typename RequestContract::request_type>
 auto bind_endpoint(std::shared_ptr<Service> service, MemberFn member_fn) {
 	using request_type = typename RequestContract::request_type;
-	using handler_result = std::remove_cvref_t<std::invoke_result_t<MemberFn, Service &, request_type>>;
+	using handler_return = std::remove_cvref_t<std::invoke_result_t<MemberFn, Service &, request_type>>;
 
-	if constexpr (std::is_same_v<handler_result, ResponseType>) {
+	if constexpr (std::is_same_v<handler_return, ResponseType>) {
 		return [service = std::move(service), member_fn](warp::request req) mutable -> warp::response {
 			const auto version = req.version();
 			const auto keep_alive = req.keep_alive();
 
 			auto typed_request = RequestContract::parse(req);
 			if (!typed_request.has_value()) {
-				auto response = warp::codegen::to_error_response(typed_request.error(), version);
-				response.keep_alive(keep_alive);
-				return response;
+				return warp::codegen::normalize_handler_response(
+				    warp::codegen::to_error_response(typed_request.error(), version), version, keep_alive);
 			}
 
 			auto *service_ptr = service.get();
 			auto typed_response = std::invoke(member_fn, *service_ptr, std::move(typed_request).value());
 
-			auto response = warp::codegen::to_http_response(std::move(typed_response), version);
-			response.keep_alive(keep_alive);
-			return response;
+			return warp::codegen::normalize_handler_response(
+			    warp::codegen::to_http_response(std::move(typed_response), version), version, keep_alive);
+		};
+	} else if constexpr (std::is_same_v<handler_return, handler_result<ResponseType>>) {
+		return [service = std::move(service), member_fn](warp::request req) mutable -> warp::response {
+			const auto version = req.version();
+			const auto keep_alive = req.keep_alive();
+
+			auto typed_request = RequestContract::parse(req);
+			if (!typed_request.has_value()) {
+				return warp::codegen::normalize_handler_response(
+				    warp::codegen::to_error_response(typed_request.error(), version), version, keep_alive);
+			}
+
+			auto *service_ptr = service.get();
+			return warp::codegen::normalize_handler_response(
+			    warp::codegen::to_http_response(std::invoke(member_fn, *service_ptr, std::move(typed_request).value()),
+			                                    version),
+			    version, keep_alive);
 		};
 	} else {
-		static_assert(std::is_same_v<handler_result, awaitable<ResponseType>>);
+		static_assert(std::is_same_v<handler_return, awaitable<ResponseType>> ||
+		                  std::is_same_v<handler_return, awaitable<handler_result<ResponseType>>>,
+		              "bind_endpoint handlers must return ResponseType, "
+		              "warp::codegen::handler_result<ResponseType>, warp::awaitable<ResponseType>, or "
+		              "warp::awaitable<warp::codegen::handler_result<ResponseType>>");
 		return [service = std::move(service), member_fn](warp::request req) -> warp::awaitable<warp::response> {
 			const auto version = req.version();
 			const auto keep_alive = req.keep_alive();
 
 			auto typed_request = RequestContract::parse(req);
 			if (!typed_request.has_value()) {
-				auto response = warp::codegen::to_error_response(typed_request.error(), version);
-				response.keep_alive(keep_alive);
-				co_return response;
+				co_return warp::codegen::normalize_handler_response(
+				    warp::codegen::to_error_response(typed_request.error(), version), version, keep_alive);
 			}
 
 			auto *service_ptr = service.get();
-			auto typed_response = co_await warp::codegen::invoke_user_handler<ResponseType>(
-			    [service_ptr, member_fn, typed_request = std::move(typed_request).value()]() mutable {
-				    return std::invoke(member_fn, *service_ptr, std::move(typed_request));
-			    });
+			if constexpr (std::is_same_v<handler_return, awaitable<ResponseType>>) {
+				auto typed_response = co_await warp::codegen::invoke_user_handler<ResponseType>(
+				    [service_ptr, member_fn, typed_request = std::move(typed_request).value()]() mutable {
+					    return std::invoke(member_fn, *service_ptr, std::move(typed_request));
+				    });
 
-			auto response = warp::codegen::to_http_response(std::move(typed_response), version);
-			response.keep_alive(keep_alive);
-			co_return response;
+				co_return warp::codegen::normalize_handler_response(
+				    warp::codegen::to_http_response(std::move(typed_response), version), version, keep_alive);
+			} else {
+				auto mixed_response = co_await std::invoke(member_fn, *service_ptr, std::move(typed_request).value());
+				co_return warp::codegen::normalize_handler_response(
+				    warp::codegen::to_http_response(std::move(mixed_response), version), version, keep_alive);
+			}
+		};
+	}
+}
+
+template <request_contract RequestContract, typename ResponseContract, typename Service, typename Selector>
+auto bind_generated_endpoint(std::shared_ptr<Service> service) {
+	using request_type = typename RequestContract::request_type;
+	using response_type = typename ResponseContract::response_type;
+	using handler_return =
+	    std::remove_cvref_t<decltype(invoke_endpoint_handler_overload<response_type, request_type, Service, Selector>(
+	        std::declval<Service &>(), std::declval<request_type>()))>;
+
+	if constexpr (std::is_same_v<handler_return, response_type>) {
+		return [service = std::move(service)](warp::request req) mutable -> warp::response {
+			const auto version = req.version();
+			const auto keep_alive = req.keep_alive();
+
+			auto typed_request = RequestContract::parse(req);
+			if (!typed_request.has_value()) {
+				return warp::codegen::normalize_handler_response(
+				    warp::codegen::to_error_response(typed_request.error(), version), version, keep_alive);
+			}
+
+			auto *service_ptr = service.get();
+			auto typed_response = invoke_endpoint_handler_overload<response_type, request_type, Service, Selector>(
+			    *service_ptr, std::move(typed_request).value());
+
+			return warp::codegen::normalize_handler_response(
+			    warp::codegen::to_http_response<ResponseContract>(std::move(typed_response), version), version,
+			    keep_alive);
+		};
+	} else if constexpr (std::is_same_v<handler_return, handler_result<response_type>>) {
+		return [service = std::move(service)](warp::request req) mutable -> warp::response {
+			const auto version = req.version();
+			const auto keep_alive = req.keep_alive();
+
+			auto typed_request = RequestContract::parse(req);
+			if (!typed_request.has_value()) {
+				return warp::codegen::normalize_handler_response(
+				    warp::codegen::to_error_response(typed_request.error(), version), version, keep_alive);
+			}
+
+			auto *service_ptr = service.get();
+			auto mixed_response = invoke_endpoint_handler_overload<response_type, request_type, Service, Selector>(
+			    *service_ptr, std::move(typed_request).value());
+			return warp::codegen::normalize_handler_response(
+			    warp::codegen::to_http_response<ResponseContract>(std::move(mixed_response), version), version,
+			    keep_alive);
+		};
+	} else {
+		static_assert(std::is_same_v<handler_return, awaitable<response_type>> ||
+		                  std::is_same_v<handler_return, awaitable<handler_result<response_type>>>,
+		              "generated endpoint handlers must return ResponseType, "
+		              "warp::codegen::handler_result<ResponseType>, warp::awaitable<ResponseType>, or "
+		              "warp::awaitable<warp::codegen::handler_result<ResponseType>>");
+		return [service = std::move(service)](warp::request req) -> warp::awaitable<warp::response> {
+			const auto version = req.version();
+			const auto keep_alive = req.keep_alive();
+
+			auto typed_request = RequestContract::parse(req);
+			if (!typed_request.has_value()) {
+				co_return warp::codegen::normalize_handler_response(
+				    warp::codegen::to_error_response(typed_request.error(), version), version, keep_alive);
+			}
+
+			auto *service_ptr = service.get();
+			if constexpr (std::is_same_v<handler_return, awaitable<response_type>>) {
+				auto typed_response =
+				    co_await invoke_endpoint_handler_overload<response_type, request_type, Service, Selector>(
+				        *service_ptr, std::move(typed_request).value());
+
+				co_return warp::codegen::normalize_handler_response(
+				    warp::codegen::to_http_response<ResponseContract>(std::move(typed_response), version), version,
+				    keep_alive);
+			} else {
+				auto mixed_response =
+				    co_await invoke_endpoint_handler_overload<response_type, request_type, Service, Selector>(
+				        *service_ptr, std::move(typed_request).value());
+				co_return warp::codegen::normalize_handler_response(
+				    warp::codegen::to_http_response<ResponseContract>(std::move(mixed_response), version), version,
+				    keep_alive);
+			}
 		};
 	}
 }
@@ -769,6 +1090,14 @@ template <typename Service, typename Route, request_contract RequestContract, ty
 struct endpoint_binding {
 	static void register_route(http::server_builder &builder, const std::shared_ptr<Service> &service) {
 		builder.route(Route {}, bind_endpoint<RequestContract, ResponseType>(service, MemberFn));
+	}
+};
+
+template <typename Service, typename Route, request_contract RequestContract, typename ResponseContract,
+          typename Selector>
+struct generated_endpoint_binding {
+	static void register_route(http::server_builder &builder, const std::shared_ptr<Service> &service) {
+		builder.route(Route {}, bind_generated_endpoint<RequestContract, ResponseContract, Service, Selector>(service));
 	}
 };
 

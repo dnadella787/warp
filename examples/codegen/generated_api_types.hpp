@@ -1,13 +1,9 @@
 #pragma once
 
-#include <boost/json/object.hpp>
-#include <boost/json/value.hpp>
-#include <boost/json/value_from.hpp>
-#include <boost/json/value_to.hpp>
+#include "warp/codegen/json_object_contract.hpp"
 
 #include <cstdint>
 #include <optional>
-#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -90,42 +86,6 @@ private:
 	std::optional<std::string> nickname_ {};
 };
 
-inline users_create_user_request_body tag_invoke(boost::json::value_to_tag<users_create_user_request_body>,
-                                                 const boost::json::value &value) {
-	const auto &obj = value.as_object();
-	users_create_user_request_body out;
-	const auto *raw_name = obj.if_contains("name");
-	if (raw_name == nullptr) {
-		throw std::invalid_argument("missing required field 'name' for users_create_user_request_body");
-	}
-	out.set_name(boost::json::value_to<std::string>(*raw_name));
-	const auto *raw_nickname = obj.if_contains("nickname");
-	if (raw_nickname != nullptr) {
-		out.set_nickname(boost::json::value_to<std::string>(*raw_nickname));
-	}
-	return out;
-}
-
-inline void tag_invoke(boost::json::value_from_tag, boost::json::value &value,
-                       const users_create_user_request_body &input) {
-	boost::json::object obj;
-	obj["name"] = boost::json::value_from(input.name());
-	if (input.nickname().has_value()) {
-		obj["nickname"] = boost::json::value_from(*input.nickname());
-	}
-	value = std::move(obj);
-}
-
-inline void tag_invoke(boost::json::value_from_tag, boost::json::value &value, users_create_user_request_body &&input) {
-	boost::json::object obj;
-	obj["name"] = boost::json::value_from(std::move(input).name());
-	auto nickname_value = std::move(input).nickname();
-	if (nickname_value.has_value()) {
-		obj["nickname"] = boost::json::value_from(std::move(*nickname_value));
-	}
-	value = std::move(obj);
-}
-
 class users_create_user_response_body {
 public:
 	class Builder {
@@ -201,39 +161,6 @@ private:
 	std::int64_t id_ {};
 	bool active_ {};
 };
-
-inline users_create_user_response_body tag_invoke(boost::json::value_to_tag<users_create_user_response_body>,
-                                                  const boost::json::value &value) {
-	const auto &obj = value.as_object();
-	users_create_user_response_body out;
-	const auto *raw_id = obj.if_contains("id");
-	if (raw_id == nullptr) {
-		throw std::invalid_argument("missing required field 'id' for users_create_user_response_body");
-	}
-	out.set_id(boost::json::value_to<std::int64_t>(*raw_id));
-	const auto *raw_active = obj.if_contains("active");
-	if (raw_active == nullptr) {
-		throw std::invalid_argument("missing required field 'active' for users_create_user_response_body");
-	}
-	out.set_active(boost::json::value_to<bool>(*raw_active));
-	return out;
-}
-
-inline void tag_invoke(boost::json::value_from_tag, boost::json::value &value,
-                       const users_create_user_response_body &input) {
-	boost::json::object obj;
-	obj["id"] = boost::json::value_from(input.id());
-	obj["active"] = boost::json::value_from(input.active());
-	value = std::move(obj);
-}
-
-inline void tag_invoke(boost::json::value_from_tag, boost::json::value &value,
-                       users_create_user_response_body &&input) {
-	boost::json::object obj;
-	obj["id"] = boost::json::value_from(std::move(input).id());
-	obj["active"] = boost::json::value_from(std::move(input).active());
-	value = std::move(obj);
-}
 
 class users_create_user_request {
 public:
@@ -464,4 +391,68 @@ public:
 private:
 };
 
+template <typename T>
+    requires warp::codegen::json_contract_type<T>
+inline T tag_invoke(boost::json::value_to_tag<T>, const boost::json::value &value) {
+	return warp::codegen::parse_json_object<T>(value);
+}
+
+template <typename T>
+    requires warp::codegen::json_contract_type<T>
+inline void tag_invoke(boost::json::value_from_tag, boost::json::value &value, T &&input) {
+	warp::codegen::serialize_json_object(value, std::forward<T>(input));
+}
+
 } // namespace generated_api
+
+namespace warp::codegen {
+
+template <>
+struct json_object_contract<generated_api::users_create_user_request_body> {
+	static constexpr std::string_view type_name = "users_create_user_request_body";
+	static constexpr auto fields = std::make_tuple(
+	    make_required_json_field(
+	        "name",
+	        static_cast<generated_api::users_create_user_request_body &(
+	            generated_api::users_create_user_request_body::*)(std::string)>(
+	            &generated_api::users_create_user_request_body::set_name),
+	        static_cast<const std::string &(generated_api::users_create_user_request_body::*)() const & noexcept>(
+	            &generated_api::users_create_user_request_body::name),
+	        static_cast<std::string && (generated_api::users_create_user_request_body::*)() && noexcept>(
+	            &generated_api::users_create_user_request_body::name)),
+	    make_optional_json_field(
+	        "nickname",
+	        static_cast<generated_api::users_create_user_request_body &(
+	            generated_api::users_create_user_request_body::*)(std::optional<std::string>)>(
+	            &generated_api::users_create_user_request_body::set_nickname),
+	        static_cast<const std::optional<std::string> &(generated_api::users_create_user_request_body::*)() const &
+	                    noexcept>(&generated_api::users_create_user_request_body::nickname),
+	        static_cast<std::optional<std::string> && (generated_api::users_create_user_request_body::*)() && noexcept>(
+	            &generated_api::users_create_user_request_body::nickname)));
+};
+
+template <>
+struct json_object_contract<generated_api::users_create_user_response_body> {
+	static constexpr std::string_view type_name = "users_create_user_response_body";
+	static constexpr auto fields = std::make_tuple(
+	    make_required_json_field(
+	        "id",
+	        static_cast<generated_api::users_create_user_response_body &(
+	            generated_api::users_create_user_response_body::*)(std::int64_t)>(
+	            &generated_api::users_create_user_response_body::set_id),
+	        static_cast<const std::int64_t &(generated_api::users_create_user_response_body::*)() const & noexcept>(
+	            &generated_api::users_create_user_response_body::id),
+	        static_cast<std::int64_t &&(generated_api::users_create_user_response_body::*)() && noexcept>(
+	            &generated_api::users_create_user_response_body::id)),
+	    make_required_json_field(
+	        "active",
+	        static_cast<generated_api::users_create_user_response_body &(
+	            generated_api::users_create_user_response_body::*)(bool)>(
+	            &generated_api::users_create_user_response_body::set_active),
+	        static_cast<const bool &(generated_api::users_create_user_response_body::*)() const & noexcept>(
+	            &generated_api::users_create_user_response_body::active),
+	        static_cast<bool &&(generated_api::users_create_user_response_body::*)() && noexcept>(
+	            &generated_api::users_create_user_response_body::active)));
+};
+
+} // namespace warp::codegen

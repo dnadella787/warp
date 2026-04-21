@@ -5,6 +5,7 @@
 #include <stdexcept>
 #include <set>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -183,84 +184,48 @@ void emit_data_class(std::string &output, const std::string &name, const std::ve
 	append_line(output);
 }
 
-void emit_object_schema(std::string &output, const object_schema_model &schema) {
+std::string setter_pointer_type(const std::string &class_name, const generated_field &field) {
+	return class_name + " &(" + class_name + "::*)(" + field.type_name + ")";
+}
+
+std::string const_getter_pointer_type(const std::string &class_name, const generated_field &field) {
+	return "const " + field.type_name + " &(" + class_name + "::*)() const & noexcept";
+}
+
+std::string move_getter_pointer_type(const std::string &class_name, const generated_field &field) {
+	return field.type_name + " &&(" + class_name + "::*)() && noexcept";
+}
+
+void emit_json_contract_specialization(std::string &output, std::string_view cpp_namespace,
+                                       const object_schema_model &schema, const std::vector<generated_field> &fields) {
+	const auto qualified_name = std::string(cpp_namespace) + "::" + schema.name;
+	append_line(output, "template <>");
+	append_line(output, "struct json_object_contract<" + qualified_name + "> {");
+	append_line(output, "\tstatic constexpr std::string_view type_name = \"" + schema.name + "\";");
+	append_line(output, "\tstatic constexpr auto fields = std::make_tuple(");
+	for (std::size_t i = 0; i < schema.fields.size(); ++i) {
+		const auto &field = schema.fields[i];
+		const auto &generated = fields[i];
+		const auto helper_name = field.required ? "make_required_json_field" : "make_optional_json_field";
+		append_line(output, "\t\t" + std::string(helper_name) + "(\"" + escape_string_literal(field.json_name) + "\",");
+		append_line(output, "\t\t\tstatic_cast<" + setter_pointer_type(qualified_name, generated) + ">(&" +
+		                        qualified_name + "::set_" + generated.accessor_name + "),");
+		append_line(output, "\t\t\tstatic_cast<" + const_getter_pointer_type(qualified_name, generated) + ">(&" +
+		                        qualified_name + "::" + generated.accessor_name + "),");
+		append_line(output, "\t\t\tstatic_cast<" + move_getter_pointer_type(qualified_name, generated) + ">(&" +
+		                        qualified_name + "::" + generated.accessor_name + "))" +
+		                        (i + 1U == schema.fields.size() ? "" : ","));
+	}
+	append_line(output, "\t);");
+	append_line(output, "};");
+	append_line(output);
+}
+
+void emit_object_schema(std::string &output, std::string &contract_output, std::string_view cpp_namespace,
+                        const object_schema_model &schema) {
 	const auto fields = schema_fields(schema);
 	emit_data_class(output, schema.name, fields);
-
-	append_line(output, "inline " + schema.name + " tag_invoke(boost::json::value_to_tag<" + schema.name +
-	                        ">, const boost::json::value &value) {");
-	append_line(output, "\tconst auto &obj = value.as_object();");
-	append_line(output, "\t" + schema.name + " out;");
-	for (std::size_t i = 0; i < schema.fields.size(); ++i) {
-		const auto &field = schema.fields[i];
-		const auto &generated = fields[i];
-		const auto json_key = escape_string_literal(field.json_name);
-		const auto raw_name = "raw_" + field.member_name;
-		const auto base_type = cpp_type(field.type);
-		append_line(output, "\tconst auto *" + raw_name + " = obj.if_contains(\"" + json_key + "\");");
-		if (field.required) {
-			append_line(output, "\tif (" + raw_name + " == nullptr) {");
-			append_line(output, "\t\tthrow std::invalid_argument(\"missing required field '" + json_key + "' for " +
-			                        schema.name + "\");");
-			append_line(output, "\t}");
-			append_line(output, "\tout.set_" + generated.accessor_name + "(boost::json::value_to<" + base_type + ">(*" +
-			                        raw_name + "));");
-		} else {
-			append_line(output, "\tif (" + raw_name + " != nullptr) {");
-			append_line(output, "\t\tout.set_" + generated.accessor_name + "(boost::json::value_to<" + base_type +
-			                        ">(*" + raw_name + "));");
-			append_line(output, "\t}");
-		}
-	}
-	append_line(output, "\treturn out;");
-	append_line(output, "}");
-	append_line(output);
-
-	append_line(output, "inline void tag_invoke(boost::json::value_from_tag,");
-	append_line(output, "\t                    boost::json::value &value,");
-	append_line(output, "\t                    const " + schema.name + " &input) {");
-	append_line(output, "\tboost::json::object obj;");
-	for (std::size_t i = 0; i < schema.fields.size(); ++i) {
-		const auto &field = schema.fields[i];
-		const auto &generated = fields[i];
-		const auto json_key = escape_string_literal(field.json_name);
-		if (field.required) {
-			append_line(output, "\tobj[\"" + json_key + "\"] = boost::json::value_from(input." +
-			                        generated.accessor_name + "());");
-		} else {
-			append_line(output, "\tif (input." + generated.accessor_name + "().has_value()) {");
-			append_line(output, "\t\tobj[\"" + json_key + "\"] = boost::json::value_from(*input." +
-			                        generated.accessor_name + "());");
-			append_line(output, "\t}");
-		}
-	}
-	append_line(output, "\tvalue = std::move(obj);");
-	append_line(output, "}");
-	append_line(output);
-
-	append_line(output, "inline void tag_invoke(boost::json::value_from_tag,");
-	append_line(output, "\t                    boost::json::value &value,");
-	append_line(output, "\t                    " + schema.name + " &&input) {");
-	append_line(output, "\tboost::json::object obj;");
-	for (std::size_t i = 0; i < schema.fields.size(); ++i) {
-		const auto &field = schema.fields[i];
-		const auto &generated = fields[i];
-		const auto json_key = escape_string_literal(field.json_name);
-		if (field.required) {
-			append_line(output, "\tobj[\"" + json_key + "\"] = boost::json::value_from(std::move(input)." +
-			                        generated.accessor_name + "());");
-		} else {
-			append_line(output, "\tauto " + generated.storage_name + "value = std::move(input)." +
-			                        generated.accessor_name + "();");
-			append_line(output, "\tif (" + generated.storage_name + "value.has_value()) {");
-			append_line(output, "\t\tobj[\"" + json_key + "\"] = boost::json::value_from(std::move(*" +
-			                        generated.storage_name + "value));");
-			append_line(output, "\t}");
-		}
-	}
-	append_line(output, "\tvalue = std::move(obj);");
-	append_line(output, "}");
-	append_line(output);
+	emit_json_contract_specialization(contract_output, cpp_namespace, schema, fields);
 }
 
 const object_schema_model *find_schema(const api_model &model, const std::string &name) {
@@ -272,8 +237,8 @@ const object_schema_model *find_schema(const api_model &model, const std::string
 	return nullptr;
 }
 
-void emit_schema_with_dependencies(std::string &output, const api_model &model, const object_schema_model &schema,
-                                   std::set<std::string> &emitted) {
+void emit_schema_with_dependencies(std::string &output, std::string &contract_output, const api_model &model,
+                                   const object_schema_model &schema, std::set<std::string> &emitted) {
 	if (emitted.contains(schema.name)) {
 		return;
 	}
@@ -281,17 +246,17 @@ void emit_schema_with_dependencies(std::string &output, const api_model &model, 
 	for (const auto &field : schema.fields) {
 		if (field.type.type == schema_type::kind::object_value) {
 			if (const auto *dependency = find_schema(model, field.type.object_name)) {
-				emit_schema_with_dependencies(output, model, *dependency, emitted);
+				emit_schema_with_dependencies(output, contract_output, model, *dependency, emitted);
 			}
 		} else if (field.type.type == schema_type::kind::array_value && field.type.element_type &&
 		           field.type.element_type->type == schema_type::kind::object_value) {
 			if (const auto *dependency = find_schema(model, field.type.element_type->object_name)) {
-				emit_schema_with_dependencies(output, model, *dependency, emitted);
+				emit_schema_with_dependencies(output, contract_output, model, *dependency, emitted);
 			}
 		}
 	}
 
-	emit_object_schema(output, schema);
+	emit_object_schema(output, contract_output, model.cpp_namespace, schema);
 	emitted.insert(schema.name);
 }
 
@@ -313,17 +278,15 @@ std::string data_class_emitter::emit_header(const api_model &model) const {
 
 	std::string output;
 	output.reserve(8192);
+	std::string contract_output;
+	contract_output.reserve(4096);
 
 	append_line(output, "#pragma once");
 	append_line(output);
-	append_line(output, "#include <boost/json/object.hpp>");
-	append_line(output, "#include <boost/json/value.hpp>");
-	append_line(output, "#include <boost/json/value_from.hpp>");
-	append_line(output, "#include <boost/json/value_to.hpp>");
+	append_line(output, "#include \"warp/codegen/json_object_contract.hpp\"");
 	append_line(output);
 	append_line(output, "#include <cstdint>");
 	append_line(output, "#include <optional>");
-	append_line(output, "#include <stdexcept>");
 	append_line(output, "#include <string>");
 	append_line(output, "#include <utility>");
 	append_line(output, "#include <vector>");
@@ -333,7 +296,7 @@ std::string data_class_emitter::emit_header(const api_model &model) const {
 
 	std::set<std::string> emitted_schemas;
 	for (const auto &schema : model.schemas) {
-		emit_schema_with_dependencies(output, model, schema, emitted_schemas);
+		emit_schema_with_dependencies(output, contract_output, model, schema, emitted_schemas);
 	}
 
 	for (const auto &resource : model.resources) {
@@ -343,7 +306,24 @@ std::string data_class_emitter::emit_header(const api_model &model) const {
 		}
 	}
 
+	append_line(output, "template <typename T>");
+	append_line(output, "\trequires warp::codegen::json_contract_type<T>");
+	append_line(output, "inline T tag_invoke(boost::json::value_to_tag<T>, const boost::json::value &value) {");
+	append_line(output, "\treturn warp::codegen::parse_json_object<T>(value);");
+	append_line(output, "}");
+	append_line(output);
+	append_line(output, "template <typename T>");
+	append_line(output, "\trequires warp::codegen::json_contract_type<T>");
+	append_line(output, "inline void tag_invoke(boost::json::value_from_tag, boost::json::value &value, T &&input) {");
+	append_line(output, "\twarp::codegen::serialize_json_object(value, std::forward<T>(input));");
+	append_line(output, "}");
+	append_line(output);
 	append_line(output, "} // namespace " + model.cpp_namespace);
+	append_line(output);
+	append_line(output, "namespace warp::codegen {");
+	append_line(output);
+	output.append(contract_output);
+	append_line(output, "} // namespace warp::codegen");
 	return output;
 }
 

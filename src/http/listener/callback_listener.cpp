@@ -31,9 +31,12 @@ void callback_listener::do_accept() {
 
 void callback_listener::on_accept(boost::beast::error_code ec, boost::asio::ip::tcp::socket socket) {
 	if (ec) {
-		if (ec == boost::asio::error::operation_aborted) {
+		// only happens if something server side shut the tcp acceptor so this indicates the parent server_impl
+		// was shutdown
+		// TODO: maybe also check parent server_impl status before just returning
+		if (ec == boost::asio::error::operation_aborted)
 			return;
-		}
+
 		util::fail(ec, COMPONENT, "on_accept");
 	} else {
 		std::make_shared<callback_http_session>(std::move(socket), registry_)->start();
