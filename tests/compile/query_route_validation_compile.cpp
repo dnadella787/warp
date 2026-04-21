@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <type_traits>
+#include <utility>
 
 #include "warp/http/server_builder.hpp"
 
@@ -82,6 +83,16 @@ concept has_generated_request_traits = requires(const warp::http::request &req) 
 	} -> std::same_as<warp::codegen::parse_result<Request>>;
 };
 
+template <typename Response>
+concept has_generated_response_body_traits = requires(const Response &const_response, Response &&moved_response) {
+	typename warp::codegen::response_contract_traits<Response>::response_type;
+	{ warp::codegen::response_contract_traits<Response>::status_code } -> std::convertible_to<unsigned>;
+	{ warp::codegen::response_contract_traits<Response>::has_body } -> std::convertible_to<bool>;
+	requires warp::codegen::response_contract_traits<Response>::has_body;
+	warp::codegen::response_contract_traits<Response>::body(const_response);
+	warp::codegen::response_contract_traits<Response>::body(std::move(moved_response));
+};
+
 template <typename Service>
 concept generated_routes_registrable = requires(std::shared_ptr<Service> service, warp::http::server_builder &builder) {
 	{ generated::reports_api_routes<Service> {service} };
@@ -92,6 +103,19 @@ static_assert(has_generated_request_traits<generated::reports_fetch_report_reque
 static_assert(has_generated_request_traits<generated::reports_fetch_report_summary_request>);
 static_assert(has_generated_request_traits<generated::reports_fetch_report_projection_request>);
 static_assert(has_generated_request_traits<generated::reports_fetch_report_summary_projection_request>);
+static_assert(has_generated_response_body_traits<generated::reports_fetch_report_response>);
+static_assert(has_generated_response_body_traits<generated::reports_fetch_report_summary_response>);
+static_assert(
+    std::same_as<decltype(warp::codegen::response_contract_traits<generated::reports_fetch_report_response>::body(
+                     std::declval<const generated::reports_fetch_report_response &>())),
+                 const generated::reports_fetch_report_response_body &>);
+static_assert(
+    std::same_as<decltype(warp::codegen::response_contract_traits<generated::reports_fetch_report_response>::body(
+                     std::declval<generated::reports_fetch_report_response &&>())),
+                 generated::reports_fetch_report_response_body &&>);
+static_assert(std::same_as<
+              decltype(warp::codegen::to_http_response(std::declval<generated::reports_fetch_report_response>(), 11)),
+              warp::response>);
 static_assert(warp::http::detail::validate_query_constraint_name("priority") ==
               warp::http::detail::query_constraint_name_error::reserved_priority_name);
 static_assert(warp::http::detail::validate_query_constraint_name("_priority") ==

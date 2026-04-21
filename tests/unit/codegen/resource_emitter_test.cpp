@@ -72,10 +72,17 @@ resources:
 	EXPECT_NE(
 	    output.find("warp::codegen::json_body_setter_binding<&generated_api::users_create_user_request::set_body>"),
 	    std::string::npos);
-	EXPECT_NE(output.find("struct response_contract_traits<generated_api::users_create_user_response> : "
-	                      "warp::codegen::deduced_body_response_contract<"),
+	EXPECT_NE(output.find("struct response_contract_traits<generated_api::users_create_user_response> {"),
 	          std::string::npos);
-	EXPECT_NE(output.find("static_cast<const generated_api::users_create_user_response_body "
+	EXPECT_NE(output.find("using response_type = generated_api::users_create_user_response;"), std::string::npos);
+	EXPECT_NE(output.find("static constexpr unsigned status_code = response_type::status_code;"), std::string::npos);
+	EXPECT_NE(output.find("static constexpr bool has_body = true;"), std::string::npos);
+	EXPECT_NE(output.find("static decltype(auto) body(const response_type &value) {"), std::string::npos);
+	EXPECT_NE(output.find("return value.body();"), std::string::npos);
+	EXPECT_NE(output.find("static decltype(auto) body(response_type &&value) {"), std::string::npos);
+	EXPECT_NE(output.find("return std::move(value).body();"), std::string::npos);
+	EXPECT_EQ(output.find("warp::codegen::deduced_body_response_contract<"), std::string::npos);
+	EXPECT_EQ(output.find("static_cast<const generated_api::users_create_user_response_body "
 	                      "&(generated_api::users_create_user_response::*)() const & noexcept>"
 	                      "(&generated_api::users_create_user_response::body)"),
 	          std::string::npos);

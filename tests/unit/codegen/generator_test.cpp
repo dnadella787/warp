@@ -61,6 +61,10 @@ resources:
 	    generated.resource_header.find("struct request_contract_traits<generated_api::users_create_user_request> : "
 	                                   "warp::codegen::generated_request_contract<"),
 	    std::string::npos);
+	EXPECT_NE(
+	    generated.resource_header.find("struct response_contract_traits<generated_api::users_create_user_response> {"),
+	    std::string::npos);
+	EXPECT_NE(generated.resource_header.find("static decltype(auto) body(response_type &&value) {"), std::string::npos);
 	EXPECT_NE(generated.resource_header.find(
 	              "warp::codegen::path_setter_binding<&generated_api::users_create_user_request::set_user_id, "
 	              "\"user_id\">"),

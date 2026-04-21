@@ -105,18 +105,6 @@ std::string handler_selector_name(const endpoint_model &endpoint) {
 	return endpoint.request.name + "_handler_selector";
 }
 
-std::string const_getter_expression(const std::string &type_name, const std::string &value_type,
-                                    const std::string &field_name) {
-	return "static_cast<const " + value_type + " &(" + type_name + "::*)() const & noexcept>(&" + type_name +
-	       "::" + field_name + ")";
-}
-
-std::string move_getter_expression(const std::string &type_name, const std::string &value_type,
-                                   const std::string &field_name) {
-	return "static_cast<" + value_type + " &&(" + type_name + "::*)() && noexcept>(&" + type_name + "::" + field_name +
-	       ")";
-}
-
 [[nodiscard]] bool contains_parameter(const std::vector<std::string> &parameters, std::string_view name) {
 	return std::find(parameters.begin(), parameters.end(), name) != parameters.end();
 }
@@ -218,12 +206,20 @@ void emit_response_contract_traits(std::string &output, const api_model &model, 
 		return;
 	}
 
-	const auto body_type = model.cpp_namespace + "::" + *endpoint.response.body_type_name;
 	append_line(output, "template <>");
-	append_line(output, "struct response_contract_traits<" + response_type +
-	                        "> : warp::codegen::deduced_body_response_contract<");
-	append_line(output, "    " + const_getter_expression(response_type, body_type, "body") + ",");
-	append_line(output, "    " + move_getter_expression(response_type, body_type, "body") + "> {};");
+	append_line(output, "struct response_contract_traits<" + response_type + "> {");
+	append_line(output, "    using response_type = " + response_type + ";");
+	append_line(output, "    static constexpr unsigned status_code = response_type::status_code;");
+	append_line(output, "    static constexpr bool has_body = true;");
+	append_line(output);
+	append_line(output, "    static decltype(auto) body(const response_type &value) {");
+	append_line(output, "        return value.body();");
+	append_line(output, "    }");
+	append_line(output);
+	append_line(output, "    static decltype(auto) body(response_type &&value) {");
+	append_line(output, "        return std::move(value).body();");
+	append_line(output, "    }");
+	append_line(output, "};");
 	append_line(output);
 }
 

@@ -175,14 +175,19 @@ struct request_contract_traits<generated_api::users_create_user_request>
           json_body_setter_binding<&generated_api::users_create_user_request::set_body>> {};
 
 template <>
-struct response_contract_traits<generated_api::users_create_user_response>
-    : deduced_body_response_contract<
-          static_cast<const generated_api::users_create_user_response_body &(
-              generated_api::users_create_user_response::*)() const & noexcept>(
-              &generated_api::users_create_user_response::body),
-          static_cast<generated_api::users_create_user_response_body &&(
-              generated_api::users_create_user_response::*)() && noexcept>(
-              &generated_api::users_create_user_response::body)> {};
+struct response_contract_traits<generated_api::users_create_user_response> {
+    using response_type = generated_api::users_create_user_response;
+    static constexpr unsigned status_code = response_type::status_code;
+    static constexpr bool has_body = true;
+
+    static decltype(auto) body(const response_type &value) {
+        return value.body();
+    }
+
+    static decltype(auto) body(response_type &&value) {
+        return std::move(value).body();
+    }
+};
 
 } // namespace warp::codegen
 
@@ -259,6 +264,7 @@ Each generated endpoint binds the incoming `warp::request` exactly once into a t
 Responses are serialized from the generated result type using reusable response contracts:
 
 - endpoints with a body serialize JSON automatically
+- generated response traits forward to `value.body()` directly instead of emitting fragile getter-member-pointer `static_cast` expressions
 - endpoints without a body emit the configured HTTP status and an empty body
 - generated route adapters still expose `request_contract_traits` / `response_contract_traits` specializations for direct use when needed
 

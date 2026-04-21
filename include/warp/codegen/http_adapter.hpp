@@ -441,46 +441,6 @@ struct deduced_member_setter {
 	}
 };
 
-template <typename Class, typename Value, auto ConstGetter, auto MoveGetter>
-struct member_getter {
-	using class_type = Class;
-	using value_type = Value;
-
-	static_assert(std::is_invocable_r_v<const value_type &, decltype(ConstGetter), const class_type &>,
-	              "member_getter requires a const lvalue getter returning const Value&");
-	static_assert(std::is_invocable_r_v<value_type &&, decltype(MoveGetter), class_type &&>,
-	              "member_getter requires an rvalue getter returning Value&&");
-
-	static decltype(auto) get(const class_type &value) noexcept(noexcept(std::invoke(ConstGetter, value))) {
-		return std::invoke(ConstGetter, value);
-	}
-
-	static decltype(auto) get(class_type &&value) noexcept(noexcept(std::invoke(MoveGetter, std::move(value)))) {
-		return std::invoke(MoveGetter, std::move(value));
-	}
-};
-
-template <auto ConstGetter, auto MoveGetter = ConstGetter>
-struct deduced_member_getter {
-	using const_traits = detail::member_function_traits<decltype(ConstGetter)>;
-	using move_traits = detail::member_function_traits<decltype(MoveGetter)>;
-	using class_type = typename const_traits::class_type;
-	using value_type = typename const_traits::value_type;
-
-	static_assert(std::is_same_v<class_type, typename move_traits::class_type>,
-	              "deduced_member_getter requires getters from the same class");
-	static_assert(std::is_same_v<value_type, typename move_traits::value_type>,
-	              "deduced_member_getter requires getters for the same value type");
-
-	static decltype(auto) get(const class_type &value) noexcept(noexcept(std::invoke(ConstGetter, value))) {
-		return std::invoke(ConstGetter, value);
-	}
-
-	static decltype(auto) get(class_type &&value) noexcept(noexcept(std::invoke(MoveGetter, std::move(value)))) {
-		return std::invoke(MoveGetter, std::move(value));
-	}
-};
-
 template <typename Accessor, http::fixed_string Name>
 struct path_binding {
 	using request_type = typename Accessor::class_type;
@@ -648,30 +608,6 @@ struct empty_response_contract {
 	static constexpr bool has_body = false;
 };
 
-template <typename Response, typename BodyAccessor>
-struct body_response_contract {
-	using response_type = Response;
-	static constexpr unsigned status_code = Response::status_code;
-	static constexpr bool has_body = true;
-
-	static decltype(auto) body(const Response &value) {
-		return BodyAccessor::get(value);
-	}
-
-	static decltype(auto) body(Response &&value) {
-		return BodyAccessor::get(std::move(value));
-	}
-};
-
-template <typename Response, typename Body, auto ConstGetter, auto MoveGetter>
-using member_body_response_contract =
-    body_response_contract<Response, member_getter<Response, Body, ConstGetter, MoveGetter>>;
-
-template <auto ConstGetter, auto MoveGetter = ConstGetter>
-using deduced_body_response_contract =
-    body_response_contract<typename deduced_member_getter<ConstGetter, MoveGetter>::class_type,
-                           deduced_member_getter<ConstGetter, MoveGetter>>;
-
 template <typename T>
 struct endpoint_response {
 	boost::beast::http::status status {boost::beast::http::status::ok};
@@ -768,42 +704,34 @@ response to_http_response(handler_result<ResponseType> typed, unsigned version =
 	return codegen::to_http_response<ResponseContract>(std::move(typed).typed_response(), version);
 }
 
-template <typename ResponseContract>
-response to_http_response(const ResponseContract &typed, unsigned version = 11) {
-	using traits = response_contract_traits<ResponseContract>;
-
-	if constexpr (traits::has_body) {
-		if (status_forbids_body(static_cast<boost::beast::http::status>(traits::status_code))) {
+template <typename ResponseTraits, typename Response>
+response serialize_contract_response(Response &&typed, unsigned version) {
+	if constexpr (ResponseTraits::has_body) {
+		if (status_forbids_body(static_cast<boost::beast::http::status>(ResponseTraits::status_code))) {
 			throw std::invalid_argument("response status must not include a body");
 		}
 		return response_builder()
-		    .status(traits::status_code)
+		    .status(ResponseTraits::status_code)
 		    .version(version)
-		    .body(boost::json::value_from(traits::body(typed)))
+		    .body(boost::json::value_from(ResponseTraits::body(std::forward<Response>(typed))))
 		    .build();
 	} else {
-		response resp(static_cast<boost::beast::http::status>(traits::status_code), version);
+		response resp(static_cast<boost::beast::http::status>(ResponseTraits::status_code), version);
 		return resp;
 	}
+}
+
+template <typename ResponseContract>
+response to_http_response(const ResponseContract &typed, unsigned version = 11) {
+	using traits = response_contract_traits<ResponseContract>;
+	return serialize_contract_response<traits>(typed, version);
 }
 
 template <typename ResponseContract, typename Response>
     requires requires { typename ResponseContract::response_type; } &&
              std::same_as<typename ResponseContract::response_type, std::remove_cvref_t<Response>>
 response to_http_response(Response &&typed, unsigned version) {
-	if constexpr (ResponseContract::has_body) {
-		if (status_forbids_body(static_cast<boost::beast::http::status>(ResponseContract::status_code))) {
-			throw std::invalid_argument("response status must not include a body");
-		}
-		return response_builder()
-		    .status(ResponseContract::status_code)
-		    .version(version)
-		    .body(boost::json::value_from(ResponseContract::body(std::forward<Response>(typed))))
-		    .build();
-	} else {
-		response resp(static_cast<boost::beast::http::status>(ResponseContract::status_code), version);
-		return resp;
-	}
+	return serialize_contract_response<ResponseContract>(std::forward<Response>(typed), version);
 }
 
 template <typename ResponseContract>
@@ -811,20 +739,7 @@ template <typename ResponseContract>
 response to_http_response(ResponseContract &&typed, unsigned version) {
 	using response_type = std::remove_cvref_t<ResponseContract>;
 	using traits = response_contract_traits<response_type>;
-
-	if constexpr (traits::has_body) {
-		if (status_forbids_body(static_cast<boost::beast::http::status>(traits::status_code))) {
-			throw std::invalid_argument("response status must not include a body");
-		}
-		return response_builder()
-		    .status(traits::status_code)
-		    .version(version)
-		    .body(boost::json::value_from(traits::body(std::forward<ResponseContract>(typed))))
-		    .build();
-	} else {
-		response resp(static_cast<boost::beast::http::status>(traits::status_code), version);
-		return resp;
-	}
+	return serialize_contract_response<traits>(std::forward<ResponseContract>(typed), version);
 }
 
 template <typename ResponseType, typename Invocable>
