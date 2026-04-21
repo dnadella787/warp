@@ -2,9 +2,8 @@
 
 #include <string_view>
 
-#include "../../../src/http/router/route_pattern.hpp"
-
 #include "route_fixed_string.hpp"
+#include "route_pattern.hpp"
 
 namespace warp::http {
 

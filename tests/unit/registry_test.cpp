@@ -1,5 +1,6 @@
 #include "http/router/registry.hpp"
 #include "warp/codegen/http_adapter.hpp"
+#include "warp/http/route_spec.hpp"
 
 #include <gtest/gtest.h>
 
@@ -20,6 +21,25 @@ using warp::http::registry;
 struct path_contract {
 	std::string id;
 };
+
+using typed_summary_fields_route =
+    warp::http::route_spec<warp::method::get, "/reports/{id}", warp::http::required_query<"summary">,
+                           warp::http::required_query<"fields">>;
+using typed_fields_summary_route =
+    warp::http::route_spec<warp::method::get, "/reports/{report_id}", warp::http::required_query<"fields">,
+                           warp::http::required_query<"summary">>;
+using typed_summary_route =
+    warp::http::route_spec<warp::method::get, "/reports/{id}", warp::http::required_query<"summary">,
+                           warp::http::forbidden_query<"fields">>;
+using typed_projection_route =
+    warp::http::route_spec<warp::method::get, "/reports/{id}", warp::http::forbidden_query<"summary">,
+                           warp::http::required_query<"fields">>;
+using typed_summary_projection_route =
+    warp::http::route_spec<warp::method::get, "/reports/{id}", warp::http::required_query<"summary">,
+                           warp::http::required_query<"fields">>;
+using typed_fallback_route = warp::http::route_spec<warp::method::get, "/reports/{id}">;
+using typed_encoded_query_route =
+    warp::http::route_spec<warp::method::get, "/filters", warp::http::optional_query_value<"plus+space %", "a+b %">>;
 
 warp::response route_response(std::string route) {
 	return warp::response::ok(warp::body_builder().set("route", std::move(route)).build());
@@ -228,6 +248,58 @@ TEST(RegistryTest, FindFallsBackWhenNoQueryAwareRouteMatches) {
 	const auto response = warp::test::run_handler(*handler, std::move(req));
 	const auto body = warp::test::parse_json_object(response.body());
 	EXPECT_EQ(std::string(body.at("route").as_string()), "fallback");
+}
+
+TEST(RegistryTest, AddCompiledPreservesTypedQuerySpecificity) {
+	registry routes;
+	routes.add_compiled(warp::http::detail::compile_route_spec<typed_fallback_route>(),
+	                    [](const warp::request &) -> warp::response { return route_response("fallback"); });
+	routes.add_compiled(warp::http::detail::compile_route_spec<typed_summary_route>(),
+	                    [](const warp::request &) -> warp::response { return route_response("summary"); });
+	routes.add_compiled(warp::http::detail::compile_route_spec<typed_projection_route>(),
+	                    [](const warp::request &) -> warp::response { return route_response("projection"); });
+	routes.add_compiled(warp::http::detail::compile_route_spec<typed_summary_projection_route>(),
+	                    [](const warp::request &) -> warp::response { return route_response("summary_projection"); });
+
+	EXPECT_EQ(matched_route_name(routes, warp::request(verb::get, "/reports/42?summary=true", 11)), "summary");
+	EXPECT_EQ(matched_route_name(routes, warp::request(verb::get, "/reports/42?fields=name", 11)), "projection");
+	EXPECT_EQ(matched_route_name(routes, warp::request(verb::get, "/reports/42?summary=true&fields=name", 11)),
+	          "summary_projection");
+	EXPECT_EQ(matched_route_name(routes, warp::request(verb::get, "/reports/42?unused=1", 11)), "fallback");
+}
+
+TEST(RegistryTest, AddCompiledRejectsTypedDuplicatesWithReorderedConstraints) {
+	registry routes;
+	auto handler = [](const warp::request &) -> warp::response {
+		return warp::response::ok();
+	};
+
+	routes.add_compiled(warp::http::detail::compile_route_spec<typed_summary_fields_route>(), handler);
+	EXPECT_THROW(routes.add_compiled(warp::http::detail::compile_route_spec<typed_fields_summary_route>(), handler),
+	             std::invalid_argument);
+}
+
+TEST(RegistryTest, AddCompiledRejectsDuplicatesAgainstStringRoutes) {
+	registry routes;
+	auto handler = [](const warp::request &) -> warp::response {
+		return warp::response::ok();
+	};
+
+	routes.add(warp::method::get, "/reports/{id}?summary&fields", handler);
+	EXPECT_THROW(routes.add_compiled(warp::http::detail::compile_route_spec<typed_fields_summary_route>(), handler),
+	             std::invalid_argument);
+}
+
+TEST(RegistryTest, CompileRouteSpecPreservesStructuredQueryMetadata) {
+	const auto compiled = warp::http::detail::compile_route_spec<typed_encoded_query_route>();
+
+	ASSERT_EQ(compiled.verb, warp::method::get);
+	EXPECT_EQ(compiled.pattern.original_path, "/filters");
+	ASSERT_EQ(compiled.query_constraints.size(), 1);
+	EXPECT_EQ(compiled.query_constraints.front().name, "plus+space %");
+	EXPECT_EQ(compiled.query_constraints.front().presence, warp::http::query_constraint_presence::optional);
+	ASSERT_TRUE(compiled.query_constraints.front().value.has_value());
+	EXPECT_EQ(*compiled.query_constraints.front().value, "a+b %");
 }
 
 TEST(RegistryTest, FindSupportsNegativeQueryConstraints) {

@@ -12,9 +12,8 @@
 #include <boost/json/parse.hpp>
 #include <boost/json/value.hpp>
 
+#include "warp/http/route_pattern.hpp"
 #include "warp/http/string_map.hpp"
-
-#include "../../../src/http/router/route_pattern.hpp"
 
 namespace warp::http {
 

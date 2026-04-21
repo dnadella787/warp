@@ -34,6 +34,11 @@ server_builder &server_builder::route(method verb, std::string path, handler han
 	return *this;
 }
 
+server_builder &server_builder::route(compiled_route route, handler handler) {
+	routes_.push_back(route_definition {.compiled = std::move(route), .callback = std::move(handler)});
+	return *this;
+}
+
 server server_builder::build() const {
 	switch (event_loop_mode_) {
 	case event_loop_mode::callbacks:
@@ -54,6 +59,10 @@ template <event_loop_mode Mode>
 [[nodiscard]] std::shared_ptr<server::impl_base> server_builder::make_impl() const {
 	registry registry;
 	for (const auto &route : routes_) {
+		if (route.compiled.has_value()) {
+			registry.add_compiled(*route.compiled, route.callback);
+			continue;
+		}
 		registry.add(route.verb, route.path, route.callback);
 	}
 	return std::make_shared<server::server_impl<Mode>>(address_, port_, workers_, std::move(registry));

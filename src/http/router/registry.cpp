@@ -39,6 +39,15 @@ constexpr std::array<std::string_view, 4> route_priority_keys {
 	return priority;
 }
 
+void normalize_compiled_query_constraints(std::vector<compiled_query_constraint> &constraints) {
+	detail::sort_compiled_query_constraints(constraints);
+	for (std::size_t i = 1; i < constraints.size(); ++i) {
+		if (constraints[i - 1].name == constraints[i].name) {
+			throw std::invalid_argument("route query constraint names must be unique");
+		}
+	}
+}
+
 } // namespace
 
 registry::registry(const registry &other) {
@@ -65,15 +74,19 @@ void registry::add(method verb, std::string path, handler h) {
 }
 
 void registry::add_route(method verb, std::string path, handler h) {
-	auto parsed_route = parse_registered_route(path);
-	auto &root = method_roots_[verb];
+	add_compiled(parse_registered_route(verb, path), std::move(h));
+}
+
+void registry::add_compiled(compiled_route route, handler h) {
+	normalize_compiled_query_constraints(route.query_constraints);
+	auto &root = method_roots_[route.verb];
 	auto *current = &root;
 
 	std::vector<route_parameter> parameters;
-	parameters.reserve(parsed_route.pattern.segments.size());
+	parameters.reserve(route.pattern.segments.size());
 
-	for (std::size_t i = 0; i < parsed_route.pattern.segments.size(); ++i) {
-		const auto &segment = parsed_route.pattern.segments[i];
+	for (std::size_t i = 0; i < route.pattern.segments.size(); ++i) {
+		const auto &segment = route.pattern.segments[i];
 		if (segment.kind == route_segment_kind::literal) {
 			auto [it, inserted] = current->literal_children.try_emplace(segment.text, std::make_unique<node>());
 			boost::ignore_unused(inserted);
@@ -89,7 +102,7 @@ void registry::add_route(method verb, std::string path, handler h) {
 	}
 
 	for (const auto &existing : current->routes) {
-		if (existing.query_constraints == parsed_route.query_constraints) {
+		if (existing.query_constraints == route.query_constraints) {
 			throw std::invalid_argument("duplicate route pattern for method, normalized path shape, and query shape");
 		}
 	}
@@ -97,8 +110,8 @@ void registry::add_route(method verb, std::string path, handler h) {
 	current->routes.push_back(route_entry {
 	    .handler = std::move(h),
 	    .parameters = std::move(parameters),
-	    .query_constraints = std::move(parsed_route.query_constraints),
-	    .priority = parsed_route.priority,
+	    .query_constraints = std::move(route.query_constraints),
+	    .priority = route.priority,
 	    .registration_order = next_registration_order_++,
 	});
 }
@@ -141,8 +154,11 @@ registry::node registry::clone_node(const node &source) {
 	return copy;
 }
 
-registry::parsed_route registry::parse_registered_route(std::string_view route) {
-	parsed_route parsed {.pattern = parse_route_pattern(strip_query_string(route))};
+compiled_route registry::parse_registered_route(method verb, std::string_view route) {
+	compiled_route parsed {
+	    .verb = verb,
+	    .pattern = parse_route_pattern(strip_query_string(route)),
+	};
 	const auto query_pos = route.find('?');
 	if (query_pos == std::string_view::npos) {
 		return parsed;
@@ -190,7 +206,7 @@ registry::parsed_route registry::parse_registered_route(std::string_view route) 
 				parsed.priority = parse_route_priority(route, *raw_value);
 				priority_set = true;
 			} else {
-				parsed.query_constraints.push_back(query_constraint {
+				parsed.query_constraints.push_back(compiled_query_constraint {
 				    .name = std::move(*key),
 				    .presence = presence,
 				    .value = std::move(raw_value),
@@ -204,13 +220,7 @@ registry::parsed_route registry::parse_registered_route(std::string_view route) 
 		start = end + 1;
 	}
 
-	std::ranges::sort(parsed.query_constraints,
-	                  [](const query_constraint &lhs, const query_constraint &rhs) { return lhs.name < rhs.name; });
-	for (std::size_t i = 1; i < parsed.query_constraints.size(); ++i) {
-		if (parsed.query_constraints[i - 1].name == parsed.query_constraints[i].name) {
-			throw std::invalid_argument("route query constraint names must be unique");
-		}
-	}
+	normalize_compiled_query_constraints(parsed.query_constraints);
 
 	return parsed;
 }

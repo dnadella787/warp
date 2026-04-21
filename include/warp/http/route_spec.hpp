@@ -1,16 +1,18 @@
 #pragma once
 
 #include <array>
+#include <algorithm>
 #include <concepts>
 #include <cstddef>
 #include <optional>
+#include <string>
 #include <string_view>
 
-#include "../../../src/http/router/route_pattern.hpp"
-
+#include "compiled_route.hpp"
 #include "http.hpp"
 #include "query_constraints.hpp"
 #include "route_path.hpp"
+#include "route_pattern.hpp"
 
 namespace warp::http {
 
@@ -303,6 +305,31 @@ public:
 
 template <typename T>
 concept route_registration_spec = detail::route_registration_spec_impl<T>;
+
+namespace detail {
+
+template <route_registration_spec Spec>
+[[nodiscard]] inline compiled_route compile_route_spec() {
+	compiled_route route {
+	    .verb = Spec::verb,
+	    .pattern = parse_route_pattern(Spec::path_view()),
+	};
+	route.query_constraints.reserve(Spec::query_constraints.size());
+	for (const auto &descriptor : Spec::query_constraints) {
+		compiled_query_constraint constraint {
+		    .name = std::string(descriptor.name),
+		    .presence = descriptor.presence,
+		};
+		if (descriptor.has_exact_value) {
+			constraint.value = std::string(descriptor.exact_value);
+		}
+		route.query_constraints.push_back(std::move(constraint));
+	}
+	sort_compiled_query_constraints(route.query_constraints);
+	return route;
+}
+
+} // namespace detail
 
 template <route_registration_spec... Specs>
 [[nodiscard]] consteval bool deterministic_route_definitions() {

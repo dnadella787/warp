@@ -66,6 +66,15 @@ TEST(ServerBuilderSmokeTest, RegistersMutableAndConstResources) {
 	EXPECT_EQ(&configured, &builder);
 }
 
+TEST(ServerBuilderSmokeTest, BuildsServerFromTypedRouteSpecs) {
+	auto server = warp::http::server_builder()
+	                  .get<"/reports/{report_id}", warp::http::required_query<"summary">>(
+	                      [](const warp::request &) -> warp::response { return warp::response::ok("ok"); })
+	                  .build();
+
+	server.stop();
+}
+
 TEST(ServerBuilderSmokeTest, ConcurrentRunAndStopDoNotRaceServerLifecycle) {
 	for (auto mode : event_loop_modes) {
 		for (int iteration = 0; iteration < 25; ++iteration) {

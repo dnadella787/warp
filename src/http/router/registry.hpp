@@ -9,9 +9,8 @@
 #include <unordered_map>
 #include <vector>
 
-#include "route_pattern.hpp"
+#include "warp/http/compiled_route.hpp"
 #include "warp/http/http.hpp"
-#include "warp/http/server_builder.hpp"
 #include "warp/http/string_map.hpp"
 
 namespace warp::http {
@@ -25,20 +24,13 @@ public:
 	registry &operator=(registry &&) noexcept = default;
 	void add(method verb, std::string path, handler h);
 	void add_route(method verb, std::string path, handler h);
+	void add_compiled(compiled_route route, handler h);
 	[[nodiscard]] const handler *find(request &req) const;
 
 private:
 	struct route_parameter {
 		std::size_t index {};
 		std::string name;
-	};
-
-	struct query_constraint {
-		std::string name;
-		query_constraint_presence presence {query_constraint_presence::required};
-		std::optional<std::string> value;
-
-		[[nodiscard]] bool operator==(const query_constraint &other) const = default;
 	};
 
 	struct query_match_score {
@@ -49,15 +41,9 @@ private:
 	struct route_entry {
 		handler handler;
 		std::vector<route_parameter> parameters;
-		std::vector<query_constraint> query_constraints;
+		std::vector<compiled_query_constraint> query_constraints;
 		std::int64_t priority {};
 		std::size_t registration_order {};
-	};
-
-	struct parsed_route {
-		route_pattern pattern;
-		std::vector<query_constraint> query_constraints;
-		std::int64_t priority {};
 	};
 
 	struct node {
@@ -71,7 +57,7 @@ private:
 	};
 
 	static node clone_node(const node &source);
-	[[nodiscard]] static parsed_route parse_registered_route(std::string_view route);
+	[[nodiscard]] static compiled_route parse_registered_route(method verb, std::string_view route);
 	[[nodiscard]] static const route_entry *match_route(const node &root, const request &req,
 	                                                    const std::vector<std::string_view> &segments,
 	                                                    std::size_t segment_index = 0);

@@ -3,6 +3,7 @@
 //
 
 #pragma once
+#include <optional>
 #include <string_view>
 #include <string>
 
@@ -94,6 +95,7 @@ namespace detail {
 class server_builder {
 private:
 	server_builder &route(method verb, std::string path, handler handler);
+	server_builder &route(compiled_route route, handler handler);
 
 public:
 	server_builder() = default;
@@ -125,7 +127,7 @@ public:
 
 	template <route_registration_spec Spec, route_handler H>
 	server_builder &route(Spec, H &&handler) {
-		return route(Spec::verb, registered_path<Spec>(), std::forward<H>(handler));
+		return route(detail::compile_route_spec<Spec>(), make_route_handler(std::forward<H>(handler)));
 	}
 
 	template <method Verb, fixed_string Path, query_constraint... QueryConstraints, route_handler H>
@@ -210,18 +212,6 @@ private:
 		return route(verb, std::move(path), std::move(callback));
 	}
 
-	template <route_registration_spec Spec>
-	[[nodiscard]] static std::string registered_path() {
-		std::string path(Spec::path_view());
-		bool first = true;
-		for (const auto &constraint : Spec::query_constraints) {
-			path.push_back(first ? '?' : '&');
-			first = false;
-			path += detail::registered_query_constraint_fragment(constraint);
-		}
-		return path;
-	}
-
 	template <event_loop_mode Mode>
 	[[nodiscard]] server make_server() const;
 
@@ -249,6 +239,7 @@ private:
 	}
 
 	struct route_definition {
+		std::optional<compiled_route> compiled;
 		method verb;
 		std::string path;
 		handler callback;

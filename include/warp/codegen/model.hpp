@@ -7,8 +7,8 @@
 #include <string_view>
 #include <vector>
 
-#include "../../../src/http/router/route_pattern.hpp"
 #include "warp/codegen/spec_model.hpp"
+#include "warp/http/route_pattern.hpp"
 
 namespace warp::codegen {
 
