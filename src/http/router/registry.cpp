@@ -125,30 +125,6 @@ const handler *registry::find(request &req) const {
 	return nullptr;
 }
 
-std::size_t registry::transparent_string_hash::operator()(std::string_view value) const noexcept {
-	return std::hash<std::string_view> {}(value);
-}
-
-std::size_t registry::transparent_string_hash::operator()(const std::string &value) const noexcept {
-	return (*this)(std::string_view {value});
-}
-
-bool registry::transparent_string_equal::operator()(const std::string &lhs, const std::string &rhs) const noexcept {
-	return lhs == rhs;
-}
-
-bool registry::transparent_string_equal::operator()(std::string_view lhs, std::string_view rhs) const noexcept {
-	return lhs == rhs;
-}
-
-bool registry::transparent_string_equal::operator()(const std::string &lhs, std::string_view rhs) const noexcept {
-	return std::string_view {lhs} == rhs;
-}
-
-bool registry::transparent_string_equal::operator()(std::string_view lhs, const std::string &rhs) const noexcept {
-	return lhs == std::string_view {rhs};
-}
-
 std::size_t registry::method_hash::operator()(method verb) const noexcept {
 	return std::hash<unsigned> {}(static_cast<unsigned>(verb));
 }
@@ -324,7 +300,7 @@ bool registry::is_better_match(const route_entry &candidate, query_match_score c
 
 void registry::apply_path_params(request &req, const std::vector<std::string_view> &segments,
                                  const route_entry &route) {
-	std::unordered_map<std::string, std::string> params;
+	request::parameter_map params;
 	params.reserve(route.parameters.size());
 
 	if (!route.parameters.empty()) {

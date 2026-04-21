@@ -12,6 +12,8 @@
 #include <boost/json/parse.hpp>
 #include <boost/json/value.hpp>
 
+#include "warp/http/string_map.hpp"
+
 #include "../../../src/http/router/route_pattern.hpp"
 
 namespace warp::http {
@@ -25,6 +27,8 @@ struct target_parse_error {
 
 class request : public beast_request {
 public:
+	using parameter_map = transparent_string_map<std::string>;
+
 	request();
 	request(boost::beast::http::verb method, std::string_view target, unsigned version);
 	request(const beast_request &other);
@@ -36,13 +40,13 @@ public:
 	void refresh_target_metadata();
 
 	[[nodiscard]] std::string_view path() const noexcept;
-	[[nodiscard]] const std::unordered_map<std::string, std::string> &query_params() const noexcept;
+	[[nodiscard]] const parameter_map &query_params() const noexcept;
 	[[nodiscard]] std::optional<std::string_view> query_param(const char *key) const;
 	[[nodiscard]] std::optional<std::string_view> query_param(const std::string &key) const;
 	[[nodiscard]] std::optional<std::string_view> query_param(std::string_view key) const;
 
-	void set_path_params(std::unordered_map<std::string, std::string> params);
-	[[nodiscard]] const std::unordered_map<std::string, std::string> &path_params() const noexcept;
+	void set_path_params(parameter_map params);
+	[[nodiscard]] const parameter_map &path_params() const noexcept;
 	[[nodiscard]] std::optional<std::string_view> path_param(const char *key) const;
 	[[nodiscard]] std::optional<std::string_view> path_param(const std::string &key) const;
 	[[nodiscard]] std::optional<std::string_view> path_param(std::string_view key) const;
@@ -57,8 +61,8 @@ private:
 	void parse_target();
 
 	std::string path_;
-	std::unordered_map<std::string, std::string> query_params_;
-	std::unordered_map<std::string, std::string> path_params_;
+	parameter_map query_params_;
+	parameter_map path_params_;
 	std::optional<target_parse_error> target_error_;
 };
 
@@ -99,7 +103,7 @@ inline std::string_view request::path() const noexcept {
 	return path_;
 }
 
-inline const std::unordered_map<std::string, std::string> &request::query_params() const noexcept {
+inline const request::parameter_map &request::query_params() const noexcept {
 	return query_params_;
 }
 
@@ -115,17 +119,17 @@ inline std::optional<std::string_view> request::query_param(const std::string &k
 }
 
 inline std::optional<std::string_view> request::query_param(std::string_view key) const {
-	if (auto it = query_params_.find(std::string(key)); it != query_params_.end()) {
+	if (auto it = query_params_.find(key); it != query_params_.end()) {
 		return it->second;
 	}
 	return std::nullopt;
 }
 
-inline void request::set_path_params(std::unordered_map<std::string, std::string> params) {
+inline void request::set_path_params(parameter_map params) {
 	path_params_ = std::move(params);
 }
 
-inline const std::unordered_map<std::string, std::string> &request::path_params() const noexcept {
+inline const request::parameter_map &request::path_params() const noexcept {
 	return path_params_;
 }
 
@@ -141,7 +145,7 @@ inline std::optional<std::string_view> request::path_param(const std::string &ke
 }
 
 inline std::optional<std::string_view> request::path_param(std::string_view key) const {
-	if (auto it = path_params_.find(std::string(key)); it != path_params_.end()) {
+	if (auto it = path_params_.find(key); it != path_params_.end()) {
 		return it->second;
 	}
 	return std::nullopt;

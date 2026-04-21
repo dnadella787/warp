@@ -12,6 +12,7 @@
 #include "route_pattern.hpp"
 #include "warp/http/http.hpp"
 #include "warp/http/server_builder.hpp"
+#include "warp/http/string_map.hpp"
 
 namespace warp::http {
 
@@ -59,25 +60,8 @@ private:
 		std::int64_t priority {};
 	};
 
-	struct transparent_string_hash {
-		using is_transparent = void;
-
-		[[nodiscard]] std::size_t operator()(std::string_view value) const noexcept;
-		[[nodiscard]] std::size_t operator()(const std::string &value) const noexcept;
-	};
-
-	struct transparent_string_equal {
-		using is_transparent = void;
-
-		[[nodiscard]] bool operator()(const std::string &lhs, const std::string &rhs) const noexcept;
-		[[nodiscard]] bool operator()(std::string_view lhs, std::string_view rhs) const noexcept;
-		[[nodiscard]] bool operator()(const std::string &lhs, std::string_view rhs) const noexcept;
-		[[nodiscard]] bool operator()(std::string_view lhs, const std::string &rhs) const noexcept;
-	};
-
 	struct node {
-		std::unordered_map<std::string, std::unique_ptr<node>, transparent_string_hash, transparent_string_equal>
-		    literal_children;
+		transparent_string_map<std::unique_ptr<node>> literal_children;
 		std::unique_ptr<node> parameter_child;
 		std::vector<route_entry> routes;
 	};

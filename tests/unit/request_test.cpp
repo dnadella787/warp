@@ -97,6 +97,35 @@ TEST(RequestTest, PathParamLookupReadsAssignedPathParams) {
 	EXPECT_FALSE(req.path_param("missing").has_value());
 }
 
+TEST(RequestTest, QueryAndPathLookupSupportConstCharStringAndStringViewKeys) {
+	request req(boost::beast::http::verb::get, "/items/42?lang=en", 11);
+	req.set_path_params({{"id", "42"}});
+
+	const std::string query_key = "lang";
+	const std::string query_key_storage = "lang-extra";
+	const std::string path_key = "id";
+	const std::string path_key_storage = "id-extra";
+
+	const std::string_view query_key_view {query_key_storage.data(), query_key.size()};
+	const std::string_view path_key_view {path_key_storage.data(), path_key.size()};
+
+	EXPECT_EQ(req.query_param("lang"), "en");
+	EXPECT_EQ(req.query_param(query_key), "en");
+	EXPECT_EQ(req.query_param(query_key_view), "en");
+
+	const auto query_it = req.query_params().find(query_key_view);
+	ASSERT_NE(query_it, req.query_params().end());
+	EXPECT_EQ(query_it->second, "en");
+
+	EXPECT_EQ(req.path_param("id"), "42");
+	EXPECT_EQ(req.path_param(path_key), "42");
+	EXPECT_EQ(req.path_param(path_key_view), "42");
+
+	const auto path_it = req.path_params().find(path_key_view);
+	ASSERT_NE(path_it, req.path_params().end());
+	EXPECT_EQ(path_it->second, "42");
+}
+
 TEST(RequestTest, JsonBodyRejectsMissingOrInvalidJsonContentTypes) {
 	request missing_header(boost::beast::http::verb::post, "/payload", 11);
 	missing_header.body() = R"({"name":"warp"})";

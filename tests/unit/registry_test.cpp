@@ -81,6 +81,8 @@ TEST(RegistryTest, FindAppliesPathParametersForParameterizedRoutes) {
 	ASSERT_NE(handler, nullptr);
 	ASSERT_TRUE(req.path_param(std::string_view {"id"}).has_value());
 	EXPECT_EQ(*req.path_param(std::string_view {"id"}), "42");
+	ASSERT_NE(req.path_params().find(std::string_view {"id"}), req.path_params().end());
+	EXPECT_EQ(req.path_params().find(std::string_view {"id"})->second, "42");
 
 	auto resp = warp::test::run_handler(*handler, std::move(req));
 	auto body = warp::test::parse_json_object(resp.body());
