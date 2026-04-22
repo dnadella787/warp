@@ -61,7 +61,7 @@ The default is `callbacks`.
 Users can switch modes through the server builder:
 
 ```cpp
-auto server = warp::server_builder()
+auto server = warp::http::server_builder()
     .event_loop(warp::event_loop_mode::coroutines)
     .get("/ping", [](warp::request) {
         return warp::response::ok("{\"status\":\"ok\"}");
@@ -90,8 +90,8 @@ The difference between the two modes is how steps 1, 2, 5, and 8 are driven inte
 
 Callback mode uses:
 
-- [listener.cpp](warp/src/http/listener/listener.cpp)
-- [http_session.cpp](warp/src/http/session/http_session.cpp)
+- [callback_listener.cpp](../src/http/listener/callback_listener.cpp)
+- [callback_http_session.cpp](../src/http/session/callback_http_session.cpp)
 
 Flow:
 
@@ -108,8 +108,8 @@ Flow:
 
 Coroutine mode uses:
 
-- [coroutine_listener.cpp](warp/src/http/listener/coroutine_listener.cpp)
-- [coroutine_http_session.cpp](warp/src/http/session/coroutine_http_session.cpp)
+- [coroutine_listener.cpp](../src/http/listener/coroutine_listener.cpp)
+- [coroutine_http_session.cpp](../src/http/session/coroutine_http_session.cpp)
 
 Flow:
 
@@ -191,7 +191,7 @@ That means:
 
 ## Benchmarking
 
-The callback event loop is still the default because it currently has the lower event-loop overhead on Warp's local round-trip benchmark. The latest measurements are documented in [benchmarking.md](warp/docs/benchmarking.md).
+The callback event loop is still the default because it currently has the lower event-loop overhead on Warp's local round-trip benchmark. The latest measurements are documented in [benchmarking.md](benchmarking.md).
 
 ## Summary
 

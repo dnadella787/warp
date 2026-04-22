@@ -71,6 +71,14 @@ void callback_http_session::on_read(beast::error_code ec, std::size_t) {
 		return shutdown(true);
 	}
 
+	// async_read was canceled after it was started so just exit the read loop instead of letting the now invalid
+	// request have its mapped handler execute and potentially mutate data
+	// (resp 1 closes connection but async_read 2 already kicked off before req 1 handler returned resp 1)
+	// TODO: maybe cancel the outstanding async_read with a forceful shutdown so we can more aggressively shutdown TCP
+	// connections to accept more requests
+	if (stop_reading_ || shutdown_started_)
+		return parser_.reset();
+
 	warp::request request {parser_->release()};
 	const std::size_t sequence = next_request_sequence_++;
 	request_ctxs_.emplace(sequence, request_context {.sequence = sequence,
@@ -107,6 +115,9 @@ void callback_http_session::on_read(beast::error_code ec, std::size_t) {
 
 void callback_http_session::on_handler_complete(std::size_t sequence, std::exception_ptr eptr,
                                                 warp::response response) {
+	// shutdown could be initiated during the async request handler execution in
+	// which case we should dump this response because we already told the client we are not
+	// writing out anymore responses
 	if (shutdown_started_)
 		return;
 
@@ -116,10 +127,9 @@ void callback_http_session::on_handler_complete(std::size_t sequence, std::excep
 		                  "context could not be found in session map on completion");
 
 	// Unhandled exception is returned to end user as 500
-	if (eptr) {
-		// TODO: set keep alive to false for uncaught exceptions but let user configure that
+	// TODO: set keep alive to false for uncaught exceptions but let user configure that
+	if (eptr)
 		response = warp::response::server_error();
-	}
 
 	const auto decision = close_policy_.on_response_ready(ctx_it->second, response);
 	if (!close_policy_.accepting_requests())

@@ -1,0 +1,15 @@
+services:
+  warp-db:
+    image: postgres:16
+    container_name: "${WARP_DB_DOCKER_CONTAINER:-warp-db}"
+    environment:
+      POSTGRES_DB: "${WARP_DB_NAME:-warp-db}"
+      POSTGRES_USER: "${WARP_DB_USER:-localdbusr}"
+      POSTGRES_PASSWORD: "${WARP_DB_PASSWORD:-localdbpwd}"
+    ports:
+      - "${WARP_DB_PORT:-5432}:5432"
+    volumes:
+      - warp-postgres-data:/var/lib/postgresql/data
+
+volumes:
+  warp-postgres-data:

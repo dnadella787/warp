@@ -18,8 +18,8 @@ The registry does not perform socket I/O, request parsing, or response serializa
 
 The implementation lives in:
 
-- [registry.hpp](warp/src/http/router/registry.hpp)
-- [registry.cpp](warp/src/http/router/registry.cpp)
+- [registry.hpp](../src/http/router/registry.hpp)
+- [registry.cpp](../src/http/router/registry.cpp)
 
 Important types:
 
@@ -58,6 +58,7 @@ Routes are registered through:
 ```cpp
 void add(method verb, std::string path, handler h);
 void add_route(method verb, std::string path, handler h);
+void add_compiled(compiled_route route, handler h);
 ```
 
 When a route is added:
@@ -70,6 +71,8 @@ When a route is added:
    - a literal child, or
    - the single parameter child
 4. The terminal node appends a new route variant to its `routes` vector.
+
+Typed and generated route registration now flows through `compiled_route` metadata. `server_builder` uses `registry.add_compiled(...)` for compile-time route specs and keeps `add(...)` / `add_route(...)` for string-based registrations.
 
 Because each HTTP method has its own root, paths such as `GET /name/{id}` and `DELETE /name/{id}` can coexist without conflict.
 

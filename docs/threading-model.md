@@ -22,8 +22,8 @@ The mode is selected through `server_builder::event_loop(...)`. The default is `
 
 At runtime, `server::impl` constructs either:
 
-- [listener.cpp](warp/src/http/listener/listener.cpp) plus [http_session.cpp](warp/src/http/session/http_session.cpp)
-- [coroutine_listener.cpp](warp/src/http/listener/coroutine_listener.cpp) plus [coroutine_http_session.cpp](warp/src/http/session/coroutine_http_session.cpp)
+- [callback_listener.cpp](../src/http/listener/callback_listener.cpp) plus [callback_http_session.cpp](../src/http/session/callback_http_session.cpp)
+- [coroutine_listener.cpp](../src/http/listener/coroutine_listener.cpp) plus [coroutine_http_session.cpp](../src/http/session/coroutine_http_session.cpp)
 
 The public route API is the same in both modes.
 
@@ -151,4 +151,4 @@ The result is that a route which reaches `co_await db_pool->query(...)` does not
 - callback mode is currently the lower-overhead default for raw event-loop latency
 - coroutine mode remains useful when you want the server internals themselves to use coroutine control flow
 
-For measured callback-vs-coroutine event-loop overhead, see [benchmarking.md](warp/docs/benchmarking.md).
+For measured callback-vs-coroutine event-loop overhead, see [benchmarking.md](benchmarking.md).

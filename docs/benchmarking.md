@@ -1,7 +1,10 @@
 # Benchmarking
 
+Warp includes a Google Benchmark target for comparing callback and coroutine event-loop overhead under sustained concurrent load.
+
 ## Benchmark Results
-Run on 2023 M3 Macbook pro 36GB RAM 12 core
+
+Sample run captured on `2026-04-05` on a 2023 MacBook Pro (M3, 36 GB RAM, 12 CPU cores).
 
 ### RPS Results
 
@@ -109,8 +112,6 @@ The answer is to increase the client side connect timeout (`--warp-benchmark-con
 
 
 
-Warp includes a Google Benchmark target for comparing the callback-based event loop with the coroutine-based event loop under sustained concurrent load.
-
 The benchmark binary contains:
 
 - a minimal in-memory `GET /ping` round trip
@@ -144,7 +145,7 @@ Example:
 
 ```bash
 ./build-bench/benchmarks/warp_http_event_loop_benchmark \
-  --warp-benchmark-concurrency=1k,5k,10k \ 
+  --warp-benchmark-concurrency=1k,5k,10k \
   --warp-benchmark-client-threads=8 \
   --warp-benchmark-warmup=5s \
   --warp-benchmark-duration=60s \
@@ -196,6 +197,12 @@ export WARP_DB_NAME=...
 ```
 
 Only `WARP_DB_USER`, `WARP_DB_PASSWORD`, and `WARP_DB_NAME` are required. If they are not set, the DB benchmark entries are skipped.
+
+For a local Dockerized PostgreSQL instance plus seeded `exchanges` data, use [postgres-local.md](postgres-local.md) or run:
+
+```bash
+./scripts/init_local_postgres.sh
+```
 
 ## Methodology
 

@@ -9,7 +9,9 @@ function(add_warp_runtime_gtest_suite target)
     )
     # Runtime-only tests should not pull in codegen implementation or optional DB libs.
     target_link_libraries(${target} PRIVATE warp_http warp_codegen_core GTest::gtest_main GTest::gmock)
-    gtest_discover_tests(${target})
+    gtest_discover_tests(${target}
+        WORKING_DIRECTORY ${PROJECT_BINARY_DIR}
+    )
 endfunction()
 
 function(add_warp_codegen_gtest_suite target)
@@ -20,7 +22,9 @@ function(add_warp_codegen_gtest_suite target)
         ${PROJECT_SOURCE_DIR}/tests
     )
     target_link_libraries(${target} PRIVATE warp_http warp_codegen_core GTest::gtest_main)
-    gtest_discover_tests(${target})
+    gtest_discover_tests(${target}
+        WORKING_DIRECTORY ${PROJECT_BINARY_DIR}
+    )
 endfunction()
 
 function(add_warp_compile_only_suite target)

@@ -196,6 +196,46 @@ TEST_P(HttpConnectionAndErrorIntegrationTest, AsyncCloseRequestBlocksFasterSyncR
 	EXPECT_EQ(after_processed->load(std::memory_order_acquire), 1);
 }
 
+TEST_P(HttpConnectionAndErrorIntegrationTest, CoroutineServerSideCloseLeavesOutstandingReadThatConsumesLateRequest) {
+	auto after_processed = std::make_shared<std::atomic<int>>(0);
+
+	support::server_fixture fixture(warp::http::server_builder()
+	                                    .event_loop(GetParam())
+	                                    .get("/close",
+	                                         [](const request &) -> awaitable<response> {
+		                                         auto response = co_await support::delayed_ok_response(100ms, []() {
+			                                         return body_builder().set("route", "close").build();
+		                                         });
+		                                         response.keep_alive(false);
+		                                         co_return response;
+	                                         })
+	                                    .get("/after", [after_processed](const request &) -> response {
+		                                    after_processed->fetch_add(1, std::memory_order_acq_rel);
+		                                    return response::ok(body_builder().set("route", "after").build());
+	                                    }));
+
+	auto client = support::connect_client(fixture.port);
+	support::send_requests(*client, support::make_get_request("/close"));
+
+	const auto response = support::read_response(*client);
+	EXPECT_FALSE(response.keep_alive());
+	EXPECT_EQ(response.result(), http::status::ok);
+	EXPECT_EQ(std::string(support::parse_object_body(response).at("route").as_string()), "close");
+
+	EXPECT_TRUE(support::next_response_is_eof(*client));
+
+	// The delayed close response gives read_loop enough time to start the next async_read before stop_reading_ flips.
+	// If this late request still reaches the handler after EOF, that proves shutdown left the in-flight read running.
+	EXPECT_NO_THROW(support::send_requests(*client, support::make_get_request("/after", "close")));
+
+	const auto deadline = std::chrono::steady_clock::now() + 500ms;
+	while (after_processed->load(std::memory_order_acquire) == 0 && std::chrono::steady_clock::now() < deadline) {
+		std::this_thread::sleep_for(10ms);
+	}
+
+	EXPECT_EQ(after_processed->load(std::memory_order_acquire), 0);
+}
+
 TEST_P(HttpConnectionAndErrorIntegrationTest, StopCalledFromIoWorkerThreadDoesNotDeadlock) {
 	auto stop_returned = std::make_shared<std::atomic<bool>>(false);
 	auto controller = std::make_shared<std::optional<warp::http::server::controller>>();

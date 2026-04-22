@@ -286,9 +286,11 @@ cmake --build build-test --target warp_http_unit_tests warp_http_integration_tes
 
 ## Example files
 
-- example YAML: [examples/codegen/users_api.yaml](warp/examples/codegen/users_api.yaml)
-- CLI example target source: [codegen_cli.cpp](warp/src/codegen/codegen_cli.cpp)
-- CMake helper module: [WarpCodegen.cmake](warp/cmake/WarpCodegen.cmake)
-- header generation example: [examples/codegen/generate_users_headers.cpp](warp/examples/codegen/generate_users_headers.cpp)
-- illustrative consumer flow: [examples/codegen/users_resource_example.cpp](warp/examples/codegen/users_resource_example.cpp)
-- runtime integration test: [generated_api_integration_test.cpp](warp/tests/integration/generated_api_integration_test.cpp)
+- example YAML: [examples/codegen/users_api.yaml](../examples/codegen/users_api.yaml)
+- CLI example target source: [codegen_cli.cpp](../src/codegen/codegen_cli.cpp)
+- CMake helper module: [WarpCodegen.cmake](../cmake/WarpCodegen.cmake)
+- illustrative consumer flow: [examples/codegen/users_resource_example.cpp](../examples/codegen/users_resource_example.cpp)
+- runtime integration tests:
+  [generated_api_integration_test.cpp](../tests/integration/generated_api_integration_test.cpp),
+  [generated_query_routing_integration_test.cpp](../tests/integration/generated_query_routing_integration_test.cpp),
+  [generated_singleton_required_query_integration_test.cpp](../tests/integration/generated_singleton_required_query_integration_test.cpp)

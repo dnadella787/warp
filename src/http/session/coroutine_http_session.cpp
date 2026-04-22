@@ -37,15 +37,14 @@ void coroutine_http_session::start() {
 
 boost::asio::awaitable<void> coroutine_http_session::read_loop() {
 	for (;;) {
-		// if any of these conditions are true, then suspend the read loop
-		// 1. socket shutdown
-		// 2. reading is ended b/c of client/server close semantic
-		// 3. pipeline is filled and we need to stop reading till the write loop can drain some out
+		// if we are still allowed to read but cannot because the pipeline is full, suspend
+		// 1. socket is NOT shutdown and
+		// 2. reading continues (no client or server side connection close established yet) and
+		// 3. write pipeline is full
 		while (!shutdown_started_ && !stop_reading_ && outstanding_requests_ >= pipeline_limit_)
 			co_await wait_for_read_ready();
 
-		// read loop un suspended but reading has to stop b/c of either shutdown
-		// or close semantic
+		// read loop either unsuspended, reading was stopped, or session is ending
 		if (shutdown_started_ || stop_reading_) {
 			// not reading anymore and no more requests to read out, just shutdown completely and exit
 			if (stop_reading_ && outstanding_requests_ == 0)
@@ -75,6 +74,14 @@ boost::asio::awaitable<void> coroutine_http_session::read_loop() {
 			util::fail(ec, COMPONENT, "read_loop");
 			co_return shutdown();
 		}
+
+		// async_read was canceled after it was started so just exit the read loop instead of letting the now invalid
+		// request have its mapped handler execute and potentially mutate data
+		// (resp 1 closes connection but async_read 2 already kicked off before req 1 handler returned resp 1)
+		// TODO: maybe cancel the outstanding async_read with a forceful shutdown so we can more aggressively shutdown
+		// TCP connections to accept more requests
+		if (shutdown_started_ || stop_reading_)
+			co_return parser_.reset();
 
 		request req {parser_->release()};
 		const auto sequence = next_request_sequence_++;
@@ -247,10 +254,12 @@ void coroutine_http_session::complete_request(std::size_t sequence, response res
 }
 
 void coroutine_http_session::shutdown() {
-	if (shutdown_started_) {
+	// shutdown already initiated
+	if (shutdown_started_)
 		return;
-	}
 	shutdown_started_ = true;
+	// if the read loop is waiting on write pipeline to be drained or there is already an async_read outstanding
+	// then we cancel it
 	read_signal_.cancel();
 	write_signal_.cancel();
 

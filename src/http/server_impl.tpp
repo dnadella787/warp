@@ -26,7 +26,7 @@ void server::server_impl<_>::run(bool blocking) {
 		}
 
 		state_ = lifecycle_state::starting;
-		io_ctx_.restart(); // this is a noop on the first try, otherwise it actually resets the io_ctx for reuse
+		io_ctx_.restart(); // this is a noop on the first try, otherwise it actually resets the io_ctx for reuse (resets `stopped` flag internally)
 		guard_.emplace(boost::asio::make_work_guard(io_ctx_));
 
 		try {
