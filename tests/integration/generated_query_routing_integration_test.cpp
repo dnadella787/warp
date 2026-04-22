@@ -95,16 +95,29 @@ private:
 	std::shared_ptr<query_route_observations> observations_;
 };
 
-class GeneratedQueryRoutingIntegrationTest : public ::testing::TestWithParam<event_loop_mode> {};
+template <typename ModeTag>
+class GeneratedQueryRoutingIntegrationTest : public ::testing::Test {};
 
-TEST_P(GeneratedQueryRoutingIntegrationTest, ResolvesOverlappingQueryRoutesBySpecificityAndFallback) {
+using EventLoopModes = ::testing::Types<support::event_loop_mode_tag<event_loop_mode::callbacks>,
+                                        support::event_loop_mode_tag<event_loop_mode::coroutines>>;
+
+struct EventLoopModeNames {
+	template <typename ModeTag>
+	static std::string GetName(int) {
+		return support::event_loop_mode_name(ModeTag::value);
+	}
+};
+
+TYPED_TEST_SUITE(GeneratedQueryRoutingIntegrationTest, EventLoopModes, EventLoopModeNames);
+
+TYPED_TEST(GeneratedQueryRoutingIntegrationTest, ResolvesOverlappingQueryRoutesBySpecificityAndFallback) {
 	auto observations = std::make_shared<query_route_observations>();
 	auto service = std::make_shared<generated_reports_resource>(observations);
 	generated::reports_api_routes<generated_reports_resource> routes(service);
 
 	std::optional<support::server_fixture> fixture;
 	try {
-		fixture.emplace(warp::http::server_builder().event_loop(GetParam()).register_resource(routes));
+		fixture.emplace(warp::http::server_builder().register_resource(routes), TypeParam {});
 	} catch (const std::exception &ex) {
 		if (std::string(ex.what()).find("Operation not permitted") != std::string::npos) {
 			GTEST_SKIP() << ex.what();
@@ -152,14 +165,14 @@ TEST_P(GeneratedQueryRoutingIntegrationTest, ResolvesOverlappingQueryRoutesBySpe
 	EXPECT_TRUE(support::read_until_eof(*client));
 }
 
-TEST_P(GeneratedQueryRoutingIntegrationTest, ReturnsBadRequestForDuplicateAndMalformedQueriesOnOverlappingRoutes) {
+TYPED_TEST(GeneratedQueryRoutingIntegrationTest, ReturnsBadRequestForDuplicateAndMalformedQueriesOnOverlappingRoutes) {
 	auto observations = std::make_shared<query_route_observations>();
 	auto service = std::make_shared<generated_reports_resource>(observations);
 	generated::reports_api_routes<generated_reports_resource> routes(service);
 
 	std::optional<support::server_fixture> fixture;
 	try {
-		fixture.emplace(warp::http::server_builder().event_loop(GetParam()).register_resource(routes));
+		fixture.emplace(warp::http::server_builder().register_resource(routes), TypeParam {});
 	} catch (const std::exception &ex) {
 		if (std::string(ex.what()).find("Operation not permitted") != std::string::npos) {
 			GTEST_SKIP() << ex.what();
@@ -187,14 +200,14 @@ TEST_P(GeneratedQueryRoutingIntegrationTest, ReturnsBadRequestForDuplicateAndMal
 	EXPECT_TRUE(support::read_until_eof(*client));
 }
 
-TEST_P(GeneratedQueryRoutingIntegrationTest, HandlesConcurrentClientsAcrossOverlappingQueryRoutes) {
+TYPED_TEST(GeneratedQueryRoutingIntegrationTest, HandlesConcurrentClientsAcrossOverlappingQueryRoutes) {
 	auto observations = std::make_shared<query_route_observations>();
 	auto service = std::make_shared<generated_reports_resource>(observations);
 	generated::reports_api_routes<generated_reports_resource> routes(service);
 
 	std::optional<support::server_fixture> fixture;
 	try {
-		fixture.emplace(warp::http::server_builder().event_loop(GetParam()).register_resource(routes));
+		fixture.emplace(warp::http::server_builder().register_resource(routes), TypeParam {});
 	} catch (const std::exception &ex) {
 		if (std::string(ex.what()).find("Operation not permitted") != std::string::npos) {
 			GTEST_SKIP() << ex.what();
@@ -239,11 +252,5 @@ TEST_P(GeneratedQueryRoutingIntegrationTest, HandlesConcurrentClientsAcrossOverl
 	EXPECT_EQ(std::string(fast_body.at("report_id").as_string()), "fast");
 	EXPECT_TRUE(fast_body.at("saw_slow_started").as_bool());
 }
-
-INSTANTIATE_TEST_SUITE_P(EventLoopModes, GeneratedQueryRoutingIntegrationTest,
-                         ::testing::Values(warp::event_loop_mode::callbacks, warp::event_loop_mode::coroutines),
-                         [](const ::testing::TestParamInfo<warp::event_loop_mode> &info) {
-	                         return support::event_loop_mode_name(info.param);
-                         });
 
 } // namespace warp::tests

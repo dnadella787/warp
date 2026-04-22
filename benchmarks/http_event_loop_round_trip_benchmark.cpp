@@ -24,22 +24,25 @@ const char *mode_benchmark_name(warp::event_loop_mode mode) {
 	return "BM_UnknownEventLoop_RoundTrip";
 }
 
-void register_round_trip_case(warp::event_loop_mode mode, std::size_t concurrency) {
+template <warp::event_loop_mode Mode>
+void register_round_trip_case(std::size_t concurrency) {
 	const auto options = load_test_options_for_concurrency(concurrency);
-	const auto name = std::string(mode_benchmark_name(mode)) + "/concurrency:" + std::to_string(concurrency);
-	benchmark::RegisterBenchmark(name,
-	                             [mode, options](benchmark::State &state) {
-		                             try {
-			                             server_fixture server(warp::http::server_builder().event_loop(mode).get(
-			                                 "/ping", [](const warp::request &) -> warp::response {
-				                                 return warp::response::ok(R"({"ok":true})");
-			                                 }));
-			                             state.SetLabel(format_load_test_configuration(options.client_threads));
-			                             run_load_test_benchmark(state, server.port, request_payload, options);
-		                             } catch (const std::exception &exception) {
-			                             state.SkipWithError(exception.what());
-		                             }
-	                             })
+	const auto name = std::string(mode_benchmark_name(Mode)) + "/concurrency:" + std::to_string(concurrency);
+	benchmark::RegisterBenchmark(
+	    name,
+	    [options](benchmark::State &state) {
+		    try {
+			    server_fixture server(warp::http::server_builder().get("/ping",
+			                                                           [](const warp::request &) -> warp::response {
+				                                                           return warp::response::ok(R"({"ok":true})");
+			                                                           }),
+			                          event_loop_mode_tag<Mode> {});
+			    state.SetLabel(format_load_test_configuration(options.client_threads));
+			    run_load_test_benchmark(state, server.port, request_payload, options);
+		    } catch (const std::exception &exception) {
+			    state.SkipWithError(exception.what());
+		    }
+	    })
 	    ->Iterations(1)
 	    ->UseManualTime()
 	    ->Unit(benchmark::kMillisecond);
@@ -49,8 +52,8 @@ void register_round_trip_case(warp::event_loop_mode mode, std::size_t concurrenc
 
 void register_round_trip_benchmarks() {
 	for (const auto concurrency : benchmark_concurrency_levels()) {
-		register_round_trip_case(warp::event_loop_mode::callbacks, concurrency);
-		register_round_trip_case(warp::event_loop_mode::coroutines, concurrency);
+		register_round_trip_case<warp::event_loop_mode::callbacks>(concurrency);
+		register_round_trip_case<warp::event_loop_mode::coroutines>(concurrency);
 	}
 }
 

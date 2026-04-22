@@ -923,8 +923,7 @@ void process_resource_tracker::record(benchmark::State &state, std::uint64_t req
 }
 
 server_fixture::server_fixture(warp::http::server_builder builder)
-    : port(reserve_port()), server(builder.address("127.0.0.1").port(port).worker_threads(4).build()) {
-	server.run(false);
+    : server_fixture(std::move(builder), event_loop_mode_tag<warp::http::event_loop_mode::callbacks> {}) {
 }
 
 server_fixture::~server_fixture() {

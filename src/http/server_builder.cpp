@@ -24,11 +24,6 @@ server_builder &server_builder::worker_threads(std::size_t count) {
 	return *this;
 }
 
-server_builder &server_builder::event_loop(event_loop_mode mode) {
-	event_loop_mode_ = mode;
-	return *this;
-}
-
 server_builder &server_builder::route(method verb, std::string path, handler handler) {
 	routes_.push_back(route_definition {.verb = verb, .path = std::move(path), .callback = std::move(handler)});
 	return *this;
@@ -39,15 +34,9 @@ server_builder &server_builder::route(compiled_route route, handler handler) {
 	return *this;
 }
 
+template <event_loop_mode Mode>
 server server_builder::build() const {
-	switch (event_loop_mode_) {
-	case event_loop_mode::callbacks:
-		return make_server<event_loop_mode::callbacks>();
-	case event_loop_mode::coroutines:
-		return make_server<event_loop_mode::coroutines>();
-	default:
-		throw std::runtime_error("Invalid event loop mode");
-	}
+	return make_server<Mode>();
 }
 
 template <event_loop_mode Mode>
@@ -67,5 +56,8 @@ template <event_loop_mode Mode>
 	}
 	return std::make_shared<server::server_impl<Mode>>(address_, port_, workers_, std::move(registry));
 }
+
+template server server_builder::build<event_loop_mode::callbacks>() const;
+template server server_builder::build<event_loop_mode::coroutines>() const;
 
 } // namespace warp::http

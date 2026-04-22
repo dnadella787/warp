@@ -3,3 +3,5 @@ build
 cmake-build*
 .vscode
 build**
+AGENTS.md
+.agents/

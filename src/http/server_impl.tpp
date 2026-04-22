@@ -27,7 +27,7 @@ void server::server_impl<_>::run(bool blocking) {
 
 		state_ = lifecycle_state::starting;
 		io_ctx_.restart(); // this is a noop on the first try, otherwise it actually resets the io_ctx for reuse (resets `stopped` flag internally)
-		guard_.emplace(boost::asio::make_work_guard(io_ctx_));
+		guard_.emplace(boost::asio::make_work_guard(io_ctx_)); // create a new guard each time you start the server
 
 		try {
 			start_runner_threads();
@@ -38,23 +38,40 @@ void server::server_impl<_>::run(bool blocking) {
 			stopping_thread_id_ = std::this_thread::get_id();
 			threads_to_join = stop_io_ctx();
 			lock.unlock();
+			/*
+			 * join() can block for a while so we unlock the mutex. Otherwise, if you keep lifecycle_mutex_ held
+			 * during the entire join, every concurrent stop() call blocks at the mutex instead of seeing state_
+			 * == stopping and waiting cleanly on lifecycle_cv_.
+			 *
+	   		 * Also prevents deadlock if a worker thread being joined tries to call stop(). That worker would try
+	   		 * to acquire lifecycle_mutex_ in stop(), but this thread is holding the mutex but is also waiting
+	   		 * for that worker to finish during the join().
+	   		 *
+	   		 * Honestly user should not be doing this but if they decide to put server->stop() within a request handler
+	   		 * or resource destructor somehow I guess this protects them
+	   		 *
+			 * we need to reacquire the lock afterwards to complete the state transition
+			 */
 			join_runner_threads(std::move(threads_to_join), std::this_thread::get_id());
 			lock.lock();
 			state_ = lifecycle_state::stopped;
 			stopping_thread_id_.reset();
 			lock.unlock();
+			// unlock then notify waiters so that they do not go wake up see the mutex is still held and
+			// just go back to sleep until their next spurious wakeup at which point they recheck the
+			// state and exit
 			lifecycle_cv_.notify_all();
 			throw;
 		}
 	}
 
-	if (!blocking) {
+	if (!blocking)
 		return;
-	}
 
 	try {
 		io_ctx_.run();
 	} catch (...) {
+		std::cerr << "Error in io_context::run() on main blocking thread for server_imp::start(), stopping server." << std::endl;
 		stop();
 		throw;
 	}
@@ -139,8 +156,9 @@ template <event_loop_mode Mode>
 void server::server_impl<Mode>::join_runner_threads(std::vector<std::thread> threads, std::thread::id current_thread_id) {
 	for (auto &t : threads) {
 		if (t.joinable()) {
+			// t.join on itself would mean thread is waiting for itself to exit which can never happen...
 			if (t.get_id() == current_thread_id) {
-				t.detach();
+				t.detach(); // so we detach the thread and let it terminate itself (io_ctx.stop() called already and work guard removed)
 				continue;
 			}
 			t.join();

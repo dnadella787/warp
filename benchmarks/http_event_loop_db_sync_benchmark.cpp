@@ -35,12 +35,13 @@ const char *mode_benchmark_name(event_loop_mode mode) {
 	return "BM_UnknownEventLoop_SyncDbRoundTrip";
 }
 
-void register_sync_db_round_trip_case(event_loop_mode mode, std::size_t concurrency) {
+template <event_loop_mode Mode>
+void register_sync_db_round_trip_case(std::size_t concurrency) {
 	const auto options = load_test_options_for_concurrency(concurrency);
-	const auto name = std::string(mode_benchmark_name(mode)) + "/concurrency:" + std::to_string(concurrency);
+	const auto name = std::string(mode_benchmark_name(Mode)) + "/concurrency:" + std::to_string(concurrency);
 	benchmark::RegisterBenchmark(
 	    name,
-	    [mode, options](benchmark::State &state) {
+	    [options](benchmark::State &state) {
 		    auto env = load_db_env();
 		    if (!env) {
 			    state.SkipWithError("WARP_DB_USER / WARP_DB_PASSWORD / WARP_DB_NAME must be set for DB benchmark");
@@ -51,17 +52,20 @@ void register_sync_db_round_trip_case(event_loop_mode mode, std::size_t concurre
 			    auto db_pool = std::make_shared<db::postgres::connection_pool>(asio::system_executor {},
 			                                                                   make_db_config(*env), 4, 2);
 			    server_fixture server(
-			        http::server_builder().event_loop(mode).get("/db/exchanges/nyse", [db_pool](request) -> response {
-				        auto result = db_pool->sync_query(
-				            "SELECT exchange_code, exchange_name FROM exchanges WHERE exchange_code = 'NYSE' LIMIT 1");
-				        if (result.rows() == 0)
-					        response::not_found("No exchange with code=NYSE found");
+			        http::server_builder().get(
+			            "/db/exchanges/nyse",
+			            [db_pool](request) -> response {
+				            auto result = db_pool->sync_query("SELECT exchange_code, exchange_name FROM exchanges "
+				                                              "WHERE exchange_code = 'NYSE' LIMIT 1");
+				            if (result.rows() == 0)
+					            response::not_found("No exchange with code=NYSE found");
 
-				        return response::ok(body_builder()
-				                                .set("exchange_code", std::string(result.value(0, 0)))
-				                                .set("exchange_name", std::string(result.value(0, 1)))
-				                                .build());
-			        }));
+				            return response::ok(body_builder()
+				                                    .set("exchange_code", std::string(result.value(0, 0)))
+				                                    .set("exchange_name", std::string(result.value(0, 1)))
+				                                    .build());
+			            }),
+			        event_loop_mode_tag<Mode> {});
 			    state.SetLabel(format_load_test_configuration(options.client_threads));
 			    run_load_test_benchmark(state, server.port, request_payload, options);
 			    db_pool->close();
@@ -78,8 +82,8 @@ void register_sync_db_round_trip_case(event_loop_mode mode, std::size_t concurre
 
 void register_sync_db_round_trip_benchmarks() {
 	for (const auto concurrency : benchmark_concurrency_levels()) {
-		register_sync_db_round_trip_case(event_loop_mode::callbacks, concurrency);
-		register_sync_db_round_trip_case(event_loop_mode::coroutines, concurrency);
+		register_sync_db_round_trip_case<event_loop_mode::callbacks>(concurrency);
+		register_sync_db_round_trip_case<event_loop_mode::coroutines>(concurrency);
 	}
 }
 

@@ -103,7 +103,6 @@ public:
 	server_builder &address(std::string address);
 	server_builder &port(std::uint16_t port);
 	server_builder &worker_threads(std::size_t count);
-	server_builder &event_loop(event_loop_mode mode);
 
 	template <resource_registrable Resource>
 	server_builder &register_resource(Resource &&resource) {
@@ -205,6 +204,8 @@ public:
 		return route<method::delete_, Path, QueryConstraints...>(std::forward<H>(handler));
 	}
 
+	// default mode is callback
+	template <event_loop_mode Mode = event_loop_mode::callbacks>
 	[[nodiscard]] server build() const;
 
 private:
@@ -248,7 +249,6 @@ private:
 	std::string address_ {"0.0.0.0"};
 	std::uint16_t port_ {8080};
 	std::size_t workers_ {1};
-	event_loop_mode event_loop_mode_ {event_loop_mode::callbacks};
 	std::vector<route_definition> routes_;
 };
 

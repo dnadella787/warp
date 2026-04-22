@@ -37,16 +37,29 @@ private:
 	std::atomic<int> handler_calls_ {0};
 };
 
-class GeneratedSingletonRequiredQueryIntegrationTest : public ::testing::TestWithParam<event_loop_mode> {};
+template <typename ModeTag>
+class GeneratedSingletonRequiredQueryIntegrationTest : public ::testing::Test {};
 
-TEST_P(GeneratedSingletonRequiredQueryIntegrationTest,
-       MissingRequiredQueryReturnsBadRequestInsteadOfNotFoundForSingletonEndpoint) {
+using EventLoopModes = ::testing::Types<support::event_loop_mode_tag<event_loop_mode::callbacks>,
+                                        support::event_loop_mode_tag<event_loop_mode::coroutines>>;
+
+struct EventLoopModeNames {
+	template <typename ModeTag>
+	static std::string GetName(int) {
+		return support::event_loop_mode_name(ModeTag::value);
+	}
+};
+
+TYPED_TEST_SUITE(GeneratedSingletonRequiredQueryIntegrationTest, EventLoopModes, EventLoopModeNames);
+
+TYPED_TEST(GeneratedSingletonRequiredQueryIntegrationTest,
+           MissingRequiredQueryReturnsBadRequestInsteadOfNotFoundForSingletonEndpoint) {
 	auto service = std::make_shared<generated_singleton_required_query_resource>();
 	generated::reports_api_routes<generated_singleton_required_query_resource> routes(service);
 
 	std::optional<support::server_fixture> fixture;
 	try {
-		fixture.emplace(warp::http::server_builder().event_loop(GetParam()).register_resource(routes));
+		fixture.emplace(warp::http::server_builder().register_resource(routes), TypeParam {});
 	} catch (const std::exception &ex) {
 		if (std::string(ex.what()).find("Operation not permitted") != std::string::npos) {
 			GTEST_SKIP() << ex.what();
@@ -74,11 +87,5 @@ TEST_P(GeneratedSingletonRequiredQueryIntegrationTest,
 	EXPECT_EQ(service->handler_calls(), 1);
 	EXPECT_TRUE(support::read_until_eof(*client));
 }
-
-INSTANTIATE_TEST_SUITE_P(EventLoopModes, GeneratedSingletonRequiredQueryIntegrationTest,
-                         ::testing::Values(warp::event_loop_mode::callbacks, warp::event_loop_mode::coroutines),
-                         [](const ::testing::TestParamInfo<warp::event_loop_mode> &info) {
-	                         return support::event_loop_mode_name(info.param);
-                         });
 
 } // namespace warp::tests

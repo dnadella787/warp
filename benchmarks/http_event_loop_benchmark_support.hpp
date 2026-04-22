@@ -2,6 +2,7 @@
 
 #include "warp/db/postgres/connection_config.hpp"
 #include "warp/http/server.hpp"
+#include "warp/http/server_builder.hpp"
 
 #include <benchmark/benchmark.h>
 
@@ -16,6 +17,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 namespace warp::benchmarks {
@@ -93,6 +95,15 @@ struct load_test_metrics {
 
 struct server_fixture {
 	explicit server_fixture(warp::http::server_builder builder);
+
+	template <warp::http::event_loop_mode Mode>
+	explicit server_fixture(warp::http::server_builder builder,
+	                        std::integral_constant<warp::http::event_loop_mode, Mode>)
+	    : port(reserve_port()),
+	      server(builder.address("127.0.0.1").port(port).worker_threads(4).template build<Mode>()) {
+		server.run(false);
+	}
+
 	~server_fixture();
 
 	std::uint16_t port;
@@ -101,6 +112,9 @@ struct server_fixture {
 private:
 	static std::uint16_t reserve_port();
 };
+
+template <warp::http::event_loop_mode Mode>
+using event_loop_mode_tag = std::integral_constant<warp::http::event_loop_mode, Mode>;
 
 struct client_connection {
 	asio::io_context ioc;

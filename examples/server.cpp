@@ -43,7 +43,6 @@ int main() {
 	        .address("127.0.0.1")
 	        .worker_threads(4)
 	        .port(8080)
-	        .event_loop(warp::event_loop_mode::coroutines)
 	        .get("/hello/{name}",
 	             [](const warp::request &req) -> warp::http::response {
 		             auto name = req.path_param("name").value_or("world");
@@ -81,7 +80,7 @@ int main() {
 		            }
 		            co_return warp::response::ok(warp::body_builder().set("exchange_name", result.value(0, 1)).build());
 	            })
-	        .build();
+	        .build<warp::event_loop_mode::coroutines>();
 	std::cout << "Warp example server running on http://127.0.0.1:8080" << std::endl;
 	std::cout << "Set WARP_DB_USER / WARP_DB_PASSWORD / WARP_DB_NAME to try GET /db/{id}" << std::endl;
 	server.run();

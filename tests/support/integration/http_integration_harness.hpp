@@ -14,8 +14,10 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <type_traits>
 
 #include "warp/warp.hpp"
+#include "warp/http/server_builder.hpp"
 
 namespace warp::tests::integration_support {
 
@@ -27,6 +29,14 @@ using http_response = http::response<http::string_body>;
 
 struct server_fixture {
 	explicit server_fixture(warp::http::server_builder builder);
+
+	template <event_loop_mode Mode>
+	explicit server_fixture(warp::http::server_builder builder, std::integral_constant<event_loop_mode, Mode>)
+	    : port(reserve_port()),
+	      server(builder.address("127.0.0.1").port(port).worker_threads(4).template build<Mode>()) {
+		server.run(false);
+	}
+
 	~server_fixture();
 
 	std::uint16_t port;
@@ -35,6 +45,9 @@ struct server_fixture {
 private:
 	static std::uint16_t reserve_port();
 };
+
+template <event_loop_mode Mode>
+using event_loop_mode_tag = std::integral_constant<event_loop_mode, Mode>;
 
 struct client_connection {
 	asio::io_context ioc;
