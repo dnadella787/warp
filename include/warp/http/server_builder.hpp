@@ -104,6 +104,14 @@ public:
 	server_builder &port(std::uint16_t port);
 	server_builder &worker_threads(std::size_t count);
 
+	/*
+	 * Reference collapsing rules:
+	 *
+	 * T&  &  -> T&
+	 * T&  && -> T&
+	 * T&& &  -> T&
+	 * T&& && -> T&&
+	 */
 	template <resource_registrable Resource>
 	server_builder &register_resource(Resource &&resource) {
 		std::forward<Resource>(resource).register_routes(*this);

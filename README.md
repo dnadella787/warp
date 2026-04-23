@@ -2,6 +2,8 @@
 
 Warp is a C++20 HTTP framework built on Boost.Beast, Asio, and Boost.JSON.
 
+Warp is licensed under the [MIT License](LICENSE).
+
 The current tree includes:
 
 - an HTTP server builder with sync and coroutine route handlers
