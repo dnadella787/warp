@@ -9,6 +9,10 @@ namespace warp::http {
 class server_builder;
 
 class server {
+	// We use impl_base because server_impl is a template class whose full type is not
+	// known at compile time since server is not template based. We have no way to store
+	// std::shared_ptr<server_impl<Mode>> since Mode is unknown here so we use type
+	// erasure via impl_base to store the actual internal impl obj
 	struct impl_base {
 		virtual ~impl_base() = default;
 		virtual void run(bool blocking) = 0;

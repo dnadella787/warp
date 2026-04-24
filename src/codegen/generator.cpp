@@ -1,7 +1,5 @@
 #include "warp/codegen/generator.hpp"
 
-#include <utility>
-
 namespace warp::codegen {
 
 generated_api_stub api_stub_generator::generate(const spec_ast &spec, const api_stub_generator_options &options) const {

@@ -93,10 +93,6 @@ namespace detail {
 } // namespace detail
 
 class server_builder {
-private:
-	server_builder &route(method verb, std::string path, handler handler);
-	server_builder &route(compiled_route route, handler handler);
-
 public:
 	server_builder() = default;
 
@@ -105,12 +101,15 @@ public:
 	server_builder &worker_threads(std::size_t count);
 
 	/*
-	 * Reference collapsing rules:
+	 * `register_resource` accepts lvalue
 	 *
-	 * T&  &  -> T&
-	 * T&  && -> T&
-	 * T&& &  -> T&
-	 * T&& && -> T&&
+	 * Foo f;
+	 * server_builder().register_resource(f);
+	 *
+	 * template deduction for forwarding ref gives `Resource = Foo&`
+	 * so the parameter type `Resource&&` collapses to `Foo&`
+	 *
+	 * Foo& &&foo -> Foo &foo from reference collapse (T& && -> T&, T& & -> T&)
 	 */
 	template <resource_registrable Resource>
 	server_builder &register_resource(Resource &&resource) {
@@ -118,15 +117,38 @@ public:
 		return *this;
 	}
 
+	/*
+	 * rvalues are rejected by the deleted overload below. That prevents
+	 * registering a temporary resource whose lifetime could end while
+	 * stored route handlers still refer to it. Imagine a scenario where a resource
+	 * class register_routes method has methods that refer to member variables. If
+	 * you call:
+	 *
+	 * server_builder().register_resource(Foo {});
+	 *
+	 * then those references within the lambdas become dead pointers. E.g.
+	 *
+	 * struct Foo {
+	 *    int state = 42;
+	 *
+	 *	  void register_routes(server_builder& b) {
+	 *		  b.get("/x", [this](request) { // this is gone after register_resources(Foo {}) completes
+	 *			  return response::ok(std::to_string(state));
+	 *		  });
+	 *	  }
+	 *  };
+	 */
 	template <typename Resource>
 	    requires(!std::is_lvalue_reference_v<Resource &&>)
 	server_builder &register_resource(Resource &&) = delete;
 
+	// Runtime routes meaning the validations are not compile time for things like Path
 	template <route_handler H>
 	server_builder &route(method verb, std::string path, H &&handler) {
 		return route_runtime(verb, std::move(path), make_route_handler(std::forward<H>(handler)));
 	}
 
+	// compile time route
 	template <fixed_string Path, route_handler H>
 	server_builder &route(method verb, route_path<Path>, H &&handler) {
 		return route(verb, std::string(route_path<Path>::view()), std::forward<H>(handler));
@@ -217,6 +239,9 @@ public:
 	[[nodiscard]] server build() const;
 
 private:
+	server_builder &route(method verb, std::string path, handler handler);
+	server_builder &route(compiled_route route, handler handler);
+
 	server_builder &route_runtime(method verb, std::string path, handler callback) {
 		return route(verb, std::move(path), std::move(callback));
 	}

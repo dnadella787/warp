@@ -1,6 +1,5 @@
 #include "warp/codegen/generator.hpp"
 
-#include <cstdlib>
 #include <chrono>
 #include <filesystem>
 #include <fstream>

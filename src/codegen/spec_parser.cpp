@@ -1,7 +1,6 @@
 #include "warp/codegen/spec_parser.hpp"
 
 #include <algorithm>
-#include <cctype>
 #include <fstream>
 #include <initializer_list>
 #include <sstream>

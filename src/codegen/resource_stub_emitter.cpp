@@ -1,6 +1,5 @@
 #include "warp/codegen/resource_stub_emitter.hpp"
 
-#include <algorithm>
 #include <optional>
 #include <stdexcept>
 #include <string>

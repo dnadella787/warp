@@ -4,7 +4,6 @@
 #include <memory>
 
 #include "server_impl.hpp"
-#include <boost/json/src.hpp>
 
 namespace warp::http {
 

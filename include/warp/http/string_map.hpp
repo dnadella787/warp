@@ -40,6 +40,21 @@ struct transparent_string_equal {
 	}
 };
 
+/*
+ * helper class that allows hashing + comparison of both std::string and std::string_view
+ * otherwise you would have to do m.find(std::string{"test"}). This is useful for reducing allocations
+ * on request param lookups.
+ *
+ * transparent_string_hash provides a way to hash both strings and string_view
+ *
+ * transparent_string_equal provides a way to compare both strings and string_views by giving
+ * allocation free comparisons for:
+ *
+ * std::string == std::string
+ * std::string_view == std::string_view
+ * std::string == std::string_view
+ * std::string_view == std::string
+ */
 template <typename T>
 using transparent_string_map = std::unordered_map<std::string, T, transparent_string_hash, transparent_string_equal>;
 

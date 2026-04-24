@@ -44,6 +44,9 @@ template <event_loop_mode Mode>
 	return server {make_impl<Mode>()};
 }
 
+template server server_builder::build<event_loop_mode::callbacks>() const;
+template server server_builder::build<event_loop_mode::coroutines>() const;
+
 template <event_loop_mode Mode>
 [[nodiscard]] std::shared_ptr<server::impl_base> server_builder::make_impl() const {
 	registry registry;
@@ -56,8 +59,5 @@ template <event_loop_mode Mode>
 	}
 	return std::make_shared<server::server_impl<Mode>>(address_, port_, workers_, std::move(registry));
 }
-
-template server server_builder::build<event_loop_mode::callbacks>() const;
-template server server_builder::build<event_loop_mode::coroutines>() const;
 
 } // namespace warp::http

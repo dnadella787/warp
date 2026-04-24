@@ -6,7 +6,6 @@
 
 #include <boost/json/object.hpp>
 #include <boost/json/serialize.hpp>
-#include <boost/json/value.hpp>
 #include <boost/json/value_from.hpp>
 
 namespace warp::http {

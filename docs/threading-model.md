@@ -147,8 +147,8 @@ The result is that a route which reaches `co_await db_pool->query(...)` does not
 - slow CPU-bound work still occupies an HTTP executor thread until it completes
 - coroutine handlers improve utilization when they suspend on I/O
 - different client connections can make progress concurrently on different worker threads
-- socket I/O is still serialized per connection because each session runs on its own strand
+- socket I/O is still serialized per connection because each session runs on its own strand (request handling is not necessarily though)
 - callback mode is currently the lower-overhead default for raw event-loop latency
-- coroutine mode remains useful when you want the server internals themselves to use coroutine control flow
+- coroutine mode with async handlers remains useful when you may have async execution handlers (lots of DB queries for ex) and also allows the event loop to continue blocking on the request handler completing. Memory consumption per session grows because you start storing state for multiple requests at the same time but in exchange you get higher throughput.  
 
 For measured callback-vs-coroutine event-loop overhead, see [benchmarking.md](benchmarking.md).
