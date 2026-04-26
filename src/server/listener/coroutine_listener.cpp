@@ -9,7 +9,7 @@
 #include "../../common/util/fail.h"
 #include "../session/coroutine_http_session.hpp"
 
-namespace warp::http {
+namespace warp::server {
 
 coroutine_listener::coroutine_listener(boost::asio::io_context &ioc, registry &registry, const std::string &address,
                                        const unsigned short port)
@@ -47,4 +47,4 @@ boost::asio::awaitable<void> coroutine_listener::accept_loop() {
 	}
 }
 
-} // namespace warp::http
+} // namespace warp::server

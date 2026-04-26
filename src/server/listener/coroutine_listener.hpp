@@ -6,7 +6,7 @@
 #include "http_listener.h"
 #include "../router/registry.hpp"
 
-namespace warp::http {
+namespace warp::server {
 
 class coroutine_listener final : public http_listener<coroutine_listener>,
                                  public std::enable_shared_from_this<coroutine_listener> {
@@ -22,4 +22,4 @@ private:
 	static constexpr std::string_view COMPONENT {"coroutine_listener"};
 };
 
-} // namespace warp::http
+} // namespace warp::server

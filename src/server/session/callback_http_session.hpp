@@ -13,7 +13,7 @@
 #include "../router/registry.hpp"
 #include "warp/warp.hpp"
 
-namespace warp::http {
+namespace warp::server {
 
 class callback_http_session : public std::enable_shared_from_this<callback_http_session> {
 public:
@@ -54,4 +54,4 @@ private:
 	static constexpr std::string_view COMPONENT {"http_session"};
 };
 
-} // namespace warp::http
+} // namespace warp::server

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "warp/http/server.hpp"
+#include "warp/server/server.hpp"
 
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/io_context.hpp>
@@ -17,7 +17,7 @@
 #include <type_traits>
 
 #include "warp/warp.hpp"
-#include "warp/http/server_builder.hpp"
+#include "warp/server/server_builder.hpp"
 
 namespace warp::tests::integration_support {
 
@@ -28,10 +28,10 @@ using tcp = asio::ip::tcp;
 using http_response = http::response<http::string_body>;
 
 struct server_fixture {
-	explicit server_fixture(warp::http::server_builder builder);
+	explicit server_fixture(warp::server::server_builder builder);
 
 	template <event_loop_mode Mode>
-	explicit server_fixture(warp::http::server_builder builder, std::integral_constant<event_loop_mode, Mode>)
+	explicit server_fixture(warp::server::server_builder builder, std::integral_constant<event_loop_mode, Mode>)
 	    : port(reserve_port()),
 	      server(builder.address("127.0.0.1").port(port).worker_threads(4).template build<Mode>()) {
 		server.run(false);
@@ -40,7 +40,7 @@ struct server_fixture {
 	~server_fixture();
 
 	std::uint16_t port;
-	warp::http::server server;
+	warp::server::server server;
 
 private:
 	static std::uint16_t reserve_port();

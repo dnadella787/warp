@@ -2,11 +2,11 @@
 // Created by Dhanush Nadella on 4/5/26.
 //
 #include "http_listener.h"
+
 #include "../../common/util/fail.h"
-#include "boost/asio/strand.hpp"
+#include <boost/asio/strand.hpp>
 
-
-namespace warp::http {
+namespace warp::server {
 
 template <typename T>
 http_listener<T>::http_listener(boost::asio::io_context &ioc, registry &registry, const std::string &address,
@@ -41,4 +41,4 @@ template <typename  T>
 void http_listener<T>::run() {
     static_cast<T*>(this)->execute();
 }
-}
+} // namespace warp::server

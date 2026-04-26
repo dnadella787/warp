@@ -14,7 +14,7 @@
 
 #include "gmock/gmock-matchers.h"
 #include "warp/warp.hpp"
-#include "warp/http/server_builder.hpp"
+#include "warp/server/server_builder.hpp"
 
 namespace warp::tests {
 
@@ -44,7 +44,7 @@ TYPED_TEST(HttpConnectionAndErrorIntegrationTest, ConnectionCloseStopsFollowingP
 	auto after_processed = std::make_shared<std::atomic<int>>(0);
 
 	support::server_fixture fixture(
-	    warp::http::server_builder()
+	    warp::server::server_builder()
 	        .get("/close",
 	             [](const request &) -> response { return response::ok(body_builder().set("route", "close").build()); })
 	        .get("/after",
@@ -72,7 +72,7 @@ TYPED_TEST(HttpConnectionAndErrorIntegrationTest, ThrowingHandlerReturnsErrorAnd
 	auto throw_started = std::make_shared<std::atomic<bool>>(false);
 
 	support::server_fixture fixture(
-	    warp::http::server_builder()
+	    warp::server::server_builder()
 	        .get("/throw",
 	             [throw_started](request) -> awaitable<response> {
 		             throw_started->store(true, std::memory_order_release);
@@ -110,7 +110,7 @@ TYPED_TEST(HttpConnectionAndErrorIntegrationTest, MissingRouteResponseStillKeeps
 	auto fast_finished = std::make_shared<std::atomic<bool>>(false);
 
 	support::server_fixture fixture(
-	    warp::http::server_builder()
+	    warp::server::server_builder()
 	        .get("/slow",
 	             [fast_finished](request) -> awaitable<response> {
 		             co_return co_await support::delayed_ok_response(150ms, [fast_finished]() {
@@ -152,7 +152,7 @@ TYPED_TEST(HttpConnectionAndErrorIntegrationTest, MissingRouteResponseStillKeeps
 
 TYPED_TEST(HttpConnectionAndErrorIntegrationTest, ConnectionClosedServerSideShouldNotContinue) {
 	auto after_processed = std::make_shared<std::atomic<int>>(0);
-	support::server_fixture fixture(warp::http::server_builder()
+	support::server_fixture fixture(warp::server::server_builder()
 	                                    .get("/close",
 	                                         [](const request &) -> response {
 		                                         auto resp = response::ok(body_builder().set("route", "close").build());
@@ -183,7 +183,7 @@ TYPED_TEST(HttpConnectionAndErrorIntegrationTest, ConnectionClosedServerSideShou
 
 TYPED_TEST(HttpConnectionAndErrorIntegrationTest, AsyncCloseRequestBlocksFasterSyncRequestsAfter) {
 	auto after_processed = std::make_shared<std::atomic<int>>(0);
-	support::server_fixture fixture(warp::http::server_builder()
+	support::server_fixture fixture(warp::server::server_builder()
 	                                    .get("/close",
 	                                         [](const request &) -> awaitable<response> {
 		                                         auto response = co_await support::delayed_ok_response(100ms, []() {
@@ -218,7 +218,7 @@ TYPED_TEST(HttpConnectionAndErrorIntegrationTest,
            CoroutineServerSideCloseLeavesOutstandingReadThatConsumesLateRequest) {
 	auto after_processed = std::make_shared<std::atomic<int>>(0);
 
-	support::server_fixture fixture(warp::http::server_builder()
+	support::server_fixture fixture(warp::server::server_builder()
 	                                    .get("/close",
 	                                         [](const request &) -> awaitable<response> {
 		                                         auto response = co_await support::delayed_ok_response(100ms, []() {
@@ -258,15 +258,15 @@ TYPED_TEST(HttpConnectionAndErrorIntegrationTest,
 
 TYPED_TEST(HttpConnectionAndErrorIntegrationTest, StopCalledFromIoWorkerThreadDoesNotDeadlock) {
 	auto stop_returned = std::make_shared<std::atomic<bool>>(false);
-	auto controller = std::make_shared<std::optional<warp::http::server::controller>>();
+	auto controller = std::make_shared<std::optional<warp::server::server::controller>>();
 
 	support::server_fixture fixture(
-	    warp::http::server_builder().get("/stop",
-	                                     [controller, stop_returned](const request &) -> response {
-		                                     controller->value().stop();
-		                                     stop_returned->store(true, std::memory_order_release);
-		                                     return response::ok(body_builder().set("route", "stop").build());
-	                                     }),
+	    warp::server::server_builder().get("/stop",
+	                                       [controller, stop_returned](const request &) -> response {
+		                                       controller->value().stop();
+		                                       stop_returned->store(true, std::memory_order_release);
+		                                       return response::ok(body_builder().set("route", "stop").build());
+	                                       }),
 	    TypeParam {});
 	*controller = fixture.server.get_controller();
 
@@ -284,7 +284,7 @@ TYPED_TEST(HttpConnectionAndErrorIntegrationTest, StopCalledFromIoWorkerThreadDo
 // Uncomment once uncaught exception handling is configurable
 // TEST_P(HttpConnectionAndErrorIntegrationTest, UncaughtExceptionShouldCauseConnectionClosedServerSide) {
 // 	support::server_fixture fixture(
-// 		warp::http::server_builder()
+// 		warp::server::server_builder()
 // 			.event_loop(event_loop_mode::callbacks)
 // 			.get("/close",
 // 				 [](const request &) -> response {

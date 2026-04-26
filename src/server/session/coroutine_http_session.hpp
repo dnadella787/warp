@@ -14,7 +14,7 @@
 #include "../router/registry.hpp"
 #include "warp/warp.hpp"
 
-namespace warp::http {
+namespace warp::server {
 
 class coroutine_http_session : public std::enable_shared_from_this<coroutine_http_session> {
 public:
@@ -27,11 +27,11 @@ private:
 	boost::asio::awaitable<void> write_loop();
 	boost::asio::awaitable<void> wait_for_read_ready();
 	boost::asio::awaitable<void> wait_for_write_ready();
-	void execute_sync_handler(std::size_t sequence, const sync_handler &handler, request req);
+	void execute_sync_handler(std::size_t sequence, const http::sync_handler &handler, http::request req);
 	static boost::asio::awaitable<void> execute_async_handler(std::shared_ptr<coroutine_http_session> self,
-	                                                          std::size_t sequence, const async_handler &handler,
-	                                                          request req);
-	void complete_request(std::size_t sequence, response response);
+	                                                          std::size_t sequence, const http::async_handler &handler,
+	                                                          http::request req);
+	void complete_request(std::size_t sequence, http::response response);
 	void notify_read_loop();
 	void notify_write_loop();
 	void finish_request(std::size_t sequence);
@@ -56,4 +56,4 @@ private:
 	static constexpr std::string_view COMPONENT {"coroutine_http_session"};
 };
 
-} // namespace warp::http
+} // namespace warp::server

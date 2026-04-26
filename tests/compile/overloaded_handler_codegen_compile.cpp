@@ -5,7 +5,7 @@
 #include <type_traits>
 #include <utility>
 
-#include "warp/http/server_builder.hpp"
+#include "warp/server/server_builder.hpp"
 
 namespace generated = generated_overloaded_handler_api;
 
@@ -115,16 +115,17 @@ private:
 };
 
 template <typename Service>
-concept generated_routes_registrable = requires(std::shared_ptr<Service> service, warp::http::server_builder &builder) {
-	{ generated::users_api_routes<Service> {service} };
-	{ generated::admin_api_routes<Service> {service} };
-	{ generated::users_api_routes<Service> {service}.register_routes(builder) } -> std::same_as<void>;
-	{ generated::admin_api_routes<Service> {service}.register_routes(builder) } -> std::same_as<void>;
-};
+concept generated_routes_registrable =
+    requires(std::shared_ptr<Service> service, warp::server::server_builder &builder) {
+	    { generated::users_api_routes<Service> {service} };
+	    { generated::admin_api_routes<Service> {service} };
+	    { generated::users_api_routes<Service> {service}.register_routes(builder) } -> std::same_as<void>;
+	    { generated::admin_api_routes<Service> {service}.register_routes(builder) } -> std::same_as<void>;
+    };
 
 template <typename Service>
 concept generated_resources_registrable =
-    requires(warp::http::server_builder &builder, generated::users_api_routes<Service> &users,
+    requires(warp::server::server_builder &builder, generated::users_api_routes<Service> &users,
              generated::admin_api_routes<Service> &admin) {
 	    { warp::codegen::register_resources(builder, users, admin) } -> std::same_as<void>;
     };
@@ -147,24 +148,24 @@ auto bind_admin_health_handler(std::shared_ptr<Service> service) {
 
 static_assert(generated_routes_registrable<overloaded_codegen_service>);
 static_assert(generated_resources_registrable<overloaded_codegen_service>);
-static_assert(warp::http::resource_registrable<generated::users_api_routes<overloaded_codegen_service> &>);
-static_assert(warp::http::resource_registrable<generated::admin_api_routes<overloaded_codegen_service> &>);
+static_assert(warp::server::resource_registrable<generated::users_api_routes<overloaded_codegen_service> &>);
+static_assert(warp::server::resource_registrable<generated::admin_api_routes<overloaded_codegen_service> &>);
 static_assert(generated_routes_registrable<request_distinguished_service>);
 static_assert(generated_routes_registrable<same_request_cv_selected_service>);
 static_assert(generated_routes_registrable<noexcept_codegen_service>);
 static_assert(generated_routes_registrable<sync_only_codegen_service>);
 static_assert(generated_routes_registrable<mixed_result_codegen_service>);
-static_assert(warp::http::is_sync_route_handler<
+static_assert(warp::server::is_sync_route_handler<
               decltype(bind_users_health_handler(std::declval<std::shared_ptr<sync_only_codegen_service>>()))>);
-static_assert(!warp::http::is_async_route_handler<
+static_assert(!warp::server::is_async_route_handler<
               decltype(bind_users_health_handler(std::declval<std::shared_ptr<sync_only_codegen_service>>()))>);
-static_assert(warp::http::is_sync_route_handler<
+static_assert(warp::server::is_sync_route_handler<
               decltype(bind_admin_health_handler(std::declval<std::shared_ptr<sync_only_codegen_service>>()))>);
-static_assert(!warp::http::is_async_route_handler<
+static_assert(!warp::server::is_async_route_handler<
               decltype(bind_admin_health_handler(std::declval<std::shared_ptr<sync_only_codegen_service>>()))>);
-static_assert(warp::http::is_sync_route_handler<
+static_assert(warp::server::is_sync_route_handler<
               decltype(bind_users_health_handler(std::declval<std::shared_ptr<mixed_result_codegen_service>>()))>);
-static_assert(warp::http::is_async_route_handler<
+static_assert(warp::server::is_async_route_handler<
               decltype(bind_admin_health_handler(std::declval<std::shared_ptr<mixed_result_codegen_service>>()))>);
 
 } // namespace

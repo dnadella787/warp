@@ -18,12 +18,12 @@ Warp now supports two internal HTTP event-loop implementations:
 - `warp::event_loop_mode::callbacks`
 - `warp::event_loop_mode::coroutines`
 
-The mode is selected through `server_builder::event_loop(...)`. The default is `callbacks`.
+The mode is selected through `warp::server::server_builder::build<...>()`. The default is `callbacks`.
 
 At runtime, `server::impl` constructs either:
 
-- [callback_listener.cpp](../src/http/listener/callback_listener.cpp) plus [callback_http_session.cpp](../src/http/session/callback_http_session.cpp)
-- [coroutine_listener.cpp](../src/http/listener/coroutine_listener.cpp) plus [coroutine_http_session.cpp](../src/http/session/coroutine_http_session.cpp)
+- [callback_listener.cpp](../src/server/listener/callback_listener.cpp) plus [callback_http_session.cpp](../src/server/session/callback_http_session.cpp)
+- [coroutine_listener.cpp](../src/server/listener/coroutine_listener.cpp) plus [coroutine_http_session.cpp](../src/server/session/coroutine_http_session.cpp)
 
 The public route API is the same in both modes.
 
@@ -119,7 +119,7 @@ Public route handlers may return either:
 - `warp::response`
 - `warp::awaitable<warp::response>`
 
-`server_builder` adapts both forms into the internal async route shape so dispatch stays uniform.
+`warp::server::server_builder` adapts both forms into the internal async route shape so dispatch stays uniform.
 
 ## Registry Concurrency Assumption
 

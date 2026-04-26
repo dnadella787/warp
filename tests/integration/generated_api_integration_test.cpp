@@ -87,7 +87,7 @@ TEST(GeneratedApiIntegrationTest, ParsesTypedRequestsAndSerializesTypedResponses
 
 	std::optional<support::server_fixture> fixture;
 	try {
-		fixture.emplace(warp::http::server_builder().register_resource(routes));
+		fixture.emplace(warp::server::server_builder().register_resource(routes));
 	} catch (const std::exception &ex) {
 		if (std::string(ex.what()).find("Operation not permitted") != std::string::npos) {
 			GTEST_SKIP() << ex.what();
@@ -139,7 +139,7 @@ TEST(GeneratedApiIntegrationTest, ReturnsBadRequestForBindingFailures) {
 
 	std::optional<support::server_fixture> fixture;
 	try {
-		fixture.emplace(warp::http::server_builder().register_resource(routes));
+		fixture.emplace(warp::server::server_builder().register_resource(routes));
 	} catch (const std::exception &ex) {
 		if (std::string(ex.what()).find("Operation not permitted") != std::string::npos) {
 			GTEST_SKIP() << ex.what();
@@ -174,7 +174,7 @@ TEST(GeneratedApiIntegrationTest, ReturnsUnsupportedMediaTypeWhenJsonContentType
 
 	std::optional<support::server_fixture> fixture;
 	try {
-		fixture.emplace(warp::http::server_builder().register_resource(routes));
+		fixture.emplace(warp::server::server_builder().register_resource(routes));
 	} catch (const std::exception &ex) {
 		if (std::string(ex.what()).find("Operation not permitted") != std::string::npos) {
 			GTEST_SKIP() << ex.what();
@@ -209,7 +209,7 @@ TEST(GeneratedApiIntegrationTest, AllowsGeneratedServicesToReturnMixedTypedAndHt
 
 	std::optional<support::server_fixture> fixture;
 	try {
-		fixture.emplace(warp::http::server_builder().register_resource(routes));
+		fixture.emplace(warp::server::server_builder().register_resource(routes));
 	} catch (const std::exception &ex) {
 		if (std::string(ex.what()).find("Operation not permitted") != std::string::npos) {
 			GTEST_SKIP() << ex.what();

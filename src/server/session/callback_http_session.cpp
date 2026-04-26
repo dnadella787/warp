@@ -9,7 +9,7 @@
 namespace beast = boost::beast;   // from <boost/beast.hpp>
 using tcp = boost::asio::ip::tcp; // from <boost/asio/ip/tcp.hpp>
 
-namespace warp::http {
+namespace warp::server {
 
 // The socket executor is already a strand from the listener::do_accept method
 callback_http_session::callback_http_session(boost::asio::ip::tcp::socket &&socket, registry &routes)
@@ -91,7 +91,7 @@ void callback_http_session::on_read(beast::error_code ec, std::size_t) {
 		stop_reading_ = true;
 
 	if (const auto *handler = routes_.find(request)) {
-		std::visit(common::overloaded {[&](const sync_handler &h) {
+		std::visit(common::overloaded {[&](const http::sync_handler &h) {
 			                               try {
 				                               auto resp = h(std::move(request));
 				                               on_handler_complete(sequence, nullptr, std::move(resp));
@@ -99,7 +99,7 @@ void callback_http_session::on_read(beast::error_code ec, std::size_t) {
 				                               on_handler_complete(sequence, std::current_exception(), {});
 			                               }
 		                               },
-		                               [&](const async_handler &h) {
+		                               [&](const http::async_handler &h) {
 			                               boost::asio::co_spawn(
 			                                   stream_.get_executor(), h(std::move(request)),
 			                                   beast::bind_front_handler(&callback_http_session::on_handler_complete,
@@ -107,7 +107,7 @@ void callback_http_session::on_read(beast::error_code ec, std::size_t) {
 		                               }},
 		           *handler);
 	} else {
-		on_handler_complete(sequence, nullptr, response::not_found());
+		on_handler_complete(sequence, nullptr, http::response::not_found());
 	}
 
 	maybe_read();
@@ -129,7 +129,7 @@ void callback_http_session::on_handler_complete(std::size_t sequence, std::excep
 	// Unhandled exception is returned to end user as 500
 	// TODO: set keep alive to false for uncaught exceptions but let user configure that
 	if (eptr)
-		response = warp::response::server_error();
+		response = http::response::server_error();
 
 	const auto decision = close_policy_.on_response_ready(ctx_it->second, response);
 	if (!close_policy_.accepting_requests())
@@ -242,4 +242,4 @@ void callback_http_session::shutdown(bool force) {
 	}
 }
 
-} // namespace warp::http
+} // namespace warp::server

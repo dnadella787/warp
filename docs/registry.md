@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`warp::http::registry` is the in-memory route table used by the HTTP server.
+`warp::server::registry` is the in-memory route table used by the HTTP server runtime.
 
 Its job is intentionally narrow:
 
@@ -18,8 +18,8 @@ The registry does not perform socket I/O, request parsing, or response serializa
 
 The implementation lives in:
 
-- [registry.hpp](../src/http/router/registry.hpp)
-- [registry.cpp](../src/http/router/registry.cpp)
+- [registry.hpp](../src/server/router/registry.hpp)
+- [registry.cpp](../src/server/router/registry.cpp)
 
 Important types:
 
@@ -32,19 +32,19 @@ Important types:
 - `warp::http::handler`
   The stored route callback variant used by the HTTP sessions. It wraps either a sync or coroutine handler.
 
-- `warp::http::registry::node`
+- `warp::server::registry::node`
   One trie node for a specific HTTP method. A node may have:
   - literal children keyed by segment text
   - one parameter child
   - zero or more terminal route variants for the same normalized path shape
 
-- `warp::http::registry::route_entry`
+- `warp::server::registry::route_entry`
   The stored handler plus:
   - compiled path parameter slots
   - query constraints for that route variant
   - registration order for deterministic tie-breaking
 
-- `warp::http::registry::query_constraint`
+- `warp::http::compiled_query_constraint`
   One query matcher attached to a route variant. Each constraint stores:
   - the query parameter name
   - whether the parameter is `required`, `optional`, or `forbidden`
@@ -71,7 +71,7 @@ When a route is added:
    - the single parameter child
 4. The terminal node appends a new route variant to its `routes` vector.
 
-Typed and generated route registration now flows through `compiled_route` metadata. `server_builder` uses `registry.add_compiled(...)` for compile-time route specs and keeps `add(...)` / `add_route(...)` for string-based registrations.
+Typed and generated route registration now flows through `compiled_route` metadata. `warp::server::server_builder` uses `registry.add_compiled(...)` for compile-time route specs and keeps `add(...)` / `add_route(...)` for string-based registrations.
 
 Because each HTTP method has its own root, paths such as `GET /name/{id}` and `DELETE /name/{id}` can coexist without conflict.
 

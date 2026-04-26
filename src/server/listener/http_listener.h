@@ -3,12 +3,13 @@
 //
 
 #pragma once
+
 #include "base_listener.hpp"
-#include "../../common/util/fail.h"
-#include "boost/asio/strand.hpp"
 #include "../router/registry.hpp"
 
-namespace warp::http {
+#include <boost/asio/strand.hpp>
+
+namespace warp::server {
 
 template <typename T>
 concept Executor = requires(T t) {
@@ -38,7 +39,6 @@ protected:
     registry &registry_;
 };
 
-}
+} // namespace warp::server
 
 #include "http_listener.tpp"
-

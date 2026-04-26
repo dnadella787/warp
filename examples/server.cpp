@@ -1,4 +1,4 @@
-#include "warp/http/server.hpp"
+#include "warp/server/server.hpp"
 #include "warp/db/postgres/connection_config.hpp"
 #include "warp/db/postgres/connection_pool.hpp"
 
@@ -8,8 +8,8 @@
 #include <string_view>
 
 #include "warp/warp.hpp"
-#include "warp/http/route_spec.hpp"
-#include "warp/http/server_builder.hpp"
+#include "warp/server/router/route_spec.hpp"
+#include "warp/server/server_builder.hpp"
 
 #include "helpers.cpp"
 
@@ -18,7 +18,7 @@ int main() {
 	                                                                     example::make_db_config(), 4, 2);
 
 	auto server =
-	    warp::http::server_builder()
+	    warp::server::server_builder()
 	        .address("127.0.0.1")
 	        .worker_threads(4)
 	        .port(8080)

@@ -3,20 +3,30 @@
 //
 
 #pragma once
+
+#include <concepts>
+#include <cstddef>
+#include <cstdint>
+#include <functional>
 #include <optional>
-#include <string_view>
 #include <string>
+#include <string_view>
+#include <type_traits>
+#include <utility>
+#include <vector>
 
-#include "http.hpp"
-#include "event_loop_mode.hpp"
-#include "route_spec.hpp"
-#include "server.hpp"
+#include "warp/server/router/compiled_route.hpp"
+#include "warp/http/event_loop_mode.hpp"
+#include "warp/http/http.hpp"
+#include "warp/server/router/route_path.hpp"
+#include "warp/server/router/route_spec.hpp"
+#include "warp/server/server.hpp"
 
-namespace warp::http {
+namespace warp::server {
 /**
  * @brief Trait to identify synchronous route handlers.
  * * Validates that the handler 'H' (after type decay) can be invoked with a
- * 'request' and returns a type convertible to 'response'.
+ * 'http::request' and returns a type convertible to 'http::response'.
  *
  * For both event loop modes, the handler is launched inline within the read loop
  * effectively blocking the next read until this handler completes. Choose wisely :P
@@ -28,13 +38,13 @@ namespace warp::http {
  * heap allocs.
  */
 template <typename H>
-inline constexpr bool is_movable_sync_route_handler = requires(std::decay_t<H> &fn, request req) {
-	{ std::invoke(fn, std::move(req)) } -> std::convertible_to<response>;
+inline constexpr bool is_movable_sync_route_handler = requires(std::decay_t<H> &fn, http::request req) {
+	{ std::invoke(fn, std::move(req)) } -> std::convertible_to<http::response>;
 };
 
 template <typename H>
-inline constexpr bool is_lvalue_sync_route_handler = requires(std::decay_t<H> &fn, request &req) {
-	{ std::invoke(fn, req) } -> std::convertible_to<response>;
+inline constexpr bool is_lvalue_sync_route_handler = requires(std::decay_t<H> &fn, http::request &req) {
+	{ std::invoke(fn, req) } -> std::convertible_to<http::response>;
 };
 
 template <typename H>
@@ -50,8 +60,8 @@ inline constexpr bool is_sync_route_handler = is_movable_sync_route_handler<H> |
  * session
  */
 template <typename H>
-inline constexpr bool is_async_route_handler = requires(std::decay_t<H> &fn, request req) {
-	{ std::invoke(fn, std::move(req)) } -> std::same_as<awaitable<response>>;
+inline constexpr bool is_async_route_handler = requires(std::decay_t<H> &fn, http::request req) {
+	{ std::invoke(fn, std::move(req)) } -> std::same_as<http::awaitable<http::response>>;
 };
 
 /**
@@ -92,11 +102,11 @@ namespace detail {
 	return output;
 }
 
-[[nodiscard]] constexpr std::string registered_query_constraint_fragment(query_constraint_descriptor constraint) {
+[[nodiscard]] constexpr std::string registered_query_constraint_fragment(http::query_constraint_descriptor constraint) {
 	std::string fragment;
-	if (constraint.presence == query_constraint_presence::forbidden) {
+	if (constraint.presence == http::query_constraint_presence::forbidden) {
 		fragment.push_back('!');
-	} else if (constraint.presence == query_constraint_presence::optional) {
+	} else if (constraint.presence == http::query_constraint_presence::optional) {
 		fragment.push_back('~');
 	}
 	fragment += percent_encode_query_component(constraint.name);
@@ -136,117 +146,117 @@ public:
 
 	// Runtime routes meaning the validations are not compile time for things like Path
 	template <route_handler H>
-	server_builder &route(method verb, std::string path, H &&handler) {
+	server_builder &route(http::method verb, std::string path, H &&handler) {
 		return route_runtime(verb, std::move(path), make_route_handler(std::forward<H>(handler)));
 	}
 
 	// compile time route
-	template <fixed_string Path, route_handler H>
-	server_builder &route(method verb, route_path<Path>, H &&handler) {
-		return route(verb, std::string(route_path<Path>::view()), std::forward<H>(handler));
+	template <http::fixed_string Path, route_handler H>
+	server_builder &route(http::method verb, http::route_path<Path>, H &&handler) {
+		return route(verb, std::string(http::route_path<Path>::view()), std::forward<H>(handler));
 	}
 
-	template <route_registration_spec Spec, route_handler H>
+	template <http::route_registration_spec Spec, route_handler H>
 	server_builder &route(Spec, H &&handler) {
-		return route(detail::compile_route_spec<Spec>(), make_route_handler(std::forward<H>(handler)));
+		return route(http::detail::compile_route_spec<Spec>(), make_route_handler(std::forward<H>(handler)));
 	}
 
-	template <method Verb, fixed_string Path, query_constraint... QueryConstraints, route_handler H>
+	template <http::method Verb, http::fixed_string Path, http::query_constraint... QueryConstraints, route_handler H>
 	server_builder &route(H &&handler) {
-		return route(route_spec<Verb, Path, QueryConstraints...> {}, std::forward<H>(handler));
+		return route(http::route_spec<Verb, Path, QueryConstraints...> {}, std::forward<H>(handler));
 	}
 
 	template <route_handler H>
 	server_builder &route(std::string path, H &&handler) {
-		return route(method::get, std::move(path), std::forward<H>(handler));
+		return route(http::method::get, std::move(path), std::forward<H>(handler));
 	}
 
-	template <fixed_string Path, route_handler H>
-	server_builder &route(route_path<Path>, H &&handler) {
-		return route(method::get, route_path<Path> {}, std::forward<H>(handler));
+	template <http::fixed_string Path, route_handler H>
+	server_builder &route(http::route_path<Path>, H &&handler) {
+		return route(http::method::get, http::route_path<Path> {}, std::forward<H>(handler));
 	}
 
 	template <route_handler H>
 	server_builder &get(std::string path, H &&handler) {
-		return route(method::get, std::move(path), std::forward<H>(handler));
+		return route(http::method::get, std::move(path), std::forward<H>(handler));
 	}
 
-	template <fixed_string Path, route_handler H>
-	server_builder &get(route_path<Path>, H &&handler) {
-		return route(method::get, route_path<Path> {}, std::forward<H>(handler));
+	template <http::fixed_string Path, route_handler H>
+	server_builder &get(http::route_path<Path>, H &&handler) {
+		return route(http::method::get, http::route_path<Path> {}, std::forward<H>(handler));
 	}
 
-	template <fixed_string Path, query_constraint... QueryConstraints, route_handler H>
+	template <http::fixed_string Path, http::query_constraint... QueryConstraints, route_handler H>
 	server_builder &get(H &&handler) {
-		return route<method::get, Path, QueryConstraints...>(std::forward<H>(handler));
+		return route<http::method::get, Path, QueryConstraints...>(std::forward<H>(handler));
 	}
 
 	template <route_handler H>
 	server_builder &post(std::string path, H &&handler) {
-		return route(method::post, std::move(path), std::forward<H>(handler));
+		return route(http::method::post, std::move(path), std::forward<H>(handler));
 	}
 
-	template <fixed_string Path, route_handler H>
-	server_builder &post(route_path<Path>, H &&handler) {
-		return route(method::post, route_path<Path> {}, std::forward<H>(handler));
+	template <http::fixed_string Path, route_handler H>
+	server_builder &post(http::route_path<Path>, H &&handler) {
+		return route(http::method::post, http::route_path<Path> {}, std::forward<H>(handler));
 	}
 
-	template <fixed_string Path, query_constraint... QueryConstraints, route_handler H>
+	template <http::fixed_string Path, http::query_constraint... QueryConstraints, route_handler H>
 	server_builder &post(H &&handler) {
-		return route<method::post, Path, QueryConstraints...>(std::forward<H>(handler));
+		return route<http::method::post, Path, QueryConstraints...>(std::forward<H>(handler));
 	}
 
 	template <route_handler H>
 	server_builder &put(std::string path, H &&handler) {
-		return route(method::put, std::move(path), std::forward<H>(handler));
+		return route(http::method::put, std::move(path), std::forward<H>(handler));
 	}
 
-	template <fixed_string Path, route_handler H>
-	server_builder &put(route_path<Path>, H &&handler) {
-		return route(method::put, route_path<Path> {}, std::forward<H>(handler));
+	template <http::fixed_string Path, route_handler H>
+	server_builder &put(http::route_path<Path>, H &&handler) {
+		return route(http::method::put, http::route_path<Path> {}, std::forward<H>(handler));
 	}
 
-	template <fixed_string Path, query_constraint... QueryConstraints, route_handler H>
+	template <http::fixed_string Path, http::query_constraint... QueryConstraints, route_handler H>
 	server_builder &put(H &&handler) {
-		return route<method::put, Path, QueryConstraints...>(std::forward<H>(handler));
+		return route<http::method::put, Path, QueryConstraints...>(std::forward<H>(handler));
 	}
 
 	template <route_handler H>
 	server_builder &delete_(std::string path, H &&handler) {
-		return route(method::delete_, std::move(path), std::forward<H>(handler));
+		return route(http::method::delete_, std::move(path), std::forward<H>(handler));
 	}
 
-	template <fixed_string Path, route_handler H>
-	server_builder &delete_(route_path<Path>, H &&handler) {
-		return route(method::delete_, route_path<Path> {}, std::forward<H>(handler));
+	template <http::fixed_string Path, route_handler H>
+	server_builder &delete_(http::route_path<Path>, H &&handler) {
+		return route(http::method::delete_, http::route_path<Path> {}, std::forward<H>(handler));
 	}
 
-	template <fixed_string Path, query_constraint... QueryConstraints, route_handler H>
+	template <http::fixed_string Path, http::query_constraint... QueryConstraints, route_handler H>
 	server_builder &delete_(H &&handler) {
-		return route<method::delete_, Path, QueryConstraints...>(std::forward<H>(handler));
+		return route<http::method::delete_, Path, QueryConstraints...>(std::forward<H>(handler));
 	}
 
 	// default mode is callback
-	template <event_loop_mode Mode = event_loop_mode::callbacks>
+	template <http::event_loop_mode Mode = http::event_loop_mode::callbacks>
 	[[nodiscard]] server build() const;
 
 private:
-	server_builder &route(method verb, std::string path, handler handler);
-	server_builder &route(compiled_route route, handler handler);
+	server_builder &route(http::method verb, std::string path, http::handler handler);
+	server_builder &route(http::compiled_route route, http::handler handler);
 
-	server_builder &route_runtime(method verb, std::string path, handler callback) {
+	server_builder &route_runtime(http::method verb, std::string path, http::handler callback) {
 		return route(verb, std::move(path), std::move(callback));
 	}
 
-	template <event_loop_mode Mode>
+	template <http::event_loop_mode Mode>
 	[[nodiscard]] server make_server() const;
 
 	// Upcasting the shared_ptr implicitly from server_impl and impl_base
-	template <event_loop_mode Mode>
+	template <http::event_loop_mode Mode>
 	[[nodiscard]] std::shared_ptr<server::impl_base> make_impl() const;
 
 	template <route_handler H>
-	static handler make_route_handler(H &&handler) {
+	static http::handler make_route_handler(H &&handler) {
 		using fn_type = std::decay_t<H>;
 		auto fn = fn_type(std::forward<H>(handler));
 
@@ -257,28 +267,30 @@ private:
 
 		// sync_handler for request& and const request& (rvalue can bind to const request&)
 		if constexpr (is_lvalue_sync_route_handler<fn_type>) {
-			return sync_handler {
-			    [fn = std::move(fn)](request req) mutable -> response { return std::invoke(fn, req); }};
+			return http::sync_handler {
+			    [fn = std::move(fn)](http::request req) mutable -> http::response { return std::invoke(fn, req); }};
 		}
 		// sync_handler for request (by value) which needs std::move for
 		// zero allocations
 		else if constexpr (is_movable_sync_route_handler<fn_type>) {
-			return sync_handler {
-			    [fn = std::move(fn)](request req) mutable -> response { return std::invoke(fn, std::move(req)); }};
+			return http::sync_handler {[fn = std::move(fn)](http::request req) mutable -> http::response {
+				return std::invoke(fn, std::move(req));
+			}};
 		}
 		// async handlers
 		else {
-			return async_handler {[fn = std::move(fn)](request &&req) mutable -> awaitable<response> {
-				co_return co_await std::invoke(fn, std::move(req));
-			}};
+			return http::async_handler {
+			    [fn = std::move(fn)](http::request &&req) mutable -> http::awaitable<http::response> {
+				    co_return co_await std::invoke(fn, std::move(req));
+			    }};
 		}
 	}
 
 	struct route_definition {
-		std::optional<compiled_route> compiled;
-		method verb;
+		std::optional<http::compiled_route> compiled;
+		http::method verb;
 		std::string path;
-		handler callback;
+		http::handler callback;
 	};
 
 	std::string address_ {"0.0.0.0"};
@@ -287,4 +299,4 @@ private:
 	std::vector<route_definition> routes_;
 };
 
-} // namespace warp::http
+} // namespace warp::server

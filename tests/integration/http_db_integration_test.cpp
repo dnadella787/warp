@@ -1,6 +1,6 @@
 #include "support/integration/http_integration_harness.hpp"
 #include "support/integration/http_db_test_support.hpp"
-#include "warp/http/server_builder.hpp"
+#include "warp/server/server_builder.hpp"
 
 #include "warp/db/postgres/connection_pool.hpp"
 
@@ -46,7 +46,7 @@ TYPED_TEST(HttpDbIntegrationTest, DbRouteReturnsRequestedIdAndDatabaseNameWhenEn
 	                                                                     support::make_db_config(*env), 4, 2);
 
 	support::server_fixture fixture(
-	    warp::http::server_builder().get(
+	    warp::server::server_builder().get(
 	        "/db/{id}",
 	        [db_pool](warp::request req) -> warp::awaitable<warp::response> {
 		        const auto id = std::string(req.path_param("id").value_or("0"));

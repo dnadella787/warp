@@ -2,9 +2,10 @@
 
 #include <memory>
 #include <string>
+
 #include "warp/http/event_loop_mode.hpp"
 
-namespace warp::http {
+namespace warp::server {
 
 class server_builder;
 
@@ -19,7 +20,7 @@ class server {
 		virtual void stop() = 0;
 	};
 
-	template <event_loop_mode Mode>
+	template <http::event_loop_mode Mode>
 	class server_impl;
 
 public:
@@ -55,4 +56,4 @@ private:
 	std::shared_ptr<impl_base> impl_;
 };
 
-} // namespace warp::http
+} // namespace warp::server

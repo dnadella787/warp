@@ -6,7 +6,7 @@
 #include <memory>
 #include <string>
 
-#include "warp/http/server_builder.hpp"
+#include "warp/server/server_builder.hpp"
 
 namespace warp::tests {
 
@@ -34,7 +34,7 @@ TYPED_TEST(HttpPipeliningIntegrationTest, SlowThenFastPipelinedRequestsPreserveW
 	auto fast_finished = std::make_shared<std::atomic<bool>>(false);
 
 	support::server_fixture fixture(
-	    warp::http::server_builder()
+	    warp::server::server_builder()
 	        .get("/slow",
 	             [slow_started, fast_finished](request) -> awaitable<response> {
 		             slow_started->store(true, std::memory_order_release);
@@ -75,7 +75,7 @@ TYPED_TEST(HttpPipeliningIntegrationTest, SlowThenFastPipelinedRequestsPreserveW
 
 TYPED_TEST(HttpPipeliningIntegrationTest, TenPipelinedRequestsReturnInArrivalOrder) {
 	support::server_fixture fixture(
-	    warp::http::server_builder().get(
+	    warp::server::server_builder().get(
 	        "/echo/{id}",
 	        [](const request &req) -> response {
 		        return response::ok(body_builder().set("id", std::string(req.path_param("id").value_or(""))).build());
@@ -103,7 +103,7 @@ TYPED_TEST(HttpPipeliningIntegrationTest, SlowThirdResponseDoesNotAllowLaterFast
 	auto fast_after_three = std::make_shared<std::atomic<int>>(0);
 
 	support::server_fixture fixture(
-	    warp::http::server_builder().get(
+	    warp::server::server_builder().get(
 	        "/item/{id}",
 	        [fast_after_three](request req) -> awaitable<response> {
 		        const auto id = std::string(req.path_param("id").value_or(""));
@@ -146,7 +146,7 @@ TYPED_TEST(HttpPipeliningIntegrationTest, SlowThirdResponseDoesNotAllowLaterFast
 
 TYPED_TEST(HttpPipeliningIntegrationTest, PipelineLimitReachedReadContinuesAfterPause) {
 	support::server_fixture fixture(
-	    warp::http::server_builder()
+	    warp::server::server_builder()
 	        .get("/slow/{id}",
 	             [](request req) -> awaitable<response> {
 		             co_return co_await support::delayed_ok_response(150ms, [id = req.path_param("id").value_or("")]() {

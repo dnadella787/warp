@@ -8,8 +8,8 @@
 #include <vector>
 
 #include "warp/codegen/spec_model.hpp"
-#include "warp/http/query_constraint_semantics.hpp"
-#include "warp/http/route_pattern.hpp"
+#include "warp/server/router/query_constraint_semantics.hpp"
+#include "warp/server/router/route_pattern.hpp"
 
 namespace warp::codegen {
 

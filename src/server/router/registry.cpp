@@ -12,12 +12,12 @@
 #include <utility>
 #include <vector>
 
-namespace warp::http {
+namespace warp::server {
 
 namespace {
 
-void normalize_compiled_query_constraints(std::vector<compiled_query_constraint> &constraints) {
-	detail::sort_compiled_query_constraints(constraints);
+void normalize_compiled_query_constraints(std::vector<http::compiled_query_constraint> &constraints) {
+	http::detail::sort_compiled_query_constraints(constraints);
 	for (std::size_t i = 1; i < constraints.size(); ++i) {
 		if (constraints[i - 1].name == constraints[i].name) {
 			throw std::invalid_argument("route query constraint names must be unique");
@@ -46,15 +46,15 @@ registry &registry::operator=(const registry &other) {
 	return *this;
 }
 
-void registry::add(method verb, std::string path, handler h) {
+void registry::add(http::method verb, std::string path, http::handler h) {
 	add_route(verb, std::move(path), std::move(h));
 }
 
-void registry::add_route(method verb, std::string path, handler h) {
+void registry::add_route(http::method verb, std::string path, http::handler h) {
 	add_compiled(parse_registered_route(verb, path), std::move(h));
 }
 
-void registry::add_compiled(compiled_route route, handler h) {
+void registry::add_compiled(http::compiled_route route, http::handler h) {
 	normalize_compiled_query_constraints(route.query_constraints);
 	auto &root = method_roots_[route.verb];
 	auto *current = &root;
@@ -64,7 +64,7 @@ void registry::add_compiled(compiled_route route, handler h) {
 
 	for (std::size_t i = 0; i < route.pattern.segments.size(); ++i) {
 		const auto &segment = route.pattern.segments[i];
-		if (segment.kind == route_segment_kind::literal) {
+		if (segment.kind == http::route_segment_kind::literal) {
 			auto [it, inserted] = current->literal_children.try_emplace(segment.text, std::make_unique<node>());
 			boost::ignore_unused(inserted);
 			current = it->second.get();
@@ -92,7 +92,7 @@ void registry::add_compiled(compiled_route route, handler h) {
 	});
 }
 
-const handler *registry::find(request &req) const {
+const http::handler *registry::find(http::request &req) const {
 	req.set_path_params({});
 	const auto it = method_roots_.find(req.method());
 	if (it == method_roots_.end()) {
@@ -101,7 +101,7 @@ const handler *registry::find(request &req) const {
 
 	std::vector<std::string_view> segments;
 	try {
-		segments = split_route_path_views(req.path());
+		segments = http::split_route_path_views(req.path());
 	} catch (const std::invalid_argument &) {
 		return nullptr;
 	}
@@ -114,7 +114,7 @@ const handler *registry::find(request &req) const {
 	return nullptr;
 }
 
-std::size_t registry::method_hash::operator()(method verb) const noexcept {
+std::size_t registry::method_hash::operator()(http::method verb) const noexcept {
 	return std::hash<unsigned> {}(static_cast<unsigned>(verb));
 }
 
@@ -130,10 +130,10 @@ registry::node registry::clone_node(const node &source) {
 	return copy;
 }
 
-compiled_route registry::parse_registered_route(method verb, std::string_view route) {
-	compiled_route parsed {
+http::compiled_route registry::parse_registered_route(http::method verb, std::string_view route) {
+	http::compiled_route parsed {
 	    .verb = verb,
-	    .pattern = parse_route_pattern(strip_query_string(route)),
+	    .pattern = http::parse_route_pattern(http::strip_query_string(route)),
 	};
 	const auto query_pos = route.find('?');
 	if (query_pos == std::string_view::npos)
@@ -147,28 +147,29 @@ compiled_route registry::parse_registered_route(method verb, std::string_view ro
 		    raw_query.substr(start, end == std::string_view::npos ? std::string_view::npos : end - start);
 		if (!token.empty()) {
 			const auto eq = token.find('=');
-			auto key = try_decode_query_component(token.substr(0, eq));
+			auto key = http::try_decode_query_component(token.substr(0, eq));
 			if (!key.has_value() || key->empty())
 				throw std::invalid_argument("route query constraint names must be non-empty and valid");
 
-			auto presence = query_constraint_presence::required;
+			auto presence = http::query_constraint_presence::required;
 			if (key->front() == '!') {
-				presence = query_constraint_presence::forbidden;
+				presence = http::query_constraint_presence::forbidden;
 				key->erase(key->begin());
 			} else if (key->front() == '~') {
-				presence = query_constraint_presence::optional;
+				presence = http::query_constraint_presence::optional;
 				key->erase(key->begin());
 			}
 			if (key->empty()) {
 				throw std::invalid_argument("route query constraint names must be non-empty and valid");
 			}
 
-			const auto raw_value = eq == std::string_view::npos ? std::optional<std::string> {}
-			                                                    : try_decode_query_component(token.substr(eq + 1));
+			const auto raw_value = eq == std::string_view::npos
+			                           ? std::optional<std::string> {}
+			                           : http::try_decode_query_component(token.substr(eq + 1));
 			if (eq != std::string_view::npos && !raw_value.has_value())
 				throw std::invalid_argument("route query constraint values must use valid percent-encoding");
 
-			parsed.query_constraints.push_back(compiled_query_constraint {
+			parsed.query_constraints.push_back(http::compiled_query_constraint {
 			    .name = std::move(*key),
 			    .presence = presence,
 			    .value = std::move(raw_value),
@@ -186,7 +187,7 @@ compiled_route registry::parse_registered_route(method verb, std::string_view ro
 	return parsed;
 }
 
-const registry::route_entry *registry::match_route(const node &root, const request &req,
+const registry::route_entry *registry::match_route(const node &root, const http::request &req,
                                                    const std::vector<std::string_view> &segments,
                                                    std::size_t segment_index) {
 	if (segment_index == segments.size()) {
@@ -207,9 +208,9 @@ const registry::route_entry *registry::match_route(const node &root, const reque
 	return nullptr;
 }
 
-const registry::route_entry *registry::match_leaf_routes(const node &current, const request &req) {
+const registry::route_entry *registry::match_leaf_routes(const node &current, const http::request &req) {
 	const route_entry *best = nullptr;
-	detail::query_constraint_match_score best_score {};
+	http::detail::query_constraint_match_score best_score {};
 	for (const auto &route : current.routes) {
 		const auto score = match_query_constraints(route, req);
 		if (!score.has_value()) {
@@ -223,12 +224,12 @@ const registry::route_entry *registry::match_leaf_routes(const node &current, co
 	return best;
 }
 
-std::optional<detail::query_constraint_match_score> registry::match_query_constraints(const route_entry &route,
-                                                                                      const request &req) {
-	detail::query_constraint_match_score score;
+std::optional<http::detail::query_constraint_match_score> registry::match_query_constraints(const route_entry &route,
+                                                                                            const http::request &req) {
+	http::detail::query_constraint_match_score score;
 	for (const auto &constraint : route.query_constraints) {
 		const auto actual = req.query_param(constraint.name);
-		if (constraint.presence == query_constraint_presence::forbidden) {
+		if (constraint.presence == http::query_constraint_presence::forbidden) {
 			if (actual.has_value()) {
 				return std::nullopt;
 			}
@@ -237,7 +238,7 @@ std::optional<detail::query_constraint_match_score> registry::match_query_constr
 		}
 
 		if (!actual.has_value()) {
-			if (constraint.presence == query_constraint_presence::required) {
+			if (constraint.presence == http::query_constraint_presence::required) {
 				return std::nullopt;
 			}
 			continue;
@@ -255,9 +256,9 @@ std::optional<detail::query_constraint_match_score> registry::match_query_constr
 	return score;
 }
 
-bool registry::is_better_match(const route_entry &candidate, detail::query_constraint_match_score candidate_score,
+bool registry::is_better_match(const route_entry &candidate, http::detail::query_constraint_match_score candidate_score,
                                const route_entry &current_best,
-                               detail::query_constraint_match_score current_best_score) {
+                               http::detail::query_constraint_match_score current_best_score) {
 	if (candidate_score.matched_constraints != current_best_score.matched_constraints) {
 		return candidate_score.matched_constraints > current_best_score.matched_constraints;
 	}
@@ -267,9 +268,9 @@ bool registry::is_better_match(const route_entry &candidate, detail::query_const
 	return candidate.registration_order < current_best.registration_order;
 }
 
-void registry::apply_path_params(request &req, const std::vector<std::string_view> &segments,
+void registry::apply_path_params(http::request &req, const std::vector<std::string_view> &segments,
                                  const route_entry &route) {
-	request::parameter_map params;
+	http::request::parameter_map params;
 	params.reserve(route.parameters.size());
 
 	if (!route.parameters.empty()) {
@@ -293,4 +294,4 @@ void registry::apply_path_params(request &req, const std::vector<std::string_vie
 	req.set_path_params(std::move(params));
 }
 
-} // namespace warp::http
+} // namespace warp::server

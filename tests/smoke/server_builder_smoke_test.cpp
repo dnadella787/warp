@@ -1,4 +1,4 @@
-#include "warp/http/server.hpp"
+#include "warp/server/server.hpp"
 
 #include <gtest/gtest.h>
 
@@ -6,12 +6,12 @@
 #include <thread>
 
 #include "warp/warp.hpp"
-#include "warp/http/server_builder.hpp"
+#include "warp/server/server_builder.hpp"
 
 namespace {
 
 struct mutable_resource {
-	void register_routes(warp::http::server_builder &builder) {
+	void register_routes(warp::server::server_builder &builder) {
 		builder.get("/resource/health", [](const warp::request &) -> warp::response {
 			return warp::response::ok(warp::body_builder().set("route", "resource-health").build());
 		});
@@ -19,7 +19,7 @@ struct mutable_resource {
 };
 
 struct const_resource {
-	void register_routes(warp::http::server_builder &builder) const {
+	void register_routes(warp::server::server_builder &builder) const {
 		builder.get("/resource/const", [](const warp::request &) -> warp::response {
 			return warp::response::ok(warp::body_builder().set("route", "resource-const").build());
 		});
@@ -28,7 +28,7 @@ struct const_resource {
 
 template <warp::event_loop_mode Mode>
 void expect_server_builds_for_mode() {
-	warp::http::server_builder builder;
+	warp::server::server_builder builder;
 	auto &configured =
 	    builder.address("127.0.0.1")
 	        .port(8081)
@@ -58,7 +58,7 @@ TEST(ServerBuilderSmokeTest, BuildsServerWithSyncAndAsyncRoutesForBothEventLoopM
 }
 
 TEST(ServerBuilderSmokeTest, RegistersMutableAndConstResources) {
-	warp::http::server_builder builder;
+	warp::server::server_builder builder;
 	mutable_resource resource;
 	const const_resource const_resource_instance;
 
@@ -68,7 +68,7 @@ TEST(ServerBuilderSmokeTest, RegistersMutableAndConstResources) {
 }
 
 TEST(ServerBuilderSmokeTest, BuildsServerFromTypedRouteSpecs) {
-	auto server = warp::http::server_builder()
+	auto server = warp::server::server_builder()
 	                  .get<"/reports/{report_id}", warp::http::required_query<"summary">>(
 	                      [](const warp::request &) -> warp::response { return warp::response::ok("ok"); })
 	                  .build();
@@ -79,7 +79,7 @@ TEST(ServerBuilderSmokeTest, BuildsServerFromTypedRouteSpecs) {
 TEST(ServerBuilderSmokeTest, ConcurrentRunAndStopDoNotRaceServerLifecycle) {
 	for (int iteration = 0; iteration < 25; ++iteration) {
 		auto callbacks_server =
-		    warp::http::server_builder()
+		    warp::server::server_builder()
 		        .address("127.0.0.1")
 		        .port(0)
 		        .worker_threads(2)
@@ -94,7 +94,7 @@ TEST(ServerBuilderSmokeTest, ConcurrentRunAndStopDoNotRaceServerLifecycle) {
 		callbacks_server.stop();
 
 		auto coroutines_server =
-		    warp::http::server_builder()
+		    warp::server::server_builder()
 		        .address("127.0.0.1")
 		        .port(0)
 		        .worker_threads(2)

@@ -9,7 +9,7 @@ A route can return either:
 - `warp::response`
 - `warp::awaitable<warp::response>`
 
-`server_builder` normalizes both forms into the internal async shape `warp::awaitable<warp::response>(warp::request&&)`, so the server always dispatches routes through one async path.
+`warp::server::server_builder` normalizes both forms into the internal async shape `warp::awaitable<warp::response>(warp::request&&)`, so the server always dispatches routes through one async path.
 
 ## User-Facing Model
 
@@ -61,12 +61,11 @@ The default is `callbacks`.
 Users can switch modes through the server builder:
 
 ```cpp
-auto server = warp::http::server_builder()
-    .event_loop(warp::event_loop_mode::coroutines)
+auto server = warp::server::server_builder()
     .get("/ping", [](warp::request) {
         return warp::response::ok("{\"status\":\"ok\"}");
     })
-    .build();
+    .build<warp::event_loop_mode::coroutines>();
 ```
 
 This setting changes how Warp runs the accept loop and HTTP session internals. It does not change the route API. Coroutine route handlers work in both modes.
@@ -90,8 +89,8 @@ The difference between the two modes is how steps 1, 2, 5, and 8 are driven inte
 
 Callback mode uses:
 
-- [callback_listener.cpp](../src/http/listener/callback_listener.cpp)
-- [callback_http_session.cpp](../src/http/session/callback_http_session.cpp)
+- [callback_listener.cpp](../src/server/listener/callback_listener.cpp)
+- [callback_http_session.cpp](../src/server/session/callback_http_session.cpp)
 
 Flow:
 
@@ -108,8 +107,8 @@ Flow:
 
 Coroutine mode uses:
 
-- [coroutine_listener.cpp](../src/http/listener/coroutine_listener.cpp)
-- [coroutine_http_session.cpp](../src/http/session/coroutine_http_session.cpp)
+- [coroutine_listener.cpp](../src/server/listener/coroutine_listener.cpp)
+- [coroutine_http_session.cpp](../src/server/session/coroutine_http_session.cpp)
 
 Flow:
 

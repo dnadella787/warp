@@ -96,14 +96,14 @@ set(warp_codegen_sources
     src/codegen/stub_generator.cpp)
 
 set(warp_http_sources
-        src/http/server.cpp
-        src/http/server_builder.cpp
-        src/http/server_impl.hpp
-        src/http/session/callback_http_session.cpp
-        src/http/session/coroutine_http_session.cpp
-        src/http/listener/callback_listener.cpp
-        src/http/listener/coroutine_listener.cpp
-        src/http/router/registry.cpp)
+        src/server/server.cpp
+        src/server/server_builder.cpp
+        src/server/server_impl.hpp
+        src/server/session/callback_http_session.cpp
+        src/server/session/coroutine_http_session.cpp
+        src/server/listener/callback_listener.cpp
+        src/server/listener/coroutine_listener.cpp
+        src/server/router/registry.cpp)
 
 set(warp_db_postgres_sources
         src/db/postgres/connection_config.cpp

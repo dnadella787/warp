@@ -4,10 +4,11 @@
 
 #pragma once
 #include <cstddef>
+#include <optional>
 
 #include "warp/warp.hpp"
 
-namespace warp::http {
+namespace warp::server {
     struct request_context {
         std::size_t sequence {};
         unsigned version {11};
@@ -71,4 +72,4 @@ namespace warp::http {
         bool accepting_requests_ {true};
         std::optional<std::size_t> close_after_sequence_;
     };
-}
+} // namespace warp::server

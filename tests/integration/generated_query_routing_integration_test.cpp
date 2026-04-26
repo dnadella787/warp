@@ -117,7 +117,7 @@ TYPED_TEST(GeneratedQueryRoutingIntegrationTest, ResolvesOverlappingQueryRoutesB
 
 	std::optional<support::server_fixture> fixture;
 	try {
-		fixture.emplace(warp::http::server_builder().register_resource(routes), TypeParam {});
+		fixture.emplace(warp::server::server_builder().register_resource(routes), TypeParam {});
 	} catch (const std::exception &ex) {
 		if (std::string(ex.what()).find("Operation not permitted") != std::string::npos) {
 			GTEST_SKIP() << ex.what();
@@ -172,7 +172,7 @@ TYPED_TEST(GeneratedQueryRoutingIntegrationTest, ReturnsBadRequestForDuplicateAn
 
 	std::optional<support::server_fixture> fixture;
 	try {
-		fixture.emplace(warp::http::server_builder().register_resource(routes), TypeParam {});
+		fixture.emplace(warp::server::server_builder().register_resource(routes), TypeParam {});
 	} catch (const std::exception &ex) {
 		if (std::string(ex.what()).find("Operation not permitted") != std::string::npos) {
 			GTEST_SKIP() << ex.what();
@@ -207,7 +207,7 @@ TYPED_TEST(GeneratedQueryRoutingIntegrationTest, HandlesConcurrentClientsAcrossO
 
 	std::optional<support::server_fixture> fixture;
 	try {
-		fixture.emplace(warp::http::server_builder().register_resource(routes), TypeParam {});
+		fixture.emplace(warp::server::server_builder().register_resource(routes), TypeParam {});
 	} catch (const std::exception &ex) {
 		if (std::string(ex.what()).find("Operation not permitted") != std::string::npos) {
 			GTEST_SKIP() << ex.what();

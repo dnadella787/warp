@@ -9,7 +9,7 @@
 #include "../session/callback_http_session.hpp"
 #include "../../common/util/fail.h"
 
-namespace warp::http {
+namespace warp::server {
 
 callback_listener::callback_listener(boost::asio::io_context &ioc, registry &registry, const std::string &address,
                                      unsigned short port)
@@ -44,4 +44,4 @@ void callback_listener::on_accept(boost::beast::error_code ec, boost::asio::ip::
 
 	do_accept();
 }
-} // namespace warp::http
+} // namespace warp::server

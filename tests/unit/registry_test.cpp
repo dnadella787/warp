@@ -1,6 +1,6 @@
-#include "http/router/registry.hpp"
+#include "server/router/registry.hpp"
 #include "warp/codegen/http_adapter.hpp"
-#include "warp/http/route_spec.hpp"
+#include "warp/server/router/route_spec.hpp"
 
 #include <gtest/gtest.h>
 
@@ -16,7 +16,7 @@ namespace {
 
 using boost::beast::http::status;
 using boost::beast::http::verb;
-using warp::http::registry;
+using warp::server::registry;
 
 struct path_contract {
 	std::string id;

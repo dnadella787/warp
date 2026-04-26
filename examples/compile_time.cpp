@@ -6,7 +6,7 @@
 
 #include "warp/warp.hpp"
 #include "warp/db/postgres/connection_pool.hpp"
-#include "warp/http/server_builder.hpp"
+#include "warp/server/server_builder.hpp"
 
 #include <memory>
 #include "helpers.cpp"
@@ -46,6 +46,7 @@ private:
 
 int main() {
 	using namespace warp::http;
+	using warp::server::server_builder;
 	exchange_resource exchange_resource;
 
 	auto server =

@@ -1,6 +1,6 @@
 #pragma once
 
-namespace warp::http {
+namespace warp::server {
 
 class base_listener {
 public:
@@ -8,4 +8,4 @@ public:
 	virtual void run() = 0;
 };
 
-} // namespace warp::http
+} // namespace warp::server

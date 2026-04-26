@@ -4,7 +4,7 @@
 #include "http_listener.h"
 #include "../router/registry.hpp"
 
-namespace warp::http {
+namespace warp::server {
 
 class callback_listener final : public http_listener<callback_listener>,
                                 public std::enable_shared_from_this<callback_listener> {
@@ -21,4 +21,4 @@ private:
 	static constexpr std::string_view COMPONENT {"listener"};
 };
 
-} // namespace warp::http
+} // namespace warp::server

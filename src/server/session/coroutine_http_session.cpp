@@ -13,7 +13,7 @@
 namespace beast = boost::beast;
 using tcp = boost::asio::ip::tcp;
 
-namespace warp::http {
+namespace warp::server {
 
 coroutine_http_session::coroutine_http_session(boost::asio::ip::tcp::socket &&socket, registry &routes)
     : stream_(std::move(socket)), routes_(routes), read_signal_(stream_.get_executor()),
@@ -83,7 +83,7 @@ boost::asio::awaitable<void> coroutine_http_session::read_loop() {
 		if (shutdown_started_ || stop_reading_)
 			co_return parser_.reset();
 
-		request req {parser_->release()};
+		http::request req {parser_->release()};
 		const auto sequence = next_request_sequence_++;
 		request_ctxs_.emplace(
 		    sequence,
@@ -96,18 +96,18 @@ boost::asio::awaitable<void> coroutine_http_session::read_loop() {
 			stop_reading_ = true;
 
 		if (const auto *handler = routes_.find(req)) {
-			std::visit(
-			    common::overloaded {[&](const sync_handler &h) { execute_sync_handler(sequence, h, std::move(req)); },
-			                        [&](const async_handler &h) {
-				                        boost::asio::co_spawn(
-				                            stream_.get_executor(), // little trick to extend http_session lifetime by
-				                                                    // passing it to async coroutine
-				                            execute_async_handler(shared_from_this(), sequence, h, std::move(req)),
-				                            boost::asio::detached);
-			                        }},
-			    *handler);
+			std::visit(common::overloaded {
+			               [&](const http::sync_handler &h) { execute_sync_handler(sequence, h, std::move(req)); },
+			               [&](const http::async_handler &h) {
+				               boost::asio::co_spawn(
+				                   stream_.get_executor(), // little trick to extend http_session lifetime by
+				                                           // passing it to async coroutine
+				                   execute_async_handler(shared_from_this(), sequence, h, std::move(req)),
+				                   boost::asio::detached);
+			               }},
+			           *handler);
 		} else {
-			complete_request(sequence, response::not_found());
+			complete_request(sequence, http::response::not_found());
 		}
 	}
 }
@@ -195,27 +195,29 @@ void coroutine_http_session::notify_write_loop() {
 	write_signal_.cancel();
 }
 
-void coroutine_http_session::execute_sync_handler(std::size_t sequence, const sync_handler &handler, request req) {
+void coroutine_http_session::execute_sync_handler(std::size_t sequence, const http::sync_handler &handler,
+                                                  http::request req) {
 	try {
 		auto resp = handler(std::move(req));
 		complete_request(sequence, std::move(resp));
 	} catch (...) {
-		complete_request(sequence, response::server_error());
+		complete_request(sequence, http::response::server_error());
 	}
 }
 
 boost::asio::awaitable<void> coroutine_http_session::execute_async_handler(std::shared_ptr<coroutine_http_session> self,
                                                                            std::size_t sequence,
-                                                                           const async_handler &handler, request req) {
+                                                                           const http::async_handler &handler,
+                                                                           http::request req) {
 	try {
 		auto resp = co_await handler(std::move(req));
 		self->complete_request(sequence, std::move(resp));
 	} catch (...) {
-		self->complete_request(sequence, response::server_error());
+		self->complete_request(sequence, http::response::server_error());
 	}
 }
 
-void coroutine_http_session::complete_request(std::size_t sequence, response response) {
+void coroutine_http_session::complete_request(std::size_t sequence, http::response response) {
 	if (shutdown_started_)
 		return;
 
@@ -275,4 +277,4 @@ void coroutine_http_session::finish_request(std::size_t sequence) {
 	--outstanding_requests_;
 }
 
-} // namespace warp::http
+} // namespace warp::server

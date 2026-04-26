@@ -1,11 +1,11 @@
-#include "warp/http/server.hpp"
+#include "warp/server/server.hpp"
 
 #include <algorithm>
 #include <memory>
 
 #include "server_impl.hpp"
 
-namespace warp::http {
+namespace warp::server {
 
 server::server() = default;
 server::~server() {
@@ -42,4 +42,4 @@ void server::controller::stop() {
 	}
 }
 
-} // namespace warp::http
+} // namespace warp::server

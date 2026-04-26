@@ -18,7 +18,7 @@
 #include <variant>
 
 #include "warp/warp.hpp"
-#include "warp/http/server_builder.hpp"
+#include "warp/server/server_builder.hpp"
 #include "warp/http/util.h"
 
 #if defined(__APPLE__)
@@ -1008,7 +1008,7 @@ auto bind_generated_endpoint(std::shared_ptr<Service> service) {
 
 template <typename Service, typename Route, request_contract RequestContract, typename ResponseType, auto MemberFn>
 struct endpoint_binding {
-	static void register_route(http::server_builder &builder, const std::shared_ptr<Service> &service) {
+	static void register_route(warp::server::server_builder &builder, const std::shared_ptr<Service> &service) {
 		builder.route(Route {}, bind_endpoint<RequestContract, ResponseType>(service, MemberFn));
 	}
 };
@@ -1016,7 +1016,7 @@ struct endpoint_binding {
 template <typename Service, typename Route, request_contract RequestContract, typename ResponseContract,
           typename Selector>
 struct generated_endpoint_binding {
-	static void register_route(http::server_builder &builder, const std::shared_ptr<Service> &service) {
+	static void register_route(warp::server::server_builder &builder, const std::shared_ptr<Service> &service) {
 		builder.route(Route {}, bind_generated_endpoint<RequestContract, ResponseContract, Service, Selector>(service));
 	}
 };
@@ -1030,7 +1030,7 @@ public:
 		}
 	}
 
-	void register_routes(http::server_builder &builder) const {
+	void register_routes(warp::server::server_builder &builder) const {
 		(Endpoints::register_route(builder, service_), ...);
 	}
 
@@ -1039,7 +1039,7 @@ private:
 };
 
 template <typename... Resources>
-void register_resources(http::server_builder &builder, Resources &...resources) {
+void register_resources(warp::server::server_builder &builder, Resources &...resources) {
 	(builder.register_resource(resources), ...);
 }
 

@@ -2,20 +2,20 @@
 #include "server_impl.hpp"
 
 #include <iostream>
+
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/strand.hpp>
 
+namespace warp::server {
 
-namespace warp::http {
-
-template <event_loop_mode Mode>
+template <http::event_loop_mode Mode>
 server::server_impl<Mode>::server_impl(const std::string &address, std::uint16_t port, std::size_t workers, registry routes)
 : pool_size_(workers ? workers : 1), io_ctx_(static_cast<int>(pool_size_)), routes_(std::move(routes)),
 	listener_(std::make_shared<listener_t>(io_ctx_, routes_, address, port)) {
 	threads_.reserve(pool_size_);
 }
 
-template <event_loop_mode _>
+template <http::event_loop_mode _>
 void server::server_impl<_>::run(bool blocking) {
 	std::vector<std::thread> threads_to_join;
 
@@ -77,7 +77,7 @@ void server::server_impl<_>::run(bool blocking) {
 	}
 }
 
-template <event_loop_mode Mode>
+template <http::event_loop_mode Mode>
 void server::server_impl<Mode>::stop() {
 	std::vector<std::thread> threads_to_join;
 
@@ -122,7 +122,7 @@ void server::server_impl<Mode>::stop() {
 	lifecycle_cv_.notify_all();
 }
 
-template <event_loop_mode Mode>
+template <http::event_loop_mode Mode>
 void server::server_impl<Mode>::start_runner_threads() {
 	for (std::size_t i = 0; i < pool_size_; i++) {
 		threads_.emplace_back([&ctx = io_ctx_]() {
@@ -138,7 +138,7 @@ void server::server_impl<Mode>::start_runner_threads() {
 	}
 }
 
-template <event_loop_mode Mode>
+template <http::event_loop_mode Mode>
 std::vector<std::thread> server::server_impl<Mode>::stop_io_ctx() {
 	if (guard_) {
 		guard_->reset();
@@ -152,7 +152,7 @@ std::vector<std::thread> server::server_impl<Mode>::stop_io_ctx() {
 	return threads;
 }
 
-template <event_loop_mode Mode>
+template <http::event_loop_mode Mode>
 void server::server_impl<Mode>::join_runner_threads(std::vector<std::thread> threads, std::thread::id current_thread_id) {
 	for (auto &t : threads) {
 		if (t.joinable()) {
@@ -166,4 +166,4 @@ void server::server_impl<Mode>::join_runner_threads(std::vector<std::thread> thr
 	}
 }
 
-} // namespace warp::http
+} // namespace warp::server

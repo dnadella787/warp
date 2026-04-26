@@ -11,13 +11,13 @@
 #include <stdexcept>
 #include <thread>
 
-#include "warp/http/server_builder.hpp"
+#include "warp/server/server_builder.hpp"
 
 namespace warp::tests::integration_support {
 
 using namespace std::chrono_literals;
 
-server_fixture::server_fixture(warp::http::server_builder builder)
+server_fixture::server_fixture(warp::server::server_builder builder)
     : server_fixture(std::move(builder), event_loop_mode_tag<event_loop_mode::callbacks> {}) {
 }
 

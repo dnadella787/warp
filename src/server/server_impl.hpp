@@ -7,15 +7,17 @@
 #include <string>
 #include <thread>
 
+#include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
+
 #include "listener/base_listener.hpp"
 #include "listener/traits.hpp"
 #include "router/registry.hpp"
-#include "warp/http/server.hpp"
+#include "warp/server/server.hpp"
 
-namespace warp::http {
+namespace warp::server {
 
-template <event_loop_mode Mode>
+template <http::event_loop_mode Mode>
 class server::server_impl : public impl_base {
 public:
 	server_impl(const std::string &address, std::uint16_t port, std::size_t workers, registry routes);
@@ -49,6 +51,6 @@ private:
 	using listener_t = listener_traits<Mode>::type;
 };
 
-} // namespace warp::http
+} // namespace warp::server
 
 #include "server_impl.tpp"

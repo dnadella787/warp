@@ -4,7 +4,7 @@
 #include <type_traits>
 #include <utility>
 
-#include "warp/http/server_builder.hpp"
+#include "warp/server/server_builder.hpp"
 
 namespace generated = generated_query_routing_api;
 
@@ -94,10 +94,11 @@ concept has_generated_response_body_traits = requires(const Response &const_resp
 };
 
 template <typename Service>
-concept generated_routes_registrable = requires(std::shared_ptr<Service> service, warp::http::server_builder &builder) {
-	{ generated::reports_api_routes<Service> {service} };
-	{ generated::reports_api_routes<Service> {service}.register_routes(builder) } -> std::same_as<void>;
-};
+concept generated_routes_registrable =
+    requires(std::shared_ptr<Service> service, warp::server::server_builder &builder) {
+	    { generated::reports_api_routes<Service> {service} };
+	    { generated::reports_api_routes<Service> {service}.register_routes(builder) } -> std::same_as<void>;
+    };
 
 static_assert(has_generated_request_traits<generated::reports_fetch_report_request>);
 static_assert(has_generated_request_traits<generated::reports_fetch_report_summary_request>);
@@ -120,14 +121,14 @@ static_assert(warp::http::deterministic_route_definitions<fallback_route, summar
                                                           summary_projection_route>());
 static_assert(warp::http::deterministic_route_definitions<exact_mode_route, broad_mode_route>());
 static_assert(!warp::http::deterministic_route_definitions<optional_exact_mode_route, optional_broad_mode_route>());
-static_assert(warp::http::detail::percent_encode_query_component("plus+space %") == "plus%2Bspace%20%25");
-static_assert(warp::http::detail::registered_query_constraint_fragment(warp::http::query_constraint_descriptor {
+static_assert(warp::server::detail::percent_encode_query_component("plus+space %") == "plus%2Bspace%20%25");
+static_assert(warp::server::detail::registered_query_constraint_fragment(warp::http::query_constraint_descriptor {
                   .name = "plus+space %",
                   .presence = warp::http::query_constraint_presence::optional,
                   .has_exact_value = true,
                   .exact_value = "a+b&c=d%",
               }) == "~plus%2Bspace%20%25=a%2Bb%26c%3Dd%25");
 static_assert(generated_routes_registrable<compile_time_reports_service>);
-static_assert(warp::http::resource_registrable<generated::reports_api_routes<compile_time_reports_service> &>);
+static_assert(warp::server::resource_registrable<generated::reports_api_routes<compile_time_reports_service> &>);
 
 } // namespace
