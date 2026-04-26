@@ -64,9 +64,9 @@ int main() {
 	        // required query param
 	        .get<"/sync", required_query<"status">>(
 	            [&er = exchange_resource](const warp::request &request) -> response { return er.get_sync(request); })
-	        // low priority request, it will actually match the optional query below if you do /sync
-	        .get("/sync?_priority=-1",
-	             [](const warp::request) -> response { return warp::response::bad_request("Priority set error"); })
+	        // unconstrained fallback when the query-aware variants do not match
+	        .get("/sync",
+	             [](const warp::request) -> response { return warp::response::bad_request("Missing status query"); })
 	        // optional query param
 	        .get<"/sync", optional_query_value<"status", "RUNNING">>(
 	            [&er = exchange_resource](const warp::request &request) -> response {

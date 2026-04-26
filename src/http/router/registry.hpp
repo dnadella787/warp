@@ -1,6 +1,5 @@
 #pragma once
 
-#include <cstdint>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -37,7 +36,6 @@ private:
 		handler handler;
 		std::vector<route_parameter> parameters;
 		std::vector<compiled_query_constraint> query_constraints;
-		std::int64_t priority {};
 		std::size_t registration_order {};
 	};
 

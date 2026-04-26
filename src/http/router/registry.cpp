@@ -3,14 +3,11 @@
 #include <boost/asio/awaitable.hpp>
 
 #include <algorithm>
-#include <array>
-#include <charconv>
 #include <functional>
 #include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
-#include <system_error>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -18,26 +15,6 @@
 namespace warp::http {
 
 namespace {
-
-constexpr std::array<std::string_view, 4> route_priority_keys {
-    "priority",
-    "_priority",
-    "__priority",
-    "__warp_priority",
-};
-
-[[nodiscard]] bool is_priority_query_key(std::string_view key) noexcept {
-	return std::ranges::find(route_priority_keys, key) != route_priority_keys.end();
-}
-
-[[nodiscard]] std::int64_t parse_route_priority(std::string_view route, std::string_view raw_value) {
-	std::int64_t priority = 0;
-	const auto [ptr, ec] = std::from_chars(raw_value.data(), raw_value.data() + raw_value.size(), priority);
-	if (ec != std::errc {} || ptr != raw_value.data() + raw_value.size()) {
-		throw std::invalid_argument("route priority must be a signed integer in route '" + std::string(route) + "'");
-	}
-	return priority;
-}
 
 void normalize_compiled_query_constraints(std::vector<compiled_query_constraint> &constraints) {
 	detail::sort_compiled_query_constraints(constraints);
@@ -111,7 +88,6 @@ void registry::add_compiled(compiled_route route, handler h) {
 	    .handler = std::move(h),
 	    .parameters = std::move(parameters),
 	    .query_constraints = std::move(route.query_constraints),
-	    .priority = route.priority,
 	    .registration_order = next_registration_order_++,
 	});
 }
@@ -165,7 +141,6 @@ compiled_route registry::parse_registered_route(method verb, std::string_view ro
 
 	const auto raw_query = route.substr(query_pos + 1);
 	std::size_t start = 0;
-	bool priority_set = false;
 	while (start < raw_query.size()) {
 		const auto end = raw_query.find('&', start);
 		const auto token =
@@ -193,20 +168,11 @@ compiled_route registry::parse_registered_route(method verb, std::string_view ro
 			if (eq != std::string_view::npos && !raw_value.has_value())
 				throw std::invalid_argument("route query constraint values must use valid percent-encoding");
 
-			if (is_priority_query_key(*key)) {
-				if (!raw_value.has_value())
-					throw std::invalid_argument("route priority must be declared as key=value");
-				if (priority_set)
-					throw std::invalid_argument("route priority may only be declared once");
-				parsed.priority = parse_route_priority(route, *raw_value);
-				priority_set = true;
-			} else {
-				parsed.query_constraints.push_back(compiled_query_constraint {
-				    .name = std::move(*key),
-				    .presence = presence,
-				    .value = std::move(raw_value),
-				});
-			}
+			parsed.query_constraints.push_back(compiled_query_constraint {
+			    .name = std::move(*key),
+			    .presence = presence,
+			    .value = std::move(raw_value),
+			});
 		}
 
 		if (end == std::string_view::npos) {
@@ -297,9 +263,6 @@ bool registry::is_better_match(const route_entry &candidate, detail::query_const
 	}
 	if (candidate_score.matched_exact_constraints != current_best_score.matched_exact_constraints) {
 		return candidate_score.matched_exact_constraints > current_best_score.matched_exact_constraints;
-	}
-	if (candidate.priority != current_best.priority) {
-		return candidate.priority > current_best.priority;
 	}
 	return candidate.registration_order < current_best.registration_order;
 }

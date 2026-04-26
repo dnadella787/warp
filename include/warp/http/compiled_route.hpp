@@ -1,7 +1,6 @@
 #pragma once
 
 #include <algorithm>
-#include <cstdint>
 #include <optional>
 #include <string>
 #include <vector>
@@ -24,7 +23,6 @@ struct compiled_route {
 	method verb {};
 	route_pattern pattern;
 	std::vector<compiled_query_constraint> query_constraints;
-	std::int64_t priority {};
 };
 
 namespace detail {

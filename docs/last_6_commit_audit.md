@@ -36,7 +36,6 @@ Resolved since the original audit:
 - singleton required-query generated endpoints now stay unconstrained, preserving binder-driven `400` responses, and
   there is now a dedicated integration test covering this behavior
 - compile coverage for `noexcept` generated handlers exists
-- reserved route-priority query names are rejected at compile time
 - typed route registration no longer round-trips through `route_spec -> string -> runtime parse`; the repo now has a
   real `compiled_route` type, `compile_route_spec(...)`, and `registry.add_compiled(...)`
 - public headers no longer depend directly on `src/` router internals; shared route helpers now live under
@@ -66,7 +65,7 @@ Still open and still worth work:
 - codegen still emits one route/binding per endpoint rather than a deeper group-level dispatcher for overlapping
   same-path query groups
 
-Recommended remaining work, in priority order:
+Recommended remaining work:
 
 1. If request-path performance matters, replace `split_route_path_views(...)` with a lower-allocation path traversal
    that carries captures directly into path-param extraction.
@@ -111,7 +110,6 @@ Biggest correctness concerns:
 1. literal/query route can shadow valid parameter fallback
 2. singleton required-query generated routes likely skip binder validation and return `404`
 3. compile-time route ambiguity checker over-rejects some deterministic exact-value route sets
-4. compile-time query constraint API accepts reserved priority names that runtime interprets differently
 
 # Findings by Area
 
@@ -268,17 +266,6 @@ Recommendation: compute reachable score tuples, not independent per-dimension ov
 Estimated implementation effort: M  
 Disposition: Recommendation only
 
-### Reserved Priority Names Are Accepted at Compile Time but Mean Something Else at Runtime
-Severity: Medium  
-Confidence: High, inferred  
-Where: [query_constraints.hpp](../include/warp/http/query_constraints.hpp:33), [server_builder.hpp](../include/warp/http/server_builder.hpp:171), [registry.cpp](../src/http/router/registry.cpp:22)  
-Why it matters: `priority`, `_priority`, `__priority`, and `__warp_priority` can be spelled as normal query constraints in `route_spec`, but runtime treats them as route-priority metadata.  
-Evidence from the code/commits: compile-time name validation does not reject those reserved names; runtime `parse_registered_route` does.  
-Likely impact: surprising startup failures or semantic mismatches for valid-looking compile-time route specs.  
-Recommendation: reject reserved names in compile-time validation, or move priority entirely out of the query-string serialization path.  
-Estimated implementation effort: S  
-Disposition: Recommendation only
-
 ### Compile-Time Query Serialization Likely Mis-Encodes Special Characters
 Severity: Medium  
 Confidence: Medium, inferred  
@@ -297,7 +284,8 @@ Severity: Medium
 Confidence: High  
 Where: [route_spec.hpp](../include/warp/http/route_spec.hpp:85), [model.cpp](../src/codegen/model.cpp:448), [registry.cpp](../src/http/router/registry.cpp:317)  
 Why it matters: compile-time route determinism, codegen route grouping, and runtime route scoring are maintained separately and are already drifting at the edges.  
-Evidence from the code/commits: the compile-time layer has its own ambiguity math, codegen groups routes using accepted/required parameter sets only, and runtime supports additional features such as exact-value constraints and explicit priority.  
+Evidence from the code/commits: the compile-time layer has its own ambiguity math, codegen groups routes using
+accepted/required parameter sets only, and runtime supports additional features such as exact-value constraints.  
 Likely impact: more latent correctness gaps as query-routing features expand.  
 Recommendation: unify around a shared compiled route descriptor and shared specificity semantics consumed by codegen, `server_builder`, and the runtime registry.  
 Estimated implementation effort: L  
@@ -357,7 +345,8 @@ Ranked recommendations by expected payoff:
 
 ## Shared Compiled Route Descriptor Pipeline
 
-Why it may outperform the current structure: one source of truth for normalized path segments, query predicates, specificity metadata, and priority eliminates duplicate parsing and semantic drift.  
+Why it may outperform the current structure: one source of truth for normalized path segments, query predicates, and
+specificity metadata eliminates duplicate parsing and semantic drift.  
 Migration complexity: M-L  
 Risks / tradeoffs: touches `route_spec`, `server_builder`, codegen, and registry registration together.  
 Prototype or measure first: add an internal `compiled_route` consumed only by generated resources and compare startup allocations and server build time.
@@ -390,7 +379,7 @@ Immediate high-value fixes:
 1. Fix literal/query shadowing of parameter siblings.
 2. Keep singleton required-query generated endpoints on unconstrained routes.
 3. Finish the request lookup cleanup with heterogeneous `string_view` lookup.
-4. Add tests for reserved priority names and query-value serialization edge cases.
+4. Add tests for query-value serialization edge cases.
 5. Add compile coverage for `noexcept` handlers and exact-value determinism.
 
 Deeper refactors to evaluate:
@@ -413,7 +402,7 @@ Tests or instrumentation to add later:
 2. regression test proving singleton required-query endpoints return `400`
 3. compile tests for `noexcept` handlers
 4. compile/runtime tests for exact-value query route determinism
-5. tests covering query names/values containing `+`, `%`, `&`, and reserved priority names
+5. tests covering query names/values containing `+`, `%`, and `&`
 
 # Open Questions / Uncertainties
 

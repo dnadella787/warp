@@ -116,14 +116,6 @@ static_assert(
 static_assert(std::same_as<
               decltype(warp::codegen::to_http_response(std::declval<generated::reports_fetch_report_response>(), 11)),
               warp::response>);
-static_assert(warp::http::detail::validate_query_constraint_name("priority") ==
-              warp::http::detail::query_constraint_name_error::reserved_priority_name);
-static_assert(warp::http::detail::validate_query_constraint_name("_priority") ==
-              warp::http::detail::query_constraint_name_error::reserved_priority_name);
-static_assert(warp::http::detail::validate_query_constraint_name("__priority") ==
-              warp::http::detail::query_constraint_name_error::reserved_priority_name);
-static_assert(warp::http::detail::validate_query_constraint_name("__warp_priority") ==
-              warp::http::detail::query_constraint_name_error::reserved_priority_name);
 static_assert(warp::http::deterministic_route_definitions<fallback_route, summary_route, projection_route,
                                                           summary_projection_route>());
 static_assert(warp::http::deterministic_route_definitions<exact_mode_route, broad_mode_route>());

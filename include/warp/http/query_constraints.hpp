@@ -33,19 +33,15 @@ enum class query_constraint_name_error {
 	none,
 	empty_name,
 	contains_separator,
-	reserved_priority_name,
 };
 
 /** compile time query param name validation
  * 1. cannot be empty
- * 2. name cannot be a reserved priority keyword
- * 3. param cannot contain significant chars & = ? # !  (_ - . allowed)
+ * 2. param cannot contain significant chars & = ? # !  (_ - . allowed)
  */
 [[nodiscard]] constexpr query_constraint_name_error validate_query_constraint_name(std::string_view name) noexcept {
 	if (name.empty())
 		return query_constraint_name_error::empty_name;
-	if (name == "priority" || name == "_priority" || name == "__priority" || name == "__warp_priority")
-		return query_constraint_name_error::reserved_priority_name;
 	if (name.find_first_of("&=?#!~") != std::string_view::npos)
 		return query_constraint_name_error::contains_separator;
 	return query_constraint_name_error::none;
@@ -61,8 +57,6 @@ consteval void fail_query_constraint_name_validation() {
 	static_assert(Error != query_constraint_name_error::empty_name, "query constraint name must not be empty");
 	static_assert(Error != query_constraint_name_error::contains_separator,
 	              "query constraint name must not contain '&', '=', '?', '#', '!', or '~'");
-	static_assert(Error != query_constraint_name_error::reserved_priority_name,
-	              "query constraint name is reserved for route priority metadata");
 }
 
 template <fixed_string Name>

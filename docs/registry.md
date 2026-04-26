@@ -42,7 +42,6 @@ Important types:
   The stored handler plus:
   - compiled path parameter slots
   - query constraints for that route variant
-  - optional priority
   - registration order for deterministic tie-breaking
 
 - `warp::http::registry::query_constraint`
@@ -138,12 +137,9 @@ Registration-time query syntax:
   query parameter must not exist
 - `?name=value`
   required query parameter with an exact decoded value match
-- `?priority=10`
-  reserved registration-only priority override
 
 Notes:
 
-- priority keys are consumed by the registry and are not route constraints
 - query constraint names are normalized and sorted, so registration order inside the query string does not matter
 - duplicate query constraint names in a single route registration are rejected
 - exact-value matching is string-based after percent-decoding
@@ -221,8 +217,7 @@ If multiple route variants match the same request at a leaf, the winner is:
 
 1. the variant with the most matched constraints
 2. then the variant with the most matched exact-value constraints
-3. then the variant with the highest explicit priority
-4. then the earliest registration order
+3. then the earliest registration order
 
 This means unconstrained routes naturally act as fallbacks because they score lower than matching constrained variants.
 
