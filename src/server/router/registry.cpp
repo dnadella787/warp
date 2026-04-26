@@ -25,6 +25,27 @@ void normalize_compiled_query_constraints(std::vector<http::compiled_query_const
 	}
 }
 
+http::compiled_route compile_typed_route(http::method verb, std::string_view path,
+                                         const std::vector<http::query_constraint_descriptor> &query_constraints) {
+	http::compiled_route route {
+	    .verb = verb,
+	    .pattern = http::parse_route_pattern(path),
+	};
+	route.query_constraints.reserve(query_constraints.size());
+	for (const auto &descriptor : query_constraints) {
+		http::compiled_query_constraint constraint {
+		    .name = std::string(descriptor.name),
+		    .presence = descriptor.presence,
+		};
+		if (descriptor.has_exact_value) {
+			constraint.value = std::string(descriptor.exact_value);
+		}
+		route.query_constraints.push_back(std::move(constraint));
+	}
+	normalize_compiled_query_constraints(route.query_constraints);
+	return route;
+}
+
 } // namespace
 
 registry::registry(const registry &other) {
@@ -52,6 +73,11 @@ void registry::add(http::method verb, std::string path, http::handler h) {
 
 void registry::add_route(http::method verb, std::string path, http::handler h) {
 	add_compiled(parse_registered_route(verb, path), std::move(h));
+}
+
+void registry::add_typed(http::method verb, std::string path,
+                         const std::vector<http::query_constraint_descriptor> &query_constraints, http::handler h) {
+	add_compiled(compile_typed_route(verb, path, query_constraints), std::move(h));
 }
 
 void registry::add_compiled(http::compiled_route route, http::handler h) {
@@ -210,7 +236,7 @@ const registry::route_entry *registry::match_route(const node &root, const http:
 
 const registry::route_entry *registry::match_leaf_routes(const node &current, const http::request &req) {
 	const route_entry *best = nullptr;
-	http::detail::query_constraint_match_score best_score {};
+	http::routing_detail::query_constraint_match_score best_score {};
 	for (const auto &route : current.routes) {
 		const auto score = match_query_constraints(route, req);
 		if (!score.has_value()) {
@@ -224,9 +250,9 @@ const registry::route_entry *registry::match_leaf_routes(const node &current, co
 	return best;
 }
 
-std::optional<http::detail::query_constraint_match_score> registry::match_query_constraints(const route_entry &route,
-                                                                                            const http::request &req) {
-	http::detail::query_constraint_match_score score;
+std::optional<http::routing_detail::query_constraint_match_score>
+registry::match_query_constraints(const route_entry &route, const http::request &req) {
+	http::routing_detail::query_constraint_match_score score;
 	for (const auto &constraint : route.query_constraints) {
 		const auto actual = req.query_param(constraint.name);
 		if (constraint.presence == http::query_constraint_presence::forbidden) {
@@ -256,9 +282,10 @@ std::optional<http::detail::query_constraint_match_score> registry::match_query_
 	return score;
 }
 
-bool registry::is_better_match(const route_entry &candidate, http::detail::query_constraint_match_score candidate_score,
+bool registry::is_better_match(const route_entry &candidate,
+                               http::routing_detail::query_constraint_match_score candidate_score,
                                const route_entry &current_best,
-                               http::detail::query_constraint_match_score current_best_score) {
+                               http::routing_detail::query_constraint_match_score current_best_score) {
 	if (candidate_score.matched_constraints != current_best_score.matched_constraints) {
 		return candidate_score.matched_constraints > current_best_score.matched_constraints;
 	}

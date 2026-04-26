@@ -7,7 +7,7 @@
 
 #include "compiled_route.hpp"
 
-namespace warp::http::detail {
+namespace warp::http::routing_detail {
 
 struct query_constraint_match_score {
 	std::size_t matched_constraints {};
@@ -148,4 +148,4 @@ inline void sort_query_constraint_descriptors(std::vector<query_constraint_descr
 	});
 }
 
-} // namespace warp::http::detail
+} // namespace warp::http::routing_detail

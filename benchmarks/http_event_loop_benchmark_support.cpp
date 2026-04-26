@@ -1,5 +1,5 @@
 #include "http_event_loop_benchmark_support.hpp"
-#include "warp/http/server_builder.hpp"
+#include "warp/server/server_builder.hpp"
 
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/co_spawn.hpp>
@@ -21,7 +21,6 @@
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
-#include <cstdlib>
 #include <fstream>
 #include <limits>
 #include <mutex>
@@ -922,7 +921,7 @@ void process_resource_tracker::record(benchmark::State &state, std::uint64_t req
 	}
 }
 
-server_fixture::server_fixture(warp::http::server_builder builder)
+server_fixture::server_fixture(server::server_builder builder)
     : server_fixture(std::move(builder), event_loop_mode_tag<warp::http::event_loop_mode::callbacks> {}) {
 }
 

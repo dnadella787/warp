@@ -1,4 +1,4 @@
-#include "warp/codegen/spec_model.hpp"
+#include "codegen/spec_model.hpp"
 
 #include <utility>
 

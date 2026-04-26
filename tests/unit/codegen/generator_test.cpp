@@ -1,6 +1,7 @@
 #include "warp/codegen/generator.hpp"
-#include "warp/codegen/model.hpp"
-#include "warp/codegen/spec_parser.hpp"
+#include "codegen/model.hpp"
+#include "codegen/spec_parser.hpp"
+#include "codegen/stub_generator.hpp"
 
 #include <gtest/gtest.h>
 
@@ -10,10 +11,8 @@
 namespace {
 
 using warp::codegen::api_stub_generator;
-using warp::codegen::parse_api_spec;
-
 TEST(ApiStubGeneratorTest, GeneratesModelAndResourceHeadersWithConsistentNames) {
-	const auto spec = parse_api_spec(R"(
+	static constexpr std::string_view yaml = R"(
 cpp_namespace: generated_api
 resources:
   - name: users
@@ -41,12 +40,12 @@ resources:
             fields:
               - name: id
                 type: int64
-)");
+)";
 
-	const auto generated =
-	    api_stub_generator().generate(spec, {.namespace_name = "generated_api", .model_header_name = "models.hpp"});
-	const auto generated_again =
-	    api_stub_generator().generate(spec, {.namespace_name = "generated_api", .model_header_name = "models.hpp"});
+	const auto generated = api_stub_generator().generate_from_yaml(
+	    yaml, {.namespace_name = "generated_api", .model_header_name = "models.hpp"});
+	const auto generated_again = api_stub_generator().generate_from_yaml(
+	    yaml, {.namespace_name = "generated_api", .model_header_name = "models.hpp"});
 
 	EXPECT_NE(generated.model_header.find("namespace generated_api {"), std::string::npos);
 	EXPECT_NE(generated.model_header.find("class users_create_user_request {"), std::string::npos);
@@ -91,7 +90,7 @@ resources:
 }
 
 TEST(ApiStubGeneratorTest, RejectsNamespaceOverrideMismatchForModels) {
-	const auto spec = parse_api_spec(R"(
+	const auto spec = warp::codegen::parse_api_spec(R"(
 cpp_namespace: generated_api
 resources:
   - name: users
@@ -102,8 +101,9 @@ resources:
 )");
 
 	const auto model = warp::codegen::build_api_model(spec);
-	EXPECT_THROW(static_cast<void>(api_stub_generator().generate(model, {.namespace_name = "other_namespace"})),
-	             std::invalid_argument);
+	EXPECT_THROW(
+	    static_cast<void>(warp::codegen::stub_generator().generate(model, {.namespace_name = "other_namespace"})),
+	    std::invalid_argument);
 }
 
 } // namespace

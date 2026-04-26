@@ -2,7 +2,7 @@
 
 #include <string>
 
-#include "warp/codegen/resource_stub_emitter.hpp"
+#include "resource_stub_emitter.hpp"
 
 namespace warp::codegen {
 

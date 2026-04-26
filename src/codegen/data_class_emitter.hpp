@@ -2,7 +2,7 @@
 
 #include <string>
 
-#include "warp/codegen/model.hpp"
+#include "codegen/model.hpp"
 
 namespace warp::codegen {
 

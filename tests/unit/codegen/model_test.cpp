@@ -1,5 +1,5 @@
-#include "warp/codegen/model.hpp"
-#include "warp/codegen/spec_parser.hpp"
+#include "codegen/model.hpp"
+#include "codegen/spec_parser.hpp"
 
 #include <gtest/gtest.h>
 

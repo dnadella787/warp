@@ -4,9 +4,9 @@
 #include <string>
 #include <string_view>
 
-#include "warp/codegen/data_class_emitter.hpp"
-#include "warp/codegen/resource_stub_emitter.hpp"
-#include "warp/codegen/spec_parser.hpp"
+#include "data_class_emitter.hpp"
+#include "resource_stub_emitter.hpp"
+#include "codegen/spec_parser.hpp"
 
 namespace warp::codegen {
 

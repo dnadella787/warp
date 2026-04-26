@@ -12,7 +12,6 @@
 #include <boost/json/parse.hpp>
 #include <boost/json/value.hpp>
 
-#include "warp/server/router/route_pattern.hpp"
 #include "warp/http/string_map.hpp"
 
 namespace warp::http {
@@ -23,6 +22,54 @@ struct target_parse_error {
 	std::string code;
 	std::string message;
 };
+
+namespace detail {
+
+inline int hex_value(char c) {
+	if (c >= '0' && c <= '9') {
+		return c - '0';
+	}
+	if (c >= 'A' && c <= 'F') {
+		return 10 + (c - 'A');
+	}
+	if (c >= 'a' && c <= 'f') {
+		return 10 + (c - 'a');
+	}
+	return -1;
+}
+
+inline std::optional<std::string> try_decode_url_component(std::string_view input, bool plus_as_space = false) {
+	std::string output;
+	output.reserve(input.size());
+	for (std::size_t i = 0; i < input.size(); ++i) {
+		const char c = input[i];
+		if (c == '%') {
+			if (i + 2 >= input.size()) {
+				return std::nullopt;
+			}
+			const int hi = hex_value(input[i + 1]);
+			const int lo = hex_value(input[i + 2]);
+			if (hi < 0 || lo < 0) {
+				return std::nullopt;
+			}
+			output.push_back(static_cast<char>((hi << 4) | lo));
+			i += 2;
+			continue;
+		}
+		if (c == '+' && plus_as_space) {
+			output.push_back(' ');
+			continue;
+		}
+		output.push_back(c);
+	}
+	return output;
+}
+
+inline std::optional<std::string> try_decode_query_component(std::string_view input) {
+	return try_decode_url_component(input, true);
+}
+
+} // namespace detail
 
 class request : public beast_request {
 public:
@@ -196,7 +243,7 @@ inline void request::parse_target() {
 		const auto token = query.substr(start, end == std::string_view::npos ? std::string_view::npos : end - start);
 		if (!token.empty()) {
 			const auto eq = token.find('=');
-			const auto key = warp::http::try_decode_query_component(token.substr(0, eq));
+			const auto key = detail::try_decode_query_component(token.substr(0, eq));
 			if (!key.has_value()) {
 				query_params_.clear();
 				target_error_ = target_parse_error {
@@ -205,9 +252,8 @@ inline void request::parse_target() {
 				};
 				return;
 			}
-			const auto value = eq == std::string_view::npos
-			                       ? std::optional<std::string>(std::string {})
-			                       : warp::http::try_decode_query_component(token.substr(eq + 1));
+			const auto value = eq == std::string_view::npos ? std::optional<std::string>(std::string {})
+			                                                : detail::try_decode_query_component(token.substr(eq + 1));
 			if (!value.has_value()) {
 				query_params_.clear();
 				target_error_ = target_parse_error {

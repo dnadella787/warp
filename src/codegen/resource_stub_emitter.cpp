@@ -1,4 +1,4 @@
-#include "warp/codegen/resource_stub_emitter.hpp"
+#include "resource_stub_emitter.hpp"
 
 #include <optional>
 #include <stdexcept>

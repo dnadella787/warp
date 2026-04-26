@@ -119,7 +119,9 @@ target_include_directories(
     warp_codegen_core
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-        $<INSTALL_INTERFACE:include>)
+        $<INSTALL_INTERFACE:include>
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 target_link_libraries(
     warp_codegen_core
@@ -213,7 +215,6 @@ endif ()
 
 set(warp_install_targets
     warp_codegen_core
-    warp_codegen_runtime
     warp_http
     warp_codegen_cli)
 if (warp_BUILD_DB)
@@ -227,7 +228,34 @@ install(TARGETS ${warp_install_targets}
     RUNTIME DESTINATION bin
     INCLUDES DESTINATION include)
 
-install(DIRECTORY include/ DESTINATION include)
+set(warp_public_headers
+    include/warp/warp.hpp
+    include/warp/codegen/detail/type_traits.hpp
+    include/warp/codegen/generator.hpp
+    include/warp/codegen/http_adapter.hpp
+    include/warp/codegen/json_object_contract.hpp
+    include/warp/db/postgres/connection_config.hpp
+    include/warp/db/postgres/connection_pool.hpp
+    include/warp/db/postgres/result.hpp
+    include/warp/http/body_builder.hpp
+    include/warp/http/event_loop_mode.hpp
+    include/warp/http/http.hpp
+    include/warp/http/request.hpp
+    include/warp/http/response.hpp
+    include/warp/http/response_builder.hpp
+    include/warp/http/string_map.hpp
+    include/warp/server/router/query_constraints.hpp
+    include/warp/server/router/route_fixed_string.hpp
+    include/warp/server/router/route_path.hpp
+    include/warp/server/router/route_spec.hpp
+    include/warp/server/server.hpp
+    include/warp/server/server_builder.hpp)
+
+foreach(warp_public_header IN LISTS warp_public_headers)
+    get_filename_component(warp_public_header_dir "${warp_public_header}" DIRECTORY)
+    string(REPLACE "include/" "" warp_public_install_dir "${warp_public_header_dir}")
+    install(FILES "${warp_public_header}" DESTINATION "include/${warp_public_install_dir}")
+endforeach()
 
 configure_package_config_file(
     ${CMAKE_CURRENT_SOURCE_DIR}/cmake/warpConfig.cmake.in

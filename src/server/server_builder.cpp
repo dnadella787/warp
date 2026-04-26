@@ -29,8 +29,13 @@ server_builder &server_builder::route(http::method verb, std::string path, http:
 	return *this;
 }
 
-server_builder &server_builder::route(http::compiled_route route, http::handler handler) {
-	routes_.push_back(route_definition {.compiled = std::move(route), .callback = std::move(handler)});
+server_builder &server_builder::route_typed(http::method verb, std::string path,
+                                            std::vector<http::query_constraint_descriptor> query_constraints,
+                                            http::handler handler) {
+	routes_.push_back(route_definition {.verb = verb,
+	                                    .path = std::move(path),
+	                                    .typed_query_constraints = std::move(query_constraints),
+	                                    .callback = std::move(handler)});
 	return *this;
 }
 
@@ -51,8 +56,8 @@ template <http::event_loop_mode Mode>
 [[nodiscard]] std::shared_ptr<server::impl_base> server_builder::make_impl() const {
 	registry registry;
 	for (const auto &route : routes_) {
-		if (route.compiled.has_value()) {
-			registry.add_compiled(*route.compiled, route.callback);
+		if (route.typed_query_constraints.has_value()) {
+			registry.add_typed(route.verb, route.path, *route.typed_query_constraints, route.callback);
 			continue;
 		}
 		registry.add(route.verb, route.path, route.callback);

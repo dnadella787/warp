@@ -5,18 +5,126 @@
 #include <concepts>
 #include <cstddef>
 #include <optional>
-#include <string>
 #include <string_view>
 
 #include "warp/http/http.hpp"
 #include "query_constraints.hpp"
-#include "query_constraint_semantics.hpp"
 #include "route_path.hpp"
-#include "route_pattern.hpp"
 
 namespace warp::http {
 
 namespace detail {
+
+struct query_constraint_match_score {
+	std::size_t matched_constraints {};
+	std::size_t matched_exact_constraints {};
+};
+
+enum class query_value_state {
+	absent,
+	lhs_exact,
+	rhs_exact,
+	other_present,
+};
+
+[[nodiscard]] constexpr query_constraint_presence constraint_presence(query_constraint_descriptor constraint) noexcept {
+	return constraint.presence;
+}
+
+[[nodiscard]] constexpr bool constraint_has_exact_value(query_constraint_descriptor constraint) noexcept {
+	return constraint.has_exact_value;
+}
+
+[[nodiscard]] constexpr std::string_view constraint_exact_value(query_constraint_descriptor constraint) noexcept {
+	return constraint.exact_value;
+}
+
+[[nodiscard]] constexpr bool query_constraints_can_overlap(query_constraint_descriptor lhs,
+                                                           query_constraint_descriptor rhs) noexcept {
+	if (constraint_presence(lhs) == query_constraint_presence::forbidden &&
+	    constraint_presence(rhs) == query_constraint_presence::forbidden) {
+		return true;
+	}
+	if (constraint_presence(lhs) == query_constraint_presence::forbidden) {
+		return constraint_presence(rhs) != query_constraint_presence::required;
+	}
+	if (constraint_presence(rhs) == query_constraint_presence::forbidden) {
+		return constraint_presence(lhs) != query_constraint_presence::required;
+	}
+	if (constraint_presence(lhs) != query_constraint_presence::required &&
+	    constraint_presence(rhs) != query_constraint_presence::required) {
+		return true;
+	}
+	if (!constraint_has_exact_value(lhs) || !constraint_has_exact_value(rhs)) {
+		return true;
+	}
+	return constraint_exact_value(lhs) == constraint_exact_value(rhs);
+}
+
+[[nodiscard]] constexpr bool query_match_scores_equal(query_constraint_match_score lhs,
+                                                      query_constraint_match_score rhs) noexcept {
+	return lhs.matched_constraints == rhs.matched_constraints &&
+	       lhs.matched_exact_constraints == rhs.matched_exact_constraints;
+}
+
+[[nodiscard]] constexpr bool exact_value_matches_state(std::string_view exact_value, std::string_view lhs_exact_value,
+                                                       std::string_view rhs_exact_value,
+                                                       query_value_state state) noexcept {
+	switch (state) {
+	case query_value_state::absent:
+	case query_value_state::other_present:
+		return false;
+	case query_value_state::lhs_exact:
+		return !lhs_exact_value.empty() && exact_value == lhs_exact_value;
+	case query_value_state::rhs_exact:
+		return !rhs_exact_value.empty() && exact_value == rhs_exact_value;
+	}
+	return false;
+}
+
+[[nodiscard]] constexpr bool
+query_constraint_accepts_state(const std::optional<query_constraint_descriptor> &constraint,
+                               std::string_view lhs_exact_value, std::string_view rhs_exact_value,
+                               query_value_state state) noexcept {
+	if (!constraint.has_value()) {
+		return true;
+	}
+	if (constraint_presence(*constraint) == query_constraint_presence::forbidden) {
+		return state == query_value_state::absent;
+	}
+	if (state == query_value_state::absent) {
+		return constraint_presence(*constraint) == query_constraint_presence::optional;
+	}
+	if (!constraint_has_exact_value(*constraint)) {
+		return true;
+	}
+	return exact_value_matches_state(constraint_exact_value(*constraint), lhs_exact_value, rhs_exact_value, state);
+}
+
+[[nodiscard]] constexpr query_constraint_match_score
+query_constraint_score(const std::optional<query_constraint_descriptor> &constraint, query_value_state state) noexcept {
+	if (!constraint.has_value()) {
+		return {};
+	}
+	if (constraint_presence(*constraint) == query_constraint_presence::forbidden) {
+		return {.matched_constraints = 1};
+	}
+	if (state == query_value_state::absent) {
+		return {};
+	}
+	return {
+	    .matched_constraints = 1,
+	    .matched_exact_constraints = constraint_has_exact_value(*constraint) ? 1U : 0U,
+	};
+}
+
+[[nodiscard]] constexpr query_constraint_match_score add_query_match_scores(query_constraint_match_score lhs,
+                                                                            query_constraint_match_score rhs) noexcept {
+	return {
+	    .matched_constraints = lhs.matched_constraints + rhs.matched_constraints,
+	    .matched_exact_constraints = lhs.matched_exact_constraints + rhs.matched_exact_constraints,
+	};
+}
 
 [[nodiscard]] constexpr bool route_shape_matches(std::string_view lhs, std::string_view rhs) noexcept {
 	if (lhs == "/" || rhs == "/") {
@@ -209,31 +317,6 @@ public:
 
 template <typename T>
 concept route_registration_spec = detail::route_registration_spec_impl<T>;
-
-namespace detail {
-
-template <route_registration_spec Spec>
-[[nodiscard]] inline compiled_route compile_route_spec() {
-	compiled_route route {
-	    .verb = Spec::verb,
-	    .pattern = parse_route_pattern(Spec::path_view()),
-	};
-	route.query_constraints.reserve(Spec::query_constraints.size());
-	for (const auto &descriptor : Spec::query_constraints) {
-		compiled_query_constraint constraint {
-		    .name = std::string(descriptor.name),
-		    .presence = descriptor.presence,
-		};
-		if (descriptor.has_exact_value) {
-			constraint.value = std::string(descriptor.exact_value);
-		}
-		route.query_constraints.push_back(std::move(constraint));
-	}
-	sort_compiled_query_constraints(route.query_constraints);
-	return route;
-}
-
-} // namespace detail
 
 template <route_registration_spec... Specs>
 [[nodiscard]] consteval bool deterministic_route_definitions() {

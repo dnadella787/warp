@@ -1,8 +1,7 @@
 #pragma once
 
 #include "warp/db/postgres/connection_config.hpp"
-#include "warp/http/server.hpp"
-#include "warp/http/server_builder.hpp"
+#include "warp/server/server_builder.hpp"
 
 #include <benchmark/benchmark.h>
 
@@ -12,7 +11,6 @@
 
 #include <chrono>
 #include <cstddef>
-#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -43,7 +41,7 @@ struct db_env {
 	std::string database;
 };
 
-warp::db::postgres::connection_config make_db_config(const db_env &env);
+db::postgres::connection_config make_db_config(const db_env &env);
 std::optional<db_env> load_db_env();
 
 class process_resource_tracker {
@@ -94,11 +92,10 @@ struct load_test_metrics {
 };
 
 struct server_fixture {
-	explicit server_fixture(warp::http::server_builder builder);
+	explicit server_fixture(server::server_builder builder);
 
-	template <warp::http::event_loop_mode Mode>
-	explicit server_fixture(warp::http::server_builder builder,
-	                        std::integral_constant<warp::http::event_loop_mode, Mode>)
+	template <http::event_loop_mode Mode>
+	explicit server_fixture(server::server_builder builder, std::integral_constant<http::event_loop_mode, Mode>)
 	    : port(reserve_port()),
 	      server(builder.address("127.0.0.1").port(port).worker_threads(4).template build<Mode>()) {
 		server.run(false);
@@ -107,14 +104,14 @@ struct server_fixture {
 	~server_fixture();
 
 	std::uint16_t port;
-	warp::http::server server;
+	server::server server;
 
 private:
 	static std::uint16_t reserve_port();
 };
 
-template <warp::http::event_loop_mode Mode>
-using event_loop_mode_tag = std::integral_constant<warp::http::event_loop_mode, Mode>;
+template <http::event_loop_mode Mode>
+using event_loop_mode_tag = std::integral_constant<http::event_loop_mode, Mode>;
 
 struct client_connection {
 	asio::io_context ioc;

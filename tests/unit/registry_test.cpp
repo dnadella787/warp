@@ -44,6 +44,14 @@ using typed_broad_mode_route = warp::http::route_spec<warp::method::get, "/items
 using typed_encoded_query_route =
     warp::http::route_spec<warp::method::get, "/filters", warp::http::optional_query_value<"plus+space %", "a+b %">>;
 
+template <typename Spec, typename Handler>
+void add_typed_route(registry &routes, Handler &&handler) {
+	routes.add_typed(Spec::verb, std::string(Spec::path_view()),
+	                 std::vector<warp::http::query_constraint_descriptor>(Spec::query_constraints.begin(),
+	                                                                      Spec::query_constraints.end()),
+	                 std::forward<Handler>(handler));
+}
+
 warp::response route_response(std::string route) {
 	return warp::response::ok(warp::body_builder().set("route", std::move(route)).build());
 }
@@ -255,14 +263,14 @@ TEST(RegistryTest, FindFallsBackWhenNoQueryAwareRouteMatches) {
 
 TEST(RegistryTest, AddCompiledPreservesTypedQuerySpecificity) {
 	registry routes;
-	routes.add_compiled(warp::http::detail::compile_route_spec<typed_fallback_route>(),
-	                    [](const warp::request &) -> warp::response { return route_response("fallback"); });
-	routes.add_compiled(warp::http::detail::compile_route_spec<typed_summary_route>(),
-	                    [](const warp::request &) -> warp::response { return route_response("summary"); });
-	routes.add_compiled(warp::http::detail::compile_route_spec<typed_projection_route>(),
-	                    [](const warp::request &) -> warp::response { return route_response("projection"); });
-	routes.add_compiled(warp::http::detail::compile_route_spec<typed_summary_projection_route>(),
-	                    [](const warp::request &) -> warp::response { return route_response("summary_projection"); });
+	add_typed_route<typed_fallback_route>(
+	    routes, [](const warp::request &) -> warp::response { return route_response("fallback"); });
+	add_typed_route<typed_summary_route>(
+	    routes, [](const warp::request &) -> warp::response { return route_response("summary"); });
+	add_typed_route<typed_projection_route>(
+	    routes, [](const warp::request &) -> warp::response { return route_response("projection"); });
+	add_typed_route<typed_summary_projection_route>(
+	    routes, [](const warp::request &) -> warp::response { return route_response("summary_projection"); });
 
 	EXPECT_EQ(matched_route_name(routes, warp::request(verb::get, "/reports/42?summary=true", 11)), "summary");
 	EXPECT_EQ(matched_route_name(routes, warp::request(verb::get, "/reports/42?fields=name", 11)), "projection");
@@ -273,10 +281,10 @@ TEST(RegistryTest, AddCompiledPreservesTypedQuerySpecificity) {
 
 TEST(RegistryTest, AddCompiledPrefersExactValueConstraintsOverBroadMatches) {
 	registry routes;
-	routes.add_compiled(warp::http::detail::compile_route_spec<typed_broad_mode_route>(),
-	                    [](const warp::request &) -> warp::response { return route_response("broad"); });
-	routes.add_compiled(warp::http::detail::compile_route_spec<typed_exact_mode_route>(),
-	                    [](const warp::request &) -> warp::response { return route_response("exact"); });
+	add_typed_route<typed_broad_mode_route>(
+	    routes, [](const warp::request &) -> warp::response { return route_response("broad"); });
+	add_typed_route<typed_exact_mode_route>(
+	    routes, [](const warp::request &) -> warp::response { return route_response("exact"); });
 
 	EXPECT_EQ(matched_route_name(routes, warp::request(verb::get, "/items?mode=full", 11)), "exact");
 	EXPECT_EQ(matched_route_name(routes, warp::request(verb::get, "/items?mode=compact", 11)), "broad");
@@ -288,9 +296,8 @@ TEST(RegistryTest, AddCompiledRejectsTypedDuplicatesWithReorderedConstraints) {
 		return warp::response::ok();
 	};
 
-	routes.add_compiled(warp::http::detail::compile_route_spec<typed_summary_fields_route>(), handler);
-	EXPECT_THROW(routes.add_compiled(warp::http::detail::compile_route_spec<typed_fields_summary_route>(), handler),
-	             std::invalid_argument);
+	add_typed_route<typed_summary_fields_route>(routes, handler);
+	EXPECT_THROW(add_typed_route<typed_fields_summary_route>(routes, handler), std::invalid_argument);
 }
 
 TEST(RegistryTest, AddCompiledRejectsDuplicatesAgainstStringRoutes) {
@@ -300,20 +307,17 @@ TEST(RegistryTest, AddCompiledRejectsDuplicatesAgainstStringRoutes) {
 	};
 
 	routes.add(warp::method::get, "/reports/{id}?summary&fields", handler);
-	EXPECT_THROW(routes.add_compiled(warp::http::detail::compile_route_spec<typed_fields_summary_route>(), handler),
-	             std::invalid_argument);
+	EXPECT_THROW(add_typed_route<typed_fields_summary_route>(routes, handler), std::invalid_argument);
 }
 
-TEST(RegistryTest, CompileRouteSpecPreservesStructuredQueryMetadata) {
-	const auto compiled = warp::http::detail::compile_route_spec<typed_encoded_query_route>();
+TEST(RegistryTest, AddTypedSupportsEncodedExactValueConstraints) {
+	registry routes;
+	add_typed_route<typed_encoded_query_route>(
+	    routes, [](const warp::request &) -> warp::response { return route_response("encoded"); });
 
-	ASSERT_EQ(compiled.verb, warp::method::get);
-	EXPECT_EQ(compiled.pattern.original_path, "/filters");
-	ASSERT_EQ(compiled.query_constraints.size(), 1);
-	EXPECT_EQ(compiled.query_constraints.front().name, "plus+space %");
-	EXPECT_EQ(compiled.query_constraints.front().presence, warp::http::query_constraint_presence::optional);
-	ASSERT_TRUE(compiled.query_constraints.front().value.has_value());
-	EXPECT_EQ(*compiled.query_constraints.front().value, "a+b %");
+	EXPECT_EQ(matched_route_name(routes, warp::request(verb::get, "/filters?plus%2Bspace%20%25=a%2Bb+%25", 11)),
+	          "encoded");
+	EXPECT_TRUE(matched_route_name(routes, warp::request(verb::get, "/filters?plus%2Bspace%20%25=other", 11)).empty());
 }
 
 TEST(RegistryTest, FindSupportsNegativeQueryConstraints) {

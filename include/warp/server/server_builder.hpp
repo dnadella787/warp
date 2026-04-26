@@ -15,7 +15,6 @@
 #include <utility>
 #include <vector>
 
-#include "warp/server/router/compiled_route.hpp"
 #include "warp/http/event_loop_mode.hpp"
 #include "warp/http/http.hpp"
 #include "warp/server/router/route_path.hpp"
@@ -132,13 +131,16 @@ public:
 	/*
 	 * `register_resource` accepts lvalue
 	 *
-	 * Foo f;
+	 * Foo f; // lvalue
 	 * server_builder().register_resource(f);
 	 *
 	 * template deduction for forwarding ref gives `Resource = Foo&`
 	 * so the parameter type `Resource&&` collapses to `Foo&`
 	 *
 	 * Foo& &&foo -> Foo &foo from reference collapse (T& && -> T&, T& & -> T&)
+	 *
+	 * we don't have to worry about rvalue lifetime issues
+	 * because the resource_registrable concept requires lvalue
 	 */
 	template <resource_registrable Resource>
 	server_builder &register_resource(Resource &&resource) {
@@ -160,7 +162,10 @@ public:
 
 	template <http::route_registration_spec Spec, route_handler H>
 	server_builder &route(Spec, H &&handler) {
-		return route(http::detail::compile_route_spec<Spec>(), make_route_handler(std::forward<H>(handler)));
+		return route_typed(Spec::verb, std::string(Spec::path_view()),
+		                   std::vector<http::query_constraint_descriptor>(Spec::query_constraints.begin(),
+		                                                                  Spec::query_constraints.end()),
+		                   make_route_handler(std::forward<H>(handler)));
 	}
 
 	template <http::method Verb, http::fixed_string Path, http::query_constraint... QueryConstraints, route_handler H>
@@ -244,7 +249,9 @@ public:
 
 private:
 	server_builder &route(http::method verb, std::string path, http::handler handler);
-	server_builder &route(http::compiled_route route, http::handler handler);
+	server_builder &route_typed(http::method verb, std::string path,
+	                            std::vector<http::query_constraint_descriptor> query_constraints,
+	                            http::handler handler);
 
 	server_builder &route_runtime(http::method verb, std::string path, http::handler callback) {
 		return route(verb, std::move(path), std::move(callback));
@@ -289,9 +296,9 @@ private:
 	}
 
 	struct route_definition {
-		std::optional<http::compiled_route> compiled;
 		http::method verb;
 		std::string path;
+		std::optional<std::vector<http::query_constraint_descriptor>> typed_query_constraints;
 		http::handler callback;
 	};
 

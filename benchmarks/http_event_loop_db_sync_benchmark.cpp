@@ -7,7 +7,7 @@
 
 #include "warp/db/postgres/connection_pool.hpp"
 #include "warp/http/body_builder.hpp"
-#include "warp/http/server_builder.hpp"
+#include "warp/server/server_builder.hpp"
 #include "warp/warp.hpp"
 
 #include <boost/asio/system_executor.hpp>
@@ -52,7 +52,7 @@ void register_sync_db_round_trip_case(std::size_t concurrency) {
 			    auto db_pool = std::make_shared<db::postgres::connection_pool>(asio::system_executor {},
 			                                                                   make_db_config(*env), 4, 2);
 			    server_fixture server(
-			        http::server_builder().get(
+			        server::server_builder().get(
 			            "/db/exchanges/nyse",
 			            [db_pool](request) -> response {
 				            auto result = db_pool->sync_query("SELECT exchange_code, exchange_name FROM exchanges "

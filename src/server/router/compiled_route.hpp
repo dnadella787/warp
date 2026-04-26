@@ -6,7 +6,7 @@
 #include <vector>
 
 #include "warp/http/http.hpp"
-#include "query_constraints.hpp"
+#include "warp/server/router/query_constraints.hpp"
 #include "route_pattern.hpp"
 
 namespace warp::http {

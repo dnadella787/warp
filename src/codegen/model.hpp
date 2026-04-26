@@ -7,9 +7,8 @@
 #include <string_view>
 #include <vector>
 
-#include "warp/codegen/spec_model.hpp"
-#include "warp/server/router/query_constraint_semantics.hpp"
-#include "warp/server/router/route_pattern.hpp"
+#include "codegen/spec_model.hpp"
+#include "server/router/compiled_route.hpp"
 
 namespace warp::codegen {
 

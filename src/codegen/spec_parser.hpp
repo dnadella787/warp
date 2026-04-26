@@ -5,8 +5,8 @@
 #include <string>
 #include <string_view>
 
-#include "warp/codegen/diagnostics.hpp"
-#include "warp/codegen/spec_model.hpp"
+#include "codegen/diagnostics.hpp"
+#include "codegen/spec_model.hpp"
 
 namespace warp::codegen {
 

@@ -1,4 +1,4 @@
-#include "warp/codegen/stub_generator.hpp"
+#include "stub_generator.hpp"
 
 #include <stdexcept>
 

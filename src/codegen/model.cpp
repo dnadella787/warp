@@ -1,4 +1,4 @@
-#include "warp/codegen/model.hpp"
+#include "codegen/model.hpp"
 
 #include <algorithm>
 #include <array>
@@ -7,6 +7,8 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+
+#include "server/router/query_constraint_semantics.hpp"
 
 namespace warp::codegen {
 
@@ -228,14 +230,14 @@ find_query_constraint(const std::vector<warp::http::compiled_query_constraint> &
 	return std::nullopt;
 }
 
-[[nodiscard]] bool query_routes_can_tie_on_score(const std::vector<warp::http::compiled_query_constraint> &lhs,
-                                                 const std::vector<warp::http::compiled_query_constraint> &rhs,
-                                                 const std::vector<std::string_view> &constraint_names,
-                                                 std::size_t index = 0,
-                                                 warp::http::detail::query_constraint_match_score lhs_score = {},
-                                                 warp::http::detail::query_constraint_match_score rhs_score = {}) {
+[[nodiscard]] bool
+query_routes_can_tie_on_score(const std::vector<warp::http::compiled_query_constraint> &lhs,
+                              const std::vector<warp::http::compiled_query_constraint> &rhs,
+                              const std::vector<std::string_view> &constraint_names, std::size_t index = 0,
+                              warp::http::routing_detail::query_constraint_match_score lhs_score = {},
+                              warp::http::routing_detail::query_constraint_match_score rhs_score = {}) {
 	if (index == constraint_names.size()) {
-		return warp::http::detail::query_match_scores_equal(lhs_score, rhs_score);
+		return warp::http::routing_detail::query_match_scores_equal(lhs_score, rhs_score);
 	}
 
 	const auto lhs_descriptor = find_query_constraint(lhs, constraint_names[index]);
@@ -247,27 +249,27 @@ find_query_constraint(const std::vector<warp::http::compiled_query_constraint> &
 	                                 ? std::string_view(*rhs_descriptor->value)
 	                                 : std::string_view {};
 
-	constexpr std::array<warp::http::detail::query_value_state, 4> states {
-	    warp::http::detail::query_value_state::absent,
-	    warp::http::detail::query_value_state::lhs_exact,
-	    warp::http::detail::query_value_state::rhs_exact,
-	    warp::http::detail::query_value_state::other_present,
+	constexpr std::array<warp::http::routing_detail::query_value_state, 4> states {
+	    warp::http::routing_detail::query_value_state::absent,
+	    warp::http::routing_detail::query_value_state::lhs_exact,
+	    warp::http::routing_detail::query_value_state::rhs_exact,
+	    warp::http::routing_detail::query_value_state::other_present,
 	};
 
 	for (const auto state : states) {
-		if (!warp::http::detail::query_constraint_accepts_state(lhs_descriptor, lhs_exact_value, rhs_exact_value,
-		                                                        state) ||
-		    !warp::http::detail::query_constraint_accepts_state(rhs_descriptor, lhs_exact_value, rhs_exact_value,
-		                                                        state)) {
+		if (!warp::http::routing_detail::query_constraint_accepts_state(lhs_descriptor, lhs_exact_value,
+		                                                                rhs_exact_value, state) ||
+		    !warp::http::routing_detail::query_constraint_accepts_state(rhs_descriptor, lhs_exact_value,
+		                                                                rhs_exact_value, state)) {
 			continue;
 		}
 
 		if (query_routes_can_tie_on_score(
 		        lhs, rhs, constraint_names, index + 1,
-		        warp::http::detail::add_query_match_scores(
-		            lhs_score, warp::http::detail::query_constraint_score(lhs_descriptor, state)),
-		        warp::http::detail::add_query_match_scores(
-		            rhs_score, warp::http::detail::query_constraint_score(rhs_descriptor, state)))) {
+		        warp::http::routing_detail::add_query_match_scores(
+		            lhs_score, warp::http::routing_detail::query_constraint_score(lhs_descriptor, state)),
+		        warp::http::routing_detail::add_query_match_scores(
+		            rhs_score, warp::http::routing_detail::query_constraint_score(rhs_descriptor, state)))) {
 			return true;
 		}
 	}
@@ -310,7 +312,7 @@ effective_query_route_constraints(const query_route_model &query_route, const ro
 	for (const auto &lhs_constraint : lhs) {
 		for (const auto &rhs_constraint : rhs) {
 			if (lhs_constraint.name == rhs_constraint.name &&
-			    !warp::http::detail::query_constraints_can_overlap(lhs_constraint, rhs_constraint)) {
+			    !warp::http::routing_detail::query_constraints_can_overlap(lhs_constraint, rhs_constraint)) {
 				return false;
 			}
 		}

@@ -1,4 +1,4 @@
-#include "warp/codegen/resource_emitter.hpp"
+#include "resource_emitter.hpp"
 
 namespace warp::codegen {
 

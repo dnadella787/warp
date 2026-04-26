@@ -19,7 +19,6 @@
 
 #include "warp/warp.hpp"
 #include "warp/server/server_builder.hpp"
-#include "warp/http/util.h"
 
 #if defined(__APPLE__)
 #include "fast_float/fast_float.h"
@@ -32,6 +31,11 @@
 #endif
 
 namespace warp::codegen {
+
+namespace detail {
+
+template <typename T>
+inline constexpr bool always_false_type = false;
 
 struct binding_error {
 	boost::beast::http::status status {boost::beast::http::status::bad_request};
@@ -49,6 +53,10 @@ inline binding_error make_unsupported_media_type(std::string code, std::string m
 	                      .code = std::move(code),
 	                      .message = std::move(message)};
 }
+
+} // namespace detail
+
+using binding_error = detail::binding_error;
 
 template <typename T>
 class parse_result {
@@ -91,6 +99,8 @@ private:
 	std::variant<T, binding_error> storage_;
 };
 
+namespace detail {
+
 inline response to_error_response(const binding_error &error, unsigned version = 11) {
 	auto body = body_builder().set("error", error.message);
 	if (!error.code.empty()) {
@@ -102,6 +112,8 @@ inline response to_error_response(const binding_error &error, unsigned version =
 inline response to_bad_request_response(const binding_error &error, unsigned version = 11) {
 	return to_error_response(error, version);
 }
+
+} // namespace detail
 
 template <typename T>
 struct request_contract_traits;
@@ -167,7 +179,7 @@ parse_result<T> parse_scalar_impl(std::string_view value, std::string_view field
 		                                                                       " '" + std::string(field_name) +
 		                                                                       "': expected double"));
 	} else {
-		static_assert(http::always_false_t<T>, "unsupported scalar type");
+		static_assert(detail::always_false_type<T>, "unsupported scalar type");
 	}
 }
 
@@ -225,6 +237,8 @@ concept request_contract = requires(const request &req) {
 	typename Contract::request_type;
 	{ Contract::parse(req) } -> std::same_as<parse_result<typename Contract::request_type>>;
 };
+
+namespace detail {
 
 inline std::optional<std::string_view> header_value(const request &req, std::string_view name) {
 	const auto it = req.find(boost::beast::string_view {name.data(), name.size()});
@@ -289,18 +303,22 @@ inline bool status_forbids_body(boost::beast::http::status status) {
 	return (code >= 100 && code < 200) || code == 204 || code == 205 || code == 304;
 }
 
+} // namespace detail
+
 template <typename T>
 parse_result<T> required_path_param(const request &req, std::string_view name) {
-	if (const auto target_error = request_target_binding_error(req); target_error.has_value()) {
+	if (const auto target_error = detail::request_target_binding_error(req); target_error.has_value()) {
 		return parse_result<T>::failure(*target_error);
 	}
 	const auto value = req.path_param(name);
 	if (!value.has_value()) {
-		return parse_result<T>::failure(
-		    make_bad_request("missing_path_parameter", "missing required path parameter '" + std::string(name) + "'"));
+		return parse_result<T>::failure(detail::make_bad_request(
+		    "missing_path_parameter", "missing required path parameter '" + std::string(name) + "'"));
 	}
 	return detail::parse_scalar_impl<T>(*value, name, "path parameter");
 }
+
+namespace detail {
 
 template <typename T>
 parse_result<T> required_path_param_unchecked(const request &req, std::string_view name) {
@@ -312,18 +330,22 @@ parse_result<T> required_path_param_unchecked(const request &req, std::string_vi
 	return detail::parse_scalar_impl<T>(*value, name, "path parameter");
 }
 
+} // namespace detail
+
 template <typename T>
 parse_result<T> required_query_param(const request &req, std::string_view name) {
-	if (const auto target_error = request_target_binding_error(req); target_error.has_value()) {
+	if (const auto target_error = detail::request_target_binding_error(req); target_error.has_value()) {
 		return parse_result<T>::failure(*target_error);
 	}
 	const auto value = req.query_param(name);
 	if (!value.has_value()) {
-		return parse_result<T>::failure(make_bad_request(
+		return parse_result<T>::failure(detail::make_bad_request(
 		    "missing_query_parameter", "missing required query parameter '" + std::string(name) + "'"));
 	}
 	return detail::parse_scalar_impl<T>(*value, name, "query parameter");
 }
+
+namespace detail {
 
 template <typename T>
 parse_result<T> required_query_param_unchecked(const request &req, std::string_view name) {
@@ -335,9 +357,11 @@ parse_result<T> required_query_param_unchecked(const request &req, std::string_v
 	return detail::parse_scalar_impl<T>(*value, name, "query parameter");
 }
 
+} // namespace detail
+
 template <typename T>
 parse_result<std::optional<T>> optional_query_param(const request &req, std::string_view name) {
-	if (const auto target_error = request_target_binding_error(req); target_error.has_value()) {
+	if (const auto target_error = detail::request_target_binding_error(req); target_error.has_value()) {
 		return parse_result<std::optional<T>>::failure(*target_error);
 	}
 	const auto value = req.query_param(name);
@@ -350,6 +374,8 @@ parse_result<std::optional<T>> optional_query_param(const request &req, std::str
 	}
 	return parse_result<std::optional<T>>::success(std::move(parsed).value());
 }
+
+namespace detail {
 
 template <typename T>
 parse_result<std::optional<T>> optional_query_param_unchecked(const request &req, std::string_view name) {
@@ -364,19 +390,21 @@ parse_result<std::optional<T>> optional_query_param_unchecked(const request &req
 	return parse_result<std::optional<T>>::success(std::move(parsed).value());
 }
 
+} // namespace detail
+
 template <typename T>
 parse_result<T> required_header_param(const request &req, std::string_view name) {
-	const auto value = header_value(req, name);
+	const auto value = detail::header_value(req, name);
 	if (!value.has_value()) {
 		return parse_result<T>::failure(
-		    make_bad_request("missing_header", "missing required header '" + std::string(name) + "'"));
+		    detail::make_bad_request("missing_header", "missing required header '" + std::string(name) + "'"));
 	}
 	return detail::parse_scalar_impl<T>(*value, name, "header");
 }
 
 template <typename T>
 parse_result<std::optional<T>> optional_header_param(const request &req, std::string_view name) {
-	const auto value = header_value(req, name);
+	const auto value = detail::header_value(req, name);
 	if (!value.has_value()) {
 		return parse_result<std::optional<T>>::success(std::nullopt);
 	}
@@ -389,33 +417,35 @@ parse_result<std::optional<T>> optional_header_param(const request &req, std::st
 
 template <typename T>
 parse_result<T> json_body(const request &req) {
-	const auto content_type = header_value(req, "Content-Type");
-	if (!content_type.has_value() || !is_json_content_type(*content_type)) {
+	const auto content_type = detail::header_value(req, "Content-Type");
+	if (!content_type.has_value() || !detail::is_json_content_type(*content_type)) {
 		return parse_result<T>::failure(
-		    make_unsupported_media_type("unsupported_media_type", "expected Content-Type application/json"));
+		    detail::make_unsupported_media_type("unsupported_media_type", "expected Content-Type application/json"));
 	}
 	if (req.body().empty()) {
-		return parse_result<T>::failure(make_bad_request("missing_body", "missing JSON request body"));
+		return parse_result<T>::failure(detail::make_bad_request("missing_body", "missing JSON request body"));
 	}
 	auto parsed_json = req.try_json_body();
 	if (!parsed_json.has_value()) {
-		return parse_result<T>::failure(make_bad_request("invalid_json", "invalid JSON request body"));
+		return parse_result<T>::failure(detail::make_bad_request("invalid_json", "invalid JSON request body"));
 	}
 	try {
 		return parse_result<T>::success(boost::json::value_to<T>(*parsed_json));
 	} catch (const std::exception &ex) {
 		return parse_result<T>::failure(
-		    make_bad_request("json_schema_mismatch", "JSON body schema mismatch: " + std::string(ex.what())));
+		    detail::make_bad_request("json_schema_mismatch", "JSON body schema mismatch: " + std::string(ex.what())));
 	}
 }
 
 template <typename RequestContract>
 parse_result<RequestContract> parse_http_request(const request &req) {
-	if (const auto target_error = request_target_binding_error(req); target_error.has_value()) {
+	if (const auto target_error = detail::request_target_binding_error(req); target_error.has_value()) {
 		return parse_result<RequestContract>::failure(*target_error);
 	}
 	return request_contract_traits<RequestContract>::parse(req);
 }
+
+namespace detail {
 
 template <typename Class, typename Value, auto Setter>
 struct member_setter {
@@ -433,18 +463,20 @@ struct member_setter {
 template <auto Setter>
 struct deduced_member_setter {
 	using traits = detail::member_function_traits<decltype(Setter)>;
-	using class_type = typename traits::class_type;
-	using value_type = typename traits::argument_type;
+	using class_type = traits::class_type;
+	using value_type = traits::argument_type;
 
 	static void set(class_type &out, value_type value) noexcept(noexcept(std::invoke(Setter, out, std::move(value)))) {
 		static_cast<void>(std::invoke(Setter, out, std::move(value)));
 	}
 };
 
+} // namespace detail
+
 template <typename Accessor, http::fixed_string Name>
 struct path_binding {
-	using request_type = typename Accessor::class_type;
-	using value_type = typename Accessor::value_type;
+	using request_type = Accessor::class_type;
+	using value_type = Accessor::value_type;
 
 	static_assert(!detail::optional_value_traits<value_type>::is_optional,
 	              "path bindings must target a non-optional member");
@@ -454,7 +486,7 @@ struct path_binding {
 	}
 
 	static parse_result<value_type> parse_unchecked(const request &req) {
-		return required_path_param_unchecked<value_type>(req, Name.view());
+		return detail::required_path_param_unchecked<value_type>(req, Name.view());
 	}
 
 	static void set(request_type &out, value_type value) {
@@ -478,9 +510,9 @@ struct query_binding {
 
 	static parse_result<value_type> parse_unchecked(const request &req) {
 		if constexpr (detail::optional_value_traits<value_type>::is_optional) {
-			return optional_query_param_unchecked<scalar_type>(req, Name.view());
+			return detail::optional_query_param_unchecked<scalar_type>(req, Name.view());
 		} else {
-			return required_query_param_unchecked<value_type>(req, Name.view());
+			return detail::required_query_param_unchecked<value_type>(req, Name.view());
 		}
 	}
 
@@ -534,28 +566,28 @@ struct json_body_binding {
 };
 
 template <typename Request, typename Value, auto Setter, http::fixed_string Name>
-using path_member_binding = path_binding<member_setter<Request, Value, Setter>, Name>;
+using path_member_binding = path_binding<detail::member_setter<Request, Value, Setter>, Name>;
 
 template <typename Request, typename Value, auto Setter, http::fixed_string Name>
-using query_member_binding = query_binding<member_setter<Request, Value, Setter>, Name>;
+using query_member_binding = query_binding<detail::member_setter<Request, Value, Setter>, Name>;
 
 template <typename Request, typename Value, auto Setter, http::fixed_string Name>
-using header_member_binding = header_binding<member_setter<Request, Value, Setter>, Name>;
+using header_member_binding = header_binding<detail::member_setter<Request, Value, Setter>, Name>;
 
 template <typename Request, typename Value, auto Setter>
-using json_body_member_binding = json_body_binding<member_setter<Request, Value, Setter>>;
+using json_body_member_binding = json_body_binding<detail::member_setter<Request, Value, Setter>>;
 
 template <auto Setter, http::fixed_string Name>
-using path_setter_binding = path_binding<deduced_member_setter<Setter>, Name>;
+using path_setter_binding = path_binding<detail::deduced_member_setter<Setter>, Name>;
 
 template <auto Setter, http::fixed_string Name>
-using query_setter_binding = query_binding<deduced_member_setter<Setter>, Name>;
+using query_setter_binding = query_binding<detail::deduced_member_setter<Setter>, Name>;
 
 template <auto Setter, http::fixed_string Name>
-using header_setter_binding = header_binding<deduced_member_setter<Setter>, Name>;
+using header_setter_binding = header_binding<detail::deduced_member_setter<Setter>, Name>;
 
 template <auto Setter>
-using json_body_setter_binding = json_body_binding<deduced_member_setter<Setter>>;
+using json_body_setter_binding = json_body_binding<detail::deduced_member_setter<Setter>>;
 
 template <typename Request, typename... Bindings>
 struct generated_request_contract {
@@ -568,7 +600,7 @@ struct generated_request_contract {
 		// this will be true if there was a parse error when converting the beast http request into
 		// the warp::request object in the parser (basically when the query/path params are being
 		// parsed since beast doesnt do this by default for you).
-		if (const auto target_error = request_target_binding_error(req); target_error.has_value())
+		if (const auto target_error = detail::request_target_binding_error(req); target_error.has_value())
 			return parse_result<Request>::failure(*target_error);
 
 		Request out;
@@ -675,7 +707,7 @@ response to_http_response(ResponseContract &&typed, unsigned version = 11);
 
 template <typename T>
 response to_http_response(endpoint_response<T> typed, unsigned version = 11) {
-	if (status_forbids_body(typed.status)) {
+	if (detail::status_forbids_body(typed.status)) {
 		throw std::invalid_argument("response status must not include a body");
 	}
 	return response_builder().status(typed.status).version(version).body(boost::json::value_from(typed.body)).build();
@@ -707,7 +739,7 @@ response to_http_response(handler_result<ResponseType> typed, unsigned version =
 template <typename ResponseTraits, typename Response>
 response serialize_contract_response(Response &&typed, unsigned version) {
 	if constexpr (ResponseTraits::has_body) {
-		if (status_forbids_body(static_cast<boost::beast::http::status>(ResponseTraits::status_code))) {
+		if (detail::status_forbids_body(static_cast<boost::beast::http::status>(ResponseTraits::status_code))) {
 			throw std::invalid_argument("response status must not include a body");
 		}
 		return response_builder()
@@ -750,7 +782,7 @@ awaitable<ResponseType> invoke_user_handler(Invocable &&invocable) {
 	} else if constexpr (std::is_same_v<result_type, awaitable<ResponseType>>) {
 		co_return co_await std::invoke(std::forward<Invocable>(invocable));
 	} else {
-		static_assert(http::always_false_t<result_type>,
+		static_assert(detail::always_false_type<result_type>,
 		              "handler must return ResponseType or warp::awaitable<ResponseType>");
 	}
 }
@@ -865,7 +897,7 @@ auto bind_endpoint(std::shared_ptr<Service> service, MemberFn member_fn) {
 			// make its own decision about it
 			// TODO: maybe make this behavior configurable to drop nefarious connections faster?
 			if (!typed_request.has_value()) {
-				return codegen::normalize_handler_response(codegen::to_error_response(typed_request.error(), version),
+				return codegen::normalize_handler_response(detail::to_error_response(typed_request.error(), version),
 				                                           version, keep_alive);
 			}
 
@@ -882,7 +914,7 @@ auto bind_endpoint(std::shared_ptr<Service> service, MemberFn member_fn) {
 
 			auto typed_request = RequestContract::parse(req);
 			if (!typed_request.has_value()) {
-				return codegen::normalize_handler_response(codegen::to_error_response(typed_request.error(), version),
+				return codegen::normalize_handler_response(detail::to_error_response(typed_request.error(), version),
 				                                           version, keep_alive);
 			}
 
@@ -904,8 +936,8 @@ auto bind_endpoint(std::shared_ptr<Service> service, MemberFn member_fn) {
 
 			auto typed_request = RequestContract::parse(req);
 			if (!typed_request.has_value()) {
-				co_return codegen::normalize_handler_response(
-				    codegen::to_error_response(typed_request.error(), version), version, keep_alive);
+				co_return codegen::normalize_handler_response(detail::to_error_response(typed_request.error(), version),
+				                                              version, keep_alive);
 			}
 
 			auto *service_ptr = service.get();
@@ -941,7 +973,7 @@ auto bind_generated_endpoint(std::shared_ptr<Service> service) {
 
 			auto typed_request = RequestContract::parse(req);
 			if (!typed_request.has_value()) {
-				return codegen::normalize_handler_response(codegen::to_error_response(typed_request.error(), version),
+				return codegen::normalize_handler_response(detail::to_error_response(typed_request.error(), version),
 				                                           version, keep_alive);
 			}
 
@@ -959,7 +991,7 @@ auto bind_generated_endpoint(std::shared_ptr<Service> service) {
 
 			auto typed_request = RequestContract::parse(req);
 			if (!typed_request.has_value()) {
-				return codegen::normalize_handler_response(codegen::to_error_response(typed_request.error(), version),
+				return codegen::normalize_handler_response(detail::to_error_response(typed_request.error(), version),
 				                                           version, keep_alive);
 			}
 
@@ -981,8 +1013,8 @@ auto bind_generated_endpoint(std::shared_ptr<Service> service) {
 
 			auto typed_request = RequestContract::parse(req);
 			if (!typed_request.has_value()) {
-				co_return codegen::normalize_handler_response(
-				    codegen::to_error_response(typed_request.error(), version), version, keep_alive);
+				co_return codegen::normalize_handler_response(detail::to_error_response(typed_request.error(), version),
+				                                              version, keep_alive);
 			}
 
 			auto *service_ptr = service.get();

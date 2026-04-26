@@ -6,7 +6,7 @@
 #include <string_view>
 #include <vector>
 
-#include "warp/codegen/diagnostics.hpp"
+#include "codegen/diagnostics.hpp"
 
 namespace warp::codegen {
 

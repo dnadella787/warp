@@ -1,4 +1,4 @@
-#include "warp/codegen/spec_parser.hpp"
+#include "codegen/spec_parser.hpp"
 
 #include <gtest/gtest.h>
 
