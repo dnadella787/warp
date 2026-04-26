@@ -2,7 +2,6 @@
 
 #include "warp/codegen/detail/type_traits.hpp"
 #include "warp/http/response_builder.hpp"
-#include "warp/http/server.hpp"
 
 #include <boost/beast/http/status.hpp>
 #include <boost/json/value_from.hpp>
@@ -20,6 +19,7 @@
 
 #include "warp/warp.hpp"
 #include "warp/http/server_builder.hpp"
+#include "warp/http/util.h"
 
 #if defined(__APPLE__)
 #include "fast_float/fast_float.h"
