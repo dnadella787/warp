@@ -36,6 +36,8 @@ namespace warp::server {
  * on_read callback, it is not taking over the lifetime of the request like async_handler
  * does which is why we std::move for async_handler always but conditionally here to reduce
  * heap allocs.
+ *
+ * &fn because we want the test on lvalue callable object, not rvalue temp
  */
 template <typename H>
 inline constexpr bool is_movable_sync_route_handler = requires(std::decay_t<H> &fn, http::request req) {
