@@ -160,9 +160,8 @@ compiled_route registry::parse_registered_route(method verb, std::string_view ro
 	    .pattern = parse_route_pattern(strip_query_string(route)),
 	};
 	const auto query_pos = route.find('?');
-	if (query_pos == std::string_view::npos) {
+	if (query_pos == std::string_view::npos)
 		return parsed;
-	}
 
 	const auto raw_query = route.substr(query_pos + 1);
 	std::size_t start = 0;
@@ -174,9 +173,8 @@ compiled_route registry::parse_registered_route(method verb, std::string_view ro
 		if (!token.empty()) {
 			const auto eq = token.find('=');
 			auto key = try_decode_query_component(token.substr(0, eq));
-			if (!key.has_value() || key->empty()) {
+			if (!key.has_value() || key->empty())
 				throw std::invalid_argument("route query constraint names must be non-empty and valid");
-			}
 
 			auto presence = query_constraint_presence::required;
 			if (key->front() == '!') {
@@ -192,17 +190,14 @@ compiled_route registry::parse_registered_route(method verb, std::string_view ro
 
 			const auto raw_value = eq == std::string_view::npos ? std::optional<std::string> {}
 			                                                    : try_decode_query_component(token.substr(eq + 1));
-			if (eq != std::string_view::npos && !raw_value.has_value()) {
+			if (eq != std::string_view::npos && !raw_value.has_value())
 				throw std::invalid_argument("route query constraint values must use valid percent-encoding");
-			}
 
 			if (is_priority_query_key(*key)) {
-				if (!raw_value.has_value()) {
+				if (!raw_value.has_value())
 					throw std::invalid_argument("route priority must be declared as key=value");
-				}
-				if (priority_set) {
+				if (priority_set)
 					throw std::invalid_argument("route priority may only be declared once");
-				}
 				parsed.priority = parse_route_priority(route, *raw_value);
 				priority_set = true;
 			} else {

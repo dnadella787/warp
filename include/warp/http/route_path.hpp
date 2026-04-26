@@ -11,33 +11,27 @@ namespace detail {
 
 template <route_pattern_validation_error Error>
 consteval void fail_route_pattern_validation() {
-	if constexpr (Error == route_pattern_validation_error::empty_path) {
-		static_assert(Error != Error, "route path must not be empty");
-	} else if constexpr (Error == route_pattern_validation_error::missing_leading_slash) {
-		static_assert(Error != Error, "route path must start with '/'");
-	} else if constexpr (Error == route_pattern_validation_error::contains_fragment) {
-		static_assert(Error != Error, "route path must not contain a fragment");
-	} else if constexpr (Error == route_pattern_validation_error::contains_query_string) {
-		static_assert(Error != Error, "route pattern must not contain a query string");
-	} else if constexpr (Error == route_pattern_validation_error::empty_segment) {
-		static_assert(Error != Error, "route path contains an empty segment");
-	} else if constexpr (Error == route_pattern_validation_error::malformed_parameter_segment) {
-		static_assert(Error != Error, "route parameter segments must use the form '{name}'");
-	} else if constexpr (Error == route_pattern_validation_error::empty_parameter_name) {
-		static_assert(Error != Error, "route parameter name cannot be empty");
-	} else if constexpr (Error == route_pattern_validation_error::parameter_name_contains_braces) {
-		static_assert(Error != Error, "route parameter name cannot contain braces");
-	} else if constexpr (Error == route_pattern_validation_error::duplicate_parameter_name) {
-		static_assert(Error != Error, "route parameter names must be unique within a path");
-	}
+	static_assert(Error != route_pattern_validation_error::empty_path, "route path must not be empty");
+	static_assert(Error != route_pattern_validation_error::missing_leading_slash, "route path must start with '/'");
+	static_assert(Error != route_pattern_validation_error::contains_fragment, "route path must not contain a fragment");
+	static_assert(Error != route_pattern_validation_error::contains_query_string,
+	              "route pattern must not contain a query string");
+	static_assert(Error != route_pattern_validation_error::empty_segment, "route path contains an empty segment");
+	static_assert(Error != route_pattern_validation_error::malformed_parameter_segment,
+	              "route parameter segments must use the form '{name}'");
+	static_assert(Error != route_pattern_validation_error::empty_parameter_name,
+	              "route parameter name cannot be empty");
+	static_assert(Error != route_pattern_validation_error::parameter_name_contains_braces,
+	              "route parameter name cannot contain braces");
+	static_assert(Error != route_pattern_validation_error::duplicate_parameter_name,
+	              "route parameter names must be unique within a path");
 }
 
 template <fixed_string Path>
 consteval route_pattern_validation_result checked_route_path() {
 	constexpr auto validation = validate_route_pattern(Path.view());
-	if constexpr (validation.error != route_pattern_validation_error::none) {
+	if constexpr (validation.error != route_pattern_validation_error::none)
 		fail_route_pattern_validation<validation.error>();
-	}
 	return validation;
 }
 

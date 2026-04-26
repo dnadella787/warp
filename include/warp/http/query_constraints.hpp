@@ -36,38 +36,40 @@ enum class query_constraint_name_error {
 	reserved_priority_name,
 };
 
+/** compile time query param name validation
+ * 1. cannot be empty
+ * 2. name cannot be a reserved priority keyword
+ * 3. param cannot contain significant chars & = ? # !  (_ - . allowed)
+ */
 [[nodiscard]] constexpr query_constraint_name_error validate_query_constraint_name(std::string_view name) noexcept {
-	if (name.empty()) {
+	if (name.empty())
 		return query_constraint_name_error::empty_name;
-	}
-	if (name == "priority" || name == "_priority" || name == "__priority" || name == "__warp_priority") {
+	if (name == "priority" || name == "_priority" || name == "__priority" || name == "__warp_priority")
 		return query_constraint_name_error::reserved_priority_name;
-	}
-	for (const auto c : name) {
-		if (c == '&' || c == '=' || c == '?' || c == '#' || c == '!' || c == '~') {
-			return query_constraint_name_error::contains_separator;
-		}
-	}
+	if (name.find_first_of("&=?#!~") != std::string_view::npos)
+		return query_constraint_name_error::contains_separator;
 	return query_constraint_name_error::none;
 }
 
+/**
+ * we use always_false_v here because Error is a value of type query_constraint_name_error, not a type itself
+ * we call this function as fail_query_constraint_name_validation<query_constraint_name_error::empty_name>() not
+ * fail_query_constraint_name_validation<query_constraint_name_error>()
+ */
 template <query_constraint_name_error Error>
 consteval void fail_query_constraint_name_validation() {
-	if constexpr (Error == query_constraint_name_error::empty_name) {
-		static_assert(Error != Error, "query constraint name must not be empty");
-	} else if constexpr (Error == query_constraint_name_error::contains_separator) {
-		static_assert(Error != Error, "query constraint name must not contain '&', '=', '?', '#', '!', or '~'");
-	} else if constexpr (Error == query_constraint_name_error::reserved_priority_name) {
-		static_assert(Error != Error, "query constraint name is reserved for route priority metadata");
-	}
+	static_assert(Error != query_constraint_name_error::empty_name, "query constraint name must not be empty");
+	static_assert(Error != query_constraint_name_error::contains_separator,
+	              "query constraint name must not contain '&', '=', '?', '#', '!', or '~'");
+	static_assert(Error != query_constraint_name_error::reserved_priority_name,
+	              "query constraint name is reserved for route priority metadata");
 }
 
 template <fixed_string Name>
 consteval void checked_query_constraint_name() {
 	constexpr auto validation = validate_query_constraint_name(Name.view());
-	if constexpr (validation != query_constraint_name_error::none) {
+	if constexpr (validation != query_constraint_name_error::none)
 		fail_query_constraint_name_validation<validation>();
-	}
 }
 
 template <query_constraint... QueryConstraints>
@@ -76,9 +78,8 @@ template <query_constraint... QueryConstraints>
 	    QueryConstraints::descriptor()...};
 	for (std::size_t i = 0; i < descriptors.size(); ++i) {
 		for (std::size_t j = i + 1; j < descriptors.size(); ++j) {
-			if (descriptors[i].name == descriptors[j].name) {
+			if (descriptors[i].name == descriptors[j].name)
 				return true;
-			}
 		}
 	}
 	return false;
@@ -89,6 +90,10 @@ template <query_constraint... QueryConstraints>
 template <fixed_string Name, query_constraint_presence Presence, fixed_string Value = "">
 struct basic_query_constraint {
 private:
+	/**
+	 * compile time check to validate the name. `consteval` forces this evaluation
+	 * to happen at compile time.
+	 */
 	static constexpr bool validated_ = []() consteval {
 		detail::checked_query_constraint_name<Name>();
 		return true;

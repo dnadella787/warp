@@ -8,35 +8,14 @@
 #include <string_view>
 
 #include "warp/warp.hpp"
+#include "warp/http/route_spec.hpp"
 #include "warp/http/server_builder.hpp"
 
-namespace {
-
-warp::db::postgres::connection_config make_db_config() {
-	warp::db::postgres::connection_config config;
-	if (const char *host = std::getenv("WARP_DB_HOST")) {
-		config.host = host;
-	}
-	if (const char *port = std::getenv("WARP_DB_PORT")) {
-		config.port = static_cast<std::uint16_t>(std::stoi(port));
-	}
-	if (const char *user = std::getenv("WARP_DB_USER")) {
-		config.user = user;
-	}
-	if (const char *password = std::getenv("WARP_DB_PASSWORD")) {
-		config.password = password;
-	}
-	if (const char *database = std::getenv("WARP_DB_NAME")) {
-		config.database = database;
-	}
-	return config;
-}
-
-} // namespace
+#include "helpers.cpp"
 
 int main() {
-	auto db_pool =
-	    std::make_shared<warp::db::postgres::connection_pool>(boost::asio::system_executor {}, make_db_config(), 4, 2);
+	auto db_pool = std::make_shared<warp::db::postgres::connection_pool>(boost::asio::system_executor {},
+	                                                                     example::make_db_config(), 4, 2);
 
 	auto server =
 	    warp::http::server_builder()

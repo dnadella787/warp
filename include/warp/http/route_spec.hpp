@@ -26,14 +26,14 @@ namespace detail {
 	std::size_t lhs_offset = 1;
 	std::size_t rhs_offset = 1;
 	for (;;) {
-		const auto lhs_segment = warp::http::detail::route_segment_at(lhs, lhs_offset);
-		const auto rhs_segment = warp::http::detail::route_segment_at(rhs, rhs_offset);
+		const auto lhs_segment = route_segment_at(lhs, lhs_offset);
+		const auto rhs_segment = route_segment_at(rhs, rhs_offset);
 		if (lhs_segment.empty() || rhs_segment.empty()) {
 			return lhs_segment.empty() && rhs_segment.empty();
 		}
 
-		const auto lhs_parameter = warp::http::detail::is_parameter_segment(lhs_segment);
-		const auto rhs_parameter = warp::http::detail::is_parameter_segment(rhs_segment);
+		const auto lhs_parameter = is_parameter_segment(lhs_segment);
+		const auto rhs_parameter = is_parameter_segment(rhs_segment);
 		if (lhs_parameter != rhs_parameter) {
 			return false;
 		}

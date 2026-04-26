@@ -16,7 +16,7 @@
 namespace warp::http {
 
 template <event_loop_mode Mode>
-class server::server_impl : public std::enable_shared_from_this<server_impl<Mode>>, public impl_base {
+class server::server_impl : public impl_base {
 public:
 	server_impl(const std::string &address, std::uint16_t port, std::size_t workers, registry routes);
 
@@ -46,7 +46,7 @@ private:
 	lifecycle_state state_ {lifecycle_state::stopped};
 	std::optional<std::thread::id> stopping_thread_id_;
 
-	using listener_t = typename listener_traits<Mode>::type;
+	using listener_t = listener_traits<Mode>::type;
 };
 
 } // namespace warp::http

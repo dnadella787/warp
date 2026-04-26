@@ -16,25 +16,38 @@ namespace warp::http {
 /**
  * @brief Trait to identify synchronous route handlers.
  * * Validates that the handler 'H' (after type decay) can be invoked with a
- * 'request' and returns a type convertible to 'response'. This supports
- * standard, blocking request-handling logic.
+ * 'request' and returns a type convertible to 'response'.
  *
- * For both http_session and coroutine_http_session, the handler is
- * launched synchronously.
+ * For both event loop modes, the handler is launched inline within the read loop
+ * effectively blocking the next read until this handler completes. Choose wisely :P
+ *
+ * Notice that we allow lvalue by value, lvalue by ref, and const lvalue ref for sync
+ * handlers because the sync handler is only borrowing the request from the event loop
+ * on_read callback, it is not taking over the lifetime of the request like async_handler
+ * does which is why we std::move for async_handler always but conditionally here to reduce
+ * heap allocs.
  */
 template <typename H>
-inline constexpr bool is_sync_route_handler = requires(std::decay_t<H> &fn, request req) {
+inline constexpr bool is_movable_sync_route_handler = requires(std::decay_t<H> &fn, request req) {
 	{ std::invoke(fn, std::move(req)) } -> std::convertible_to<response>;
 };
 
+template <typename H>
+inline constexpr bool is_lvalue_sync_route_handler = requires(std::decay_t<H> &fn, request &req) {
+	{ std::invoke(fn, req) } -> std::convertible_to<response>;
+};
+
+template <typename H>
+inline constexpr bool is_sync_route_handler = is_movable_sync_route_handler<H> || is_lvalue_sync_route_handler<H>;
+
 /**
- * @brief Trait to identify asynchronous route handlers (C++20 Coroutines).
- * * Validates that the handler 'H' is invocable with a 'request' and returns
- * exactly an 'awaitable<response>'. This ensures compatibility with
- * non-blocking I/O patterns powered by Boost Asio.
+ * @brief Trait to identify asynchronous route handlers. It requires that the
+ * decayed handler function can be invoked using a warp::request to return
+ * warp::awaitable<response>
  *
- * For http_session, the handler is launched as a coroutine but in
- * coroutine_http_session the handler is launched as a child coroutine
+ * In both event loop modes, the async handler is launched as a separate coroutine
+ * and does not block the read loop from reading in the next request in the http
+ * session
  */
 template <typename H>
 inline constexpr bool is_async_route_handler = requires(std::decay_t<H> &fn, request req) {
@@ -47,6 +60,10 @@ inline constexpr bool is_async_route_handler = requires(std::decay_t<H> &fn, req
 template <typename H>
 concept route_handler = is_async_route_handler<H> || is_sync_route_handler<H>;
 
+/**
+ * resource class is registerable with the server if the resource class has a
+ * way to register itself with the builder. The class must be an L value.
+ */
 template <typename T>
 concept resource_registrable = std::is_lvalue_reference_v<T> &&
                                requires(T resource, server_builder &builder) { resource.register_routes(builder); };
@@ -116,31 +133,6 @@ public:
 		std::forward<Resource>(resource).register_routes(*this);
 		return *this;
 	}
-
-	/*
-	 * rvalues are rejected by the deleted overload below. That prevents
-	 * registering a temporary resource whose lifetime could end while
-	 * stored route handlers still refer to it. Imagine a scenario where a resource
-	 * class register_routes method has methods that refer to member variables. If
-	 * you call:
-	 *
-	 * server_builder().register_resource(Foo {});
-	 *
-	 * then those references within the lambdas become dead pointers. E.g.
-	 *
-	 * struct Foo {
-	 *    int state = 42;
-	 *
-	 *	  void register_routes(server_builder& b) {
-	 *		  b.get("/x", [this](request) { // this is gone after register_resources(Foo {}) completes
-	 *			  return response::ok(std::to_string(state));
-	 *		  });
-	 *	  }
-	 *  };
-	 */
-	template <typename Resource>
-	    requires(!std::is_lvalue_reference_v<Resource &&>)
-	server_builder &register_resource(Resource &&) = delete;
 
 	// Runtime routes meaning the validations are not compile time for things like Path
 	template <route_handler H>
@@ -262,10 +254,20 @@ private:
 		// so that a long running sync handler does not block the event loop
 		// from reading more requests. User should use async handler for these
 		// but just in case...
-		if constexpr (is_sync_route_handler<fn_type>) {
+
+		// sync_handler for request& and const request& (rvalue can bind to const request&)
+		if constexpr (is_lvalue_sync_route_handler<fn_type>) {
+			return sync_handler {
+			    [fn = std::move(fn)](request req) mutable -> response { return std::invoke(fn, req); }};
+		}
+		// sync_handler for request (by value) which needs std::move for
+		// zero allocations
+		else if constexpr (is_movable_sync_route_handler<fn_type>) {
 			return sync_handler {
 			    [fn = std::move(fn)](request req) mutable -> response { return std::invoke(fn, std::move(req)); }};
-		} else {
+		}
+		// async handlers
+		else {
 			return async_handler {[fn = std::move(fn)](request &&req) mutable -> awaitable<response> {
 				co_return co_await std::invoke(fn, std::move(req));
 			}};

@@ -7,6 +7,15 @@ if (TARGET warp_db_postgres)
         PRIVATE
             warp_http
             warp_db_postgres)
+
+    add_executable(warp_compile_time_server)
+    target_sources(warp_compile_time_server
+            PRIVATE
+            compile_time.cpp)
+    target_link_libraries(warp_compile_time_server
+            PRIVATE
+            warp_http
+            warp_db_postgres)
 endif ()
 
 add_executable(warp_example_request)

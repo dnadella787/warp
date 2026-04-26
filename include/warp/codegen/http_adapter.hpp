@@ -167,7 +167,7 @@ parse_result<T> parse_scalar_impl(std::string_view value, std::string_view field
 		                                                                       " '" + std::string(field_name) +
 		                                                                       "': expected double"));
 	} else {
-		static_assert(always_false_v<T>, "unsupported scalar type");
+		static_assert(http::always_false_t<T>, "unsupported scalar type");
 	}
 }
 
@@ -750,7 +750,7 @@ awaitable<ResponseType> invoke_user_handler(Invocable &&invocable) {
 	} else if constexpr (std::is_same_v<result_type, awaitable<ResponseType>>) {
 		co_return co_await std::invoke(std::forward<Invocable>(invocable));
 	} else {
-		static_assert(detail::always_false_v<result_type>,
+		static_assert(http::always_false_t<result_type>,
 		              "handler must return ResponseType or warp::awaitable<ResponseType>");
 	}
 }
