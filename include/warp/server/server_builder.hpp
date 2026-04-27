@@ -148,99 +148,34 @@ public:
 		return *this;
 	}
 
-	// Runtime routes meaning the validations are not compile time for things like Path
-	template <route_handler H>
-	server_builder &route(http::method verb, std::string path, H &&handler) {
-		return route_runtime(verb, std::move(path), make_route_handler(std::forward<H>(handler)));
+	template <http::fixed_string Path, http::query_constraint... QueryConstraints, route_handler H>
+	constexpr server_builder &get(H &&handler) {
+		return route<http::method::get, Path, QueryConstraints...>(std::forward<H>(handler));
 	}
 
-	// compile time route
-	template <http::fixed_string Path, route_handler H>
-	server_builder &route(http::method verb, http::route_path<Path>, H &&handler) {
-		return route(verb, std::string(http::route_path<Path>::view()), std::forward<H>(handler));
+	template <http::fixed_string Path, http::query_constraint... QueryConstraints, route_handler H>
+	constexpr server_builder &post(H &&handler) {
+		return route<http::method::post, Path, QueryConstraints...>(std::forward<H>(handler));
 	}
 
+	template <http::fixed_string Path, http::query_constraint... QueryConstraints, route_handler H>
+	constexpr server_builder &put(H &&handler) {
+		return route<http::method::put, Path, QueryConstraints...>(std::forward<H>(handler));
+	}
+
+	template <http::fixed_string Path, http::query_constraint... QueryConstraints, route_handler H>
+	constexpr server_builder &delete_(H &&handler) {
+		return route<http::method::delete_, Path, QueryConstraints...>(std::forward<H>(handler));
+	}
+
+	// this one exists for the http_adapter codegen compilation, probably use friend + free function
+	// to not make this public in general
 	template <http::route_registration_spec Spec, route_handler H>
-	server_builder &route(Spec, H &&handler) {
+	constexpr server_builder &route(Spec, H &&handler) {
 		return route_typed(Spec::verb, std::string(Spec::path_view()),
 		                   std::vector<http::query_constraint_descriptor>(Spec::query_constraints.begin(),
 		                                                                  Spec::query_constraints.end()),
 		                   make_route_handler(std::forward<H>(handler)));
-	}
-
-	template <http::method Verb, http::fixed_string Path, http::query_constraint... QueryConstraints, route_handler H>
-	server_builder &route(H &&handler) {
-		return route(http::route_spec<Verb, Path, QueryConstraints...> {}, std::forward<H>(handler));
-	}
-
-	template <route_handler H>
-	server_builder &route(std::string path, H &&handler) {
-		return route(http::method::get, std::move(path), std::forward<H>(handler));
-	}
-
-	template <http::fixed_string Path, route_handler H>
-	server_builder &route(http::route_path<Path>, H &&handler) {
-		return route(http::method::get, http::route_path<Path> {}, std::forward<H>(handler));
-	}
-
-	template <route_handler H>
-	server_builder &get(std::string path, H &&handler) {
-		return route(http::method::get, std::move(path), std::forward<H>(handler));
-	}
-
-	template <http::fixed_string Path, route_handler H>
-	server_builder &get(http::route_path<Path>, H &&handler) {
-		return route(http::method::get, http::route_path<Path> {}, std::forward<H>(handler));
-	}
-
-	template <http::fixed_string Path, http::query_constraint... QueryConstraints, route_handler H>
-	server_builder &get(H &&handler) {
-		return route<http::method::get, Path, QueryConstraints...>(std::forward<H>(handler));
-	}
-
-	template <route_handler H>
-	server_builder &post(std::string path, H &&handler) {
-		return route(http::method::post, std::move(path), std::forward<H>(handler));
-	}
-
-	template <http::fixed_string Path, route_handler H>
-	server_builder &post(http::route_path<Path>, H &&handler) {
-		return route(http::method::post, http::route_path<Path> {}, std::forward<H>(handler));
-	}
-
-	template <http::fixed_string Path, http::query_constraint... QueryConstraints, route_handler H>
-	server_builder &post(H &&handler) {
-		return route<http::method::post, Path, QueryConstraints...>(std::forward<H>(handler));
-	}
-
-	template <route_handler H>
-	server_builder &put(std::string path, H &&handler) {
-		return route(http::method::put, std::move(path), std::forward<H>(handler));
-	}
-
-	template <http::fixed_string Path, route_handler H>
-	server_builder &put(http::route_path<Path>, H &&handler) {
-		return route(http::method::put, http::route_path<Path> {}, std::forward<H>(handler));
-	}
-
-	template <http::fixed_string Path, http::query_constraint... QueryConstraints, route_handler H>
-	server_builder &put(H &&handler) {
-		return route<http::method::put, Path, QueryConstraints...>(std::forward<H>(handler));
-	}
-
-	template <route_handler H>
-	server_builder &delete_(std::string path, H &&handler) {
-		return route(http::method::delete_, std::move(path), std::forward<H>(handler));
-	}
-
-	template <http::fixed_string Path, route_handler H>
-	server_builder &delete_(http::route_path<Path>, H &&handler) {
-		return route(http::method::delete_, http::route_path<Path> {}, std::forward<H>(handler));
-	}
-
-	template <http::fixed_string Path, http::query_constraint... QueryConstraints, route_handler H>
-	server_builder &delete_(H &&handler) {
-		return route<http::method::delete_, Path, QueryConstraints...>(std::forward<H>(handler));
 	}
 
 	// default mode is callback
@@ -248,13 +183,19 @@ public:
 	[[nodiscard]] server build() const;
 
 private:
-	server_builder &route(http::method verb, std::string path, http::handler handler);
-	server_builder &route_typed(http::method verb, std::string path,
-	                            std::vector<http::query_constraint_descriptor> query_constraints,
-	                            http::handler handler);
+	template <http::method Verb, http::fixed_string Path, http::query_constraint... QueryConstraints, route_handler H>
+	constexpr server_builder &route(H &&handler) {
+		return route(http::route_spec<Verb, Path, QueryConstraints...> {}, std::forward<H>(handler));
+	}
 
-	server_builder &route_runtime(http::method verb, std::string path, http::handler callback) {
-		return route(verb, std::move(path), std::move(callback));
+	constexpr server_builder &route_typed(http::method verb, std::string path,
+	                                      std::vector<http::query_constraint_descriptor> query_constraints,
+	                                      http::handler handler) {
+		routes_.push_back(route_definition {.verb = verb,
+		                                    .path = std::move(path),
+		                                    .typed_query_constraints = std::move(query_constraints),
+		                                    .callback = std::move(handler)});
+		return *this;
 	}
 
 	template <http::event_loop_mode Mode>

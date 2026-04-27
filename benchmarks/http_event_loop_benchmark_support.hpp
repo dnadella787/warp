@@ -96,8 +96,7 @@ struct server_fixture {
 
 	template <http::event_loop_mode Mode>
 	explicit server_fixture(server::server_builder builder, std::integral_constant<http::event_loop_mode, Mode>)
-	    : port(reserve_port()),
-	      server(builder.address("127.0.0.1").port(port).worker_threads(4).template build<Mode>()) {
+	    : port(reserve_port()), server(builder.address("127.0.0.1").port(port).worker_threads(4).build<Mode>()) {
 		server.run(false);
 	}
 

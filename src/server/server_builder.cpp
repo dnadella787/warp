@@ -24,21 +24,6 @@ server_builder &server_builder::worker_threads(std::size_t count) {
 	return *this;
 }
 
-server_builder &server_builder::route(http::method verb, std::string path, http::handler handler) {
-	routes_.push_back(route_definition {.verb = verb, .path = std::move(path), .callback = std::move(handler)});
-	return *this;
-}
-
-server_builder &server_builder::route_typed(http::method verb, std::string path,
-                                            std::vector<http::query_constraint_descriptor> query_constraints,
-                                            http::handler handler) {
-	routes_.push_back(route_definition {.verb = verb,
-	                                    .path = std::move(path),
-	                                    .typed_query_constraints = std::move(query_constraints),
-	                                    .callback = std::move(handler)});
-	return *this;
-}
-
 template <http::event_loop_mode Mode>
 server server_builder::build() const {
 	return make_server<Mode>();

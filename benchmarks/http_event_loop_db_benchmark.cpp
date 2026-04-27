@@ -47,20 +47,18 @@ void register_db_round_trip_case(std::size_t concurrency) {
 			    auto db_pool = std::make_shared<db::postgres::connection_pool>(asio::system_executor {},
 			                                                                   make_db_config(*env), 4, 2);
 			    server_fixture server(
-			        server::server_builder().get(
-			            "/db/exchanges/nyse",
-			            [db_pool](request) -> awaitable<response> {
-				            auto result = co_await db_pool->query("SELECT exchange_code, exchange_name FROM exchanges "
-				                                                  "WHERE exchange_code = 'NYSE' LIMIT 1");
-				            if (result.rows() == 0) {
-					            co_return response::not_found("No exchange with code=NYSE found");
-				            }
+			        server::server_builder().get<"/db/exchanges/nyse">([db_pool](request) -> awaitable<response> {
+				        auto result = co_await db_pool->query("SELECT exchange_code, exchange_name FROM exchanges "
+				                                              "WHERE exchange_code = 'NYSE' LIMIT 1");
+				        if (result.rows() == 0) {
+					        co_return response::not_found("No exchange with code=NYSE found");
+				        }
 
-				            co_return response::ok(body_builder()
-				                                       .set("exchange_code", std::string(result.value(0, 0)))
-				                                       .set("exchange_name", std::string(result.value(0, 1)))
-				                                       .build());
-			            }),
+				        co_return response::ok(body_builder()
+				                                   .set("exchange_code", std::string(result.value(0, 0)))
+				                                   .set("exchange_name", std::string(result.value(0, 1)))
+				                                   .build());
+			        }),
 			        event_loop_mode_tag<Mode> {});
 			    state.SetLabel(format_load_test_configuration(options.client_threads));
 			    run_load_test_benchmark(state, server.port, request_payload, options);

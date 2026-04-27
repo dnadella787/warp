@@ -32,10 +32,9 @@ void register_round_trip_case(std::size_t concurrency) {
 	    name,
 	    [options](benchmark::State &state) {
 		    try {
-			    server_fixture server(
-			        server::server_builder().get(
-			            "/ping", [](const request &) -> response { return response::ok(R"({"ok":true})"); }),
-			        event_loop_mode_tag<Mode> {});
+			    server_fixture server(server::server_builder().get<"/ping">(
+			                              [](const request &) -> response { return response::ok(R"({"ok":true})"); }),
+			                          event_loop_mode_tag<Mode> {});
 			    state.SetLabel(format_load_test_configuration(options.client_threads));
 			    run_load_test_benchmark(state, server.port, request_payload, options);
 		    } catch (const std::exception &exception) {

@@ -886,7 +886,7 @@ auto bind_endpoint(std::shared_ptr<Service> service, MemberFn member_fn) {
 	using handler_return = std::remove_cvref_t<std::invoke_result_t<MemberFn, Service &, request_type>>;
 
 	if constexpr (std::is_same_v<handler_return, ResponseType>) {
-		return [service = std::move(service), member_fn](warp::request req) mutable -> warp::response {
+		return [service = std::move(service), member_fn](request req) mutable -> response {
 			const auto version = req.version();
 			const auto keep_alive = req.keep_alive();
 
@@ -908,7 +908,7 @@ auto bind_endpoint(std::shared_ptr<Service> service, MemberFn member_fn) {
 			                                           version, keep_alive);
 		};
 	} else if constexpr (std::is_same_v<handler_return, handler_result<ResponseType>>) {
-		return [service = std::move(service), member_fn](warp::request req) mutable -> warp::response {
+		return [service = std::move(service), member_fn](request req) mutable -> response {
 			const auto version = req.version();
 			const auto keep_alive = req.keep_alive();
 
@@ -930,7 +930,7 @@ auto bind_endpoint(std::shared_ptr<Service> service, MemberFn member_fn) {
 		              "bind_endpoint handlers must return ResponseType, "
 		              "warp::codegen::handler_result<ResponseType>, warp::awaitable<ResponseType>, or "
 		              "warp::awaitable<warp::codegen::handler_result<ResponseType>>");
-		return [service = std::move(service), member_fn](warp::request req) -> warp::awaitable<warp::response> {
+		return [service = std::move(service), member_fn](request req) -> awaitable<response> {
 			const auto version = req.version();
 			const auto keep_alive = req.keep_alive();
 
@@ -967,7 +967,7 @@ auto bind_generated_endpoint(std::shared_ptr<Service> service) {
 	        std::declval<Service &>(), std::declval<request_type>()))>;
 
 	if constexpr (std::is_same_v<handler_return, response_type>) {
-		return [service = std::move(service)](warp::request req) mutable -> warp::response {
+		return [service = std::move(service)](request req) mutable -> response {
 			const auto version = req.version();
 			const auto keep_alive = req.keep_alive();
 
@@ -985,7 +985,7 @@ auto bind_generated_endpoint(std::shared_ptr<Service> service) {
 			    codegen::to_http_response<ResponseContract>(std::move(typed_response), version), version, keep_alive);
 		};
 	} else if constexpr (std::is_same_v<handler_return, handler_result<response_type>>) {
-		return [service = std::move(service)](warp::request req) mutable -> warp::response {
+		return [service = std::move(service)](request req) mutable -> response {
 			const auto version = req.version();
 			const auto keep_alive = req.keep_alive();
 
@@ -1007,7 +1007,7 @@ auto bind_generated_endpoint(std::shared_ptr<Service> service) {
 		              "generated endpoint handlers must return ResponseType, "
 		              "warp::codegen::handler_result<ResponseType>, warp::awaitable<ResponseType>, or "
 		              "warp::awaitable<warp::codegen::handler_result<ResponseType>>");
-		return [service = std::move(service)](warp::request req) -> warp::awaitable<warp::response> {
+		return [service = std::move(service)](request req) -> awaitable<response> {
 			const auto version = req.version();
 			const auto keep_alive = req.keep_alive();
 
@@ -1040,7 +1040,7 @@ auto bind_generated_endpoint(std::shared_ptr<Service> service) {
 
 template <typename Service, typename Route, request_contract RequestContract, typename ResponseType, auto MemberFn>
 struct endpoint_binding {
-	static void register_route(warp::server::server_builder &builder, const std::shared_ptr<Service> &service) {
+	static void register_route(server::server_builder &builder, const std::shared_ptr<Service> &service) {
 		builder.route(Route {}, bind_endpoint<RequestContract, ResponseType>(service, MemberFn));
 	}
 };
@@ -1048,7 +1048,7 @@ struct endpoint_binding {
 template <typename Service, typename Route, request_contract RequestContract, typename ResponseContract,
           typename Selector>
 struct generated_endpoint_binding {
-	static void register_route(warp::server::server_builder &builder, const std::shared_ptr<Service> &service) {
+	static void register_route(server::server_builder &builder, const std::shared_ptr<Service> &service) {
 		builder.route(Route {}, bind_generated_endpoint<RequestContract, ResponseContract, Service, Selector>(service));
 	}
 };
@@ -1062,7 +1062,7 @@ public:
 		}
 	}
 
-	void register_routes(warp::server::server_builder &builder) const {
+	void register_routes(server::server_builder &builder) const {
 		(Endpoints::register_route(builder, service_), ...);
 	}
 
@@ -1071,7 +1071,7 @@ private:
 };
 
 template <typename... Resources>
-void register_resources(warp::server::server_builder &builder, Resources &...resources) {
+void register_resources(server::server_builder &builder, Resources &...resources) {
 	(builder.register_resource(resources), ...);
 }
 
