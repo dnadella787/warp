@@ -24,12 +24,13 @@ cmake_dependent_option(warp_FETCH_BOOST "Fetch Boost via FetchContent if not ava
 
 if (warp_FETCH_BOOST)
     set(BOOST_ENABLE_CMAKE ON CACHE BOOL "" FORCE)
-    FetchContent_Declare(boost
-        GIT_REPOSITORY https://github.com/boostorg/boost.git
-        # Keep the fetched Boost version aligned with the required find_package() version below.
-        GIT_TAG boost-1.90.0
-        UPDATE_DISCONNECTED ON
-        FIND_PACKAGE_ARGS COMPONENTS beast asio json)
+    FetchContent_Declare(
+            boost
+            GIT_REPOSITORY https://github.com/boostorg/boost.git
+            # Update boost version here and the find_package below together
+            GIT_TAG boost-1.90.0
+            UPDATE_DISCONNECTED ON
+            FIND_PACKAGE_ARGS COMPONENTS beast asio json)
     FetchContent_MakeAvailable(boost)
 endif ()
 
@@ -39,10 +40,11 @@ if (warp_BUILD_DB)
     set(SKIP_BUILD_TEST ON CACHE BOOL "" FORCE)
     set(BUILD_TEST OFF CACHE BOOL "" FORCE)
 
-    FetchContent_Declare(libpqxx
-        GIT_REPOSITORY https://github.com/jtv/libpqxx.git
-        GIT_TAG 8.0.0
-        UPDATE_DISCONNECTED ON)
+    FetchContent_Declare(
+            libpqxx
+            GIT_REPOSITORY https://github.com/jtv/libpqxx.git
+            GIT_TAG 8.0.1
+            UPDATE_DISCONNECTED ON)
     FetchContent_MakeAvailable(libpqxx)
 endif ()
 
@@ -51,10 +53,11 @@ if (warp_BUILD_BENCHMARKS)
     set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
     set(BENCHMARK_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
 
-    FetchContent_Declare(benchmark
-        GIT_REPOSITORY https://github.com/google/benchmark.git
-        GIT_TAG v1.9.1
-        UPDATE_DISCONNECTED ON)
+    FetchContent_Declare(
+            benchmark
+            GIT_REPOSITORY https://github.com/google/benchmark.git
+            GIT_TAG v1.9.5
+            UPDATE_DISCONNECTED ON)
     FetchContent_MakeAvailable(benchmark)
 endif ()
 
@@ -62,20 +65,23 @@ if (warp_BUILD_TESTS)
     set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
     set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 
-    FetchContent_Declare(googletest
-        GIT_REPOSITORY https://github.com/google/googletest.git
-        GIT_TAG v1.14.0
-        UPDATE_DISCONNECTED ON)
+    FetchContent_Declare(
+            googletest
+            GIT_REPOSITORY https://github.com/google/googletest.git
+            GIT_TAG v1.17.0
+            UPDATE_DISCONNECTED ON)
     FetchContent_MakeAvailable(googletest)
 endif ()
 
 if (APPLE)
+    # apple sdk does not support std::from_char yet so we just
+    # use the next fastest thing, which is fast_float. std impl
+    # based on fast_float in fact.
     FetchContent_Declare(
             fast_float
             GIT_REPOSITORY https://github.com/fastfloat/fast_float.git
             GIT_TAG tags/v8.2.4
             GIT_SHALLOW TRUE)
-
     FetchContent_MakeAvailable(fast_float)
 endif ()
 
