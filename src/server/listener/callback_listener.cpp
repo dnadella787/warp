@@ -5,9 +5,9 @@
 #include "callback_listener.hpp"
 
 #include <boost/asio/strand.hpp>
+#include <spdlog/spdlog.h>
 
 #include "../session/callback_http_session.hpp"
-#include "../../common/util/fail.h"
 
 namespace warp::server {
 
@@ -37,7 +37,7 @@ void callback_listener::on_accept(boost::beast::error_code ec, boost::asio::ip::
 		if (ec == boost::asio::error::operation_aborted)
 			return;
 
-		util::fail(ec, COMPONENT, "on_accept");
+		spdlog::error("Error in {} during {}: {}", COMPONENT, "on_accept", ec.message());
 	} else {
 		std::make_shared<callback_http_session>(std::move(socket), registry_)->start();
 	}

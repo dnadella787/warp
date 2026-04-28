@@ -3,8 +3,8 @@
 //
 #include "http_listener.h"
 
-#include "../../common/util/fail.h"
 #include <boost/asio/strand.hpp>
+#include <spdlog/spdlog.h>
 
 namespace warp::server {
 
@@ -18,22 +18,26 @@ http_listener<T>::http_listener(boost::asio::io_context &ioc, registry &registry
 
     acceptor_.open(endpoint.protocol(), ec);
     if (ec) {
-        util::fail_except(ec, "base_runner", "open");
+        spdlog::error("error in base_listener during open: {}", ec.message());
+        throw std::runtime_error(ec.message());
     }
 
     acceptor_.set_option(boost::asio::socket_base::reuse_address(true), ec);
     if (ec) {
-        util::fail_except(ec, "base_runner", "set_option{reuse_address=true}");
+        spdlog::error("error in base_listener during set_option(reuse_address=true): {}", ec.message());
+        throw std::runtime_error(ec.message());
     }
 
     acceptor_.bind(endpoint, ec);
     if (ec) {
-        util::fail_except(ec, "base_runner", "bind");
+        spdlog::error("error in base_listener during bind: {}", ec.message());
+        throw std::runtime_error(ec.message());
     }
 
     acceptor_.listen(boost::asio::socket_base::max_listen_connections, ec);
     if (ec) {
-        util::fail_except(ec, "base_runner", "listen");
+        spdlog::error("error in base_listener during listen: {}", ec.message());
+        throw std::runtime_error(ec.message());
     }
 }
 

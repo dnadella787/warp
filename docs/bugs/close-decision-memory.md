@@ -8,8 +8,8 @@ void callback_http_session::on_write(std::size_t sequence, beast::error_code ec,
         pending_responses_.erase(sequence);
         close_after_write = it->second.close_after_write;  // here it->second.close_after_write = false
     } else {
-        util::fail(COMPONENT, "on_write{pending_responses.find}",
-                   "could not find response in pending response map to erase");
+        spdlog::error("Error in {} during {}: {}", COMPONENT, "on_write{pending_responses.find}",
+                      "could not find response in pending response map to erase");
     }
     ...
 }

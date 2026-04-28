@@ -85,6 +85,25 @@ if (APPLE)
     FetchContent_MakeAvailable(fast_float)
 endif ()
 
+find_package(spdlog CONFIG QUIET)
+if (NOT spdlog_FOUND)
+    set(SPDLOG_BUILD_EXAMPLE OFF CACHE BOOL "" FORCE)
+    set(SPDLOG_BUILD_EXAMPLE_HO OFF CACHE BOOL "" FORCE)
+    set(SPDLOG_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+    set(SPDLOG_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(SPDLOG_BUILD_BENCH OFF CACHE BOOL "" FORCE)
+    set(SPDLOG_BUILD_WARNINGS OFF CACHE BOOL "" FORCE)
+    set(SPDLOG_FMT_EXTERNAL OFF CACHE BOOL "" FORCE)
+    set(SPDLOG_INSTALL ON CACHE BOOL "" FORCE)
+
+    FetchContent_Declare(
+            spdlog
+            GIT_REPOSITORY https://github.com/gabime/spdlog.git
+            GIT_TAG v1.15.3
+            UPDATE_DISCONNECTED ON)
+    FetchContent_MakeAvailable(spdlog)
+endif ()
+
 find_package(Boost 1.90 REQUIRED COMPONENTS json)
 find_package(Threads REQUIRED)
 if (warp_BUILD_DB)
@@ -158,7 +177,8 @@ target_link_libraries(
         Boost::json
         Boost::headers
     PRIVATE
-        Threads::Threads)
+        Threads::Threads
+        spdlog::spdlog_header_only)
 
 add_library(warp_codegen_runtime INTERFACE)
 target_include_directories(

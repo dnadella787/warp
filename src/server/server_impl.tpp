@@ -71,7 +71,7 @@ void server::server_impl<_>::run(bool blocking) {
 	try {
 		io_ctx_.run();
 	} catch (...) {
-		std::cerr << "Error in io_context::run() on main blocking thread for server_imp::start(), stopping server." << std::endl;
+		spdlog::error("Error in io_context::run() on main blocking thread for server_imp::start(), stopping server");
 		stop();
 		throw;
 	}

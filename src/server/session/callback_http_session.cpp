@@ -2,8 +2,8 @@
 
 #include <boost/asio/co_spawn.hpp>
 #include <boost/beast/http.hpp>
+#include <spdlog/spdlog.h>
 
-#include "../../common/util/fail.h"
 #include "../../common/util/lambda.h"
 
 namespace beast = boost::beast;   // from <boost/beast.hpp>
@@ -67,7 +67,7 @@ void callback_http_session::on_read(beast::error_code ec, std::size_t) {
 	}
 
 	if (ec) {
-		util::fail(ec, COMPONENT, "on_read");
+		spdlog::error("Error in callback_http_session during beast::async_read: {}", ec.message());
 		return shutdown(true);
 	}
 
@@ -123,8 +123,8 @@ void callback_http_session::on_handler_complete(std::size_t sequence, std::excep
 
 	auto ctx_it = request_ctxs_.find(sequence);
 	if (ctx_it == request_ctxs_.end())
-		return util::fail(COMPONENT, "on_handler_complete{req_ctx.find}",
-		                  "context could not be found in session map on completion");
+		return spdlog::error("Error in callback_http_session during on_handler_complete(req_ctx.find): context could "
+		                     "not be found in session map on completion");
 
 	// Unhandled exception is returned to end user as 500
 	// TODO: set keep alive to false for uncaught exceptions but let user configure that
@@ -181,7 +181,7 @@ void callback_http_session::on_write(std::size_t sequence, beast::error_code ec,
 	write_in_progress_ = false;
 
 	if (ec) {
-		util::fail(ec, COMPONENT, "on_write");
+		spdlog::error("Error in callback_http_session during boost::async_write: {}", ec.message());
 		// we error out b/c HTTP 1.1 requires resp to come in same order, so if this
 		// write fails, we either have to retry this or cancel the rest too
 		return shutdown(true);
@@ -193,8 +193,8 @@ void callback_http_session::on_write(std::size_t sequence, beast::error_code ec,
 		close_after_write = it->second.close_after_write;
 		pending_responses_.erase(sequence);
 	} else {
-		util::fail(COMPONENT, "on_write{pending_responses.find}",
-		           "could not find response in pending response map to erase");
+		spdlog::error("Error in callback_http_session during on_write(pending_responses.find): could not find response "
+		              "in pending response map to erase");
 	}
 
 	// increment write sequence so we look to write the next response out next time
@@ -232,13 +232,13 @@ void callback_http_session::shutdown(bool force) {
 	boost::system::error_code ec;
 	stream_.socket().shutdown(tcp::socket::shutdown_send, ec);
 	if (ec)
-		util::fail(ec, COMPONENT, "shutdown");
+		spdlog::error("Error in callback_http_session during shutdown: {}", ec.message());
 
 	if (force) {
 		ec.clear();
 		stream_.socket().close(ec);
 		if (ec)
-			util::fail(ec, COMPONENT, "shutdown");
+			spdlog::error("Error in callback_http_session during shutdown(force=true): {}", ec.message());
 	}
 }
 
