@@ -18,15 +18,13 @@ server::server(server &&) noexcept = default;
 server &server::operator=(server &&) noexcept = default;
 
 void server::run(bool blocking) {
-	if (impl_) {
+	if (impl_)
 		impl_->run(blocking);
-	}
 }
 
 void server::stop() {
-	if (impl_) {
+	if (impl_)
 		impl_->stop();
-	}
 }
 
 server::controller server::get_controller() const {
@@ -37,9 +35,8 @@ server::controller::controller(const std::shared_ptr<impl_base> &impl) : impl_(i
 }
 
 void server::controller::stop() {
-	if (auto locked = impl_.lock()) {
+	if (auto locked = impl_.lock())
 		locked->stop();
-	}
 }
 
 } // namespace warp::server
