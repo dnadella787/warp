@@ -79,7 +79,7 @@ void callback_http_session::on_read(beast::error_code ec, std::size_t) {
 	if (stop_reading_ || shutdown_started_)
 		return parser_.reset();
 
-	warp::request request {parser_->release()};
+	request request {parser_->release()};
 	const std::size_t sequence = next_request_sequence_++;
 	request_ctxs_.emplace(sequence, request_context {.sequence = sequence,
 	                                                 .version = request.version(),
