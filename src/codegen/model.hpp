@@ -1,10 +1,12 @@
 #pragma once
 
+#include <cstdint>
 #include <cstddef>
 #include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <variant>
 #include <vector>
 
 #include "codegen/spec_model.hpp"
@@ -16,6 +18,15 @@ enum class http_body_mode {
 	forbidden,
 	optional,
 	required,
+};
+
+struct validation_rules {
+	std::optional<numeric_validation_value> min;
+	std::optional<numeric_validation_value> max;
+	std::optional<std::size_t> min_length;
+	std::optional<std::size_t> max_length;
+
+	[[nodiscard]] bool empty() const noexcept;
 };
 
 struct schema_type {
@@ -47,6 +58,7 @@ struct field_model {
 	std::string member_name;
 	schema_type type;
 	bool required {true};
+	validation_rules validation;
 };
 
 struct object_schema_model {
@@ -62,6 +74,7 @@ struct parameter_model {
 	parameter_location location {parameter_location::query};
 	schema_type type;
 	bool required {true};
+	validation_rules validation;
 };
 
 struct request_model {

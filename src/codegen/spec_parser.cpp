@@ -1,8 +1,11 @@
 #include "codegen/spec_parser.hpp"
 
 #include <algorithm>
+#include <charconv>
+#include <cstdint>
 #include <fstream>
 #include <initializer_list>
+#include <limits>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -360,6 +363,74 @@ bool parse_bool(const yaml_node &node, std::string_view context) {
 	throw spec_error(node.line, node.column, std::string(context) + " must be 'true' or 'false'");
 }
 
+std::optional<std::int64_t> parse_int64_literal(std::string_view text) {
+	std::int64_t value = 0;
+	const auto *begin = text.data();
+	const auto *end = text.data() + text.size();
+	const auto result = std::from_chars(begin, end, value);
+	if (result.ec == std::errc {} && result.ptr == end) {
+		return value;
+	}
+	return std::nullopt;
+}
+
+std::optional<double> parse_double_literal(std::string_view text) {
+	std::size_t offset = 0;
+	try {
+		const auto value = std::stod(std::string(text), &offset);
+		if (offset == text.size()) {
+			return value;
+		}
+	} catch (const std::exception &) {
+	}
+	return std::nullopt;
+}
+
+numeric_validation_value parse_numeric_validation_value(const yaml_node &node, std::string_view context) {
+	const auto value = parse_string(node, context);
+	if (const auto parsed = parse_int64_literal(value); parsed.has_value()) {
+		return *parsed;
+	}
+	if (const auto parsed = parse_double_literal(value); parsed.has_value()) {
+		return *parsed;
+	}
+	throw spec_error(node.line, node.column, std::string(context) + " must be a numeric scalar");
+}
+
+std::size_t parse_length_validation_value(const yaml_node &node, std::string_view context) {
+	const auto value = parse_string(node, context);
+	unsigned long long parsed = 0;
+	const auto *begin = value.data();
+	const auto *end = value.data() + value.size();
+	const auto result = std::from_chars(begin, end, parsed);
+	if (result.ec != std::errc {} || result.ptr != end ||
+	    parsed > static_cast<unsigned long long>(std::numeric_limits<std::size_t>::max())) {
+		throw spec_error(node.line, node.column, std::string(context) + " must be a non-negative integer");
+	}
+	return static_cast<std::size_t>(parsed);
+}
+
+validation_rule_spec parse_validation_rules(const yaml_node &node) {
+	validation_rule_spec rules;
+	if (const auto *min = find_key(node, "min")) {
+		rules.min_span = span_of(*min);
+		rules.min = parse_numeric_validation_value(*min, "validation rule 'min'");
+	}
+	if (const auto *max = find_key(node, "max")) {
+		rules.max_span = span_of(*max);
+		rules.max = parse_numeric_validation_value(*max, "validation rule 'max'");
+	}
+	if (const auto *min_length = find_key(node, "min_length")) {
+		rules.min_length_span = span_of(*min_length);
+		rules.min_length = parse_length_validation_value(*min_length, "validation rule 'min_length'");
+	}
+	if (const auto *max_length = find_key(node, "max_length")) {
+		rules.max_length_span = span_of(*max_length);
+		rules.max_length = parse_length_validation_value(*max_length, "validation rule 'max_length'");
+	}
+	return rules;
+}
+
 int parse_int(const yaml_node &node, std::string_view context) {
 	const auto value = parse_string(node, context);
 	try {
@@ -457,11 +528,14 @@ schema parse_schema(const yaml_node &node, bool allow_schema_name = true);
 schema parse_object_schema(const yaml_node &node, bool allow_schema_name) {
 	reject_unknown_keys(node,
 	                    allow_schema_name
-	                        ? std::initializer_list<std::string_view> {"type", "name", "nullable", "fields"}
-	                        : std::initializer_list<std::string_view> {"type", "nullable", "fields"},
+	                        ? std::initializer_list<std::string_view> {"type", "name", "nullable", "fields", "min",
+	                                                                   "max", "min_length", "max_length"}
+	                        : std::initializer_list<std::string_view> {"type", "nullable", "fields", "min", "max",
+	                                                                   "min_length", "max_length"},
 	                    "object schema");
 	schema parsed = schema::object();
 	parsed.span = span_of(node);
+	parsed.validation = parse_validation_rules(node);
 	if (allow_schema_name) {
 		if (const auto *name = find_key(node, "name")) {
 			parsed.name = parse_string(*name, "schema name");
@@ -473,7 +547,9 @@ schema parse_object_schema(const yaml_node &node, bool allow_schema_name) {
 
 	const auto &fields = expect_kind(required_key(node, "fields"), yaml_node::kind::list, "object schema fields");
 	for (const auto &field_node : fields.list_values) {
-		reject_unknown_keys(field_node, {"name", "required", "type", "nullable", "fields", "items", "schema"},
+		reject_unknown_keys(field_node,
+		                    {"name", "required", "type", "nullable", "fields", "items", "schema", "min", "max",
+		                     "min_length", "max_length"},
 		                    "schema field");
 		expect_kind(field_node, yaml_node::kind::map, "schema field");
 		const auto field_name = parse_string(required_key(field_node, "name"), "field name");
@@ -483,7 +559,9 @@ schema parse_object_schema(const yaml_node &node, bool allow_schema_name) {
 		}
 		if (const auto *field_schema = find_key(field_node, "schema")) {
 			if (find_key(field_node, "type") != nullptr || find_key(field_node, "nullable") != nullptr ||
-			    find_key(field_node, "fields") != nullptr || find_key(field_node, "items") != nullptr) {
+			    find_key(field_node, "fields") != nullptr || find_key(field_node, "items") != nullptr ||
+			    find_key(field_node, "min") != nullptr || find_key(field_node, "max") != nullptr ||
+			    find_key(field_node, "min_length") != nullptr || find_key(field_node, "max_length") != nullptr) {
 				throw spec_error(span_of(field_node), "spec.invalid_field_schema",
 				                 "schema field cannot mix 'schema' with inline schema keys");
 			}
@@ -536,11 +614,14 @@ schema parse_schema(const yaml_node &node, bool allow_schema_name) {
 	if (type_name == "array") {
 		reject_unknown_keys(node,
 		                    allow_schema_name
-		                        ? std::initializer_list<std::string_view> {"type", "name", "nullable", "items"}
-		                        : std::initializer_list<std::string_view> {"type", "nullable", "items"},
+		                        ? std::initializer_list<std::string_view> {"type", "name", "nullable", "items", "min",
+		                                                                   "max", "min_length", "max_length"}
+		                        : std::initializer_list<std::string_view> {"type", "nullable", "items", "min", "max",
+		                                                                   "min_length", "max_length"},
 		                    "array schema");
 		schema parsed(value_kind::array_value);
 		parsed.span = span_of(node);
+		parsed.validation = parse_validation_rules(node);
 		if (allow_schema_name) {
 			if (const auto *name = find_key(node, "name")) {
 				parsed.name = parse_string(*name, "schema name");
@@ -555,8 +636,10 @@ schema parse_schema(const yaml_node &node, bool allow_schema_name) {
 	}
 
 	reject_unknown_keys(node,
-	                    allow_schema_name ? std::initializer_list<std::string_view> {"type", "name", "nullable"}
-	                                      : std::initializer_list<std::string_view> {"type", "nullable"},
+	                    allow_schema_name ? std::initializer_list<std::string_view> {"type", "name", "nullable", "min",
+	                                                                                 "max", "min_length", "max_length"}
+	                                      : std::initializer_list<std::string_view> {"type", "nullable", "min", "max",
+	                                                                                 "min_length", "max_length"},
 	                    "schema");
 	schema parsed(value_kind::string_value);
 	switch (parse_scalar_kind(type_node, "schema type")) {
@@ -577,6 +660,7 @@ schema parse_schema(const yaml_node &node, bool allow_schema_name) {
 		break;
 	}
 	parsed.span = span_of(node);
+	parsed.validation = parse_validation_rules(node);
 	if (allow_schema_name) {
 		if (const auto *name = find_key(node, "name")) {
 			parsed.name = parse_string(*name, "schema name");
@@ -608,7 +692,8 @@ int parse_status_code(const yaml_node &node) {
 }
 
 parameter_spec parse_parameter(const yaml_node &node) {
-	reject_unknown_keys(node, {"name", "in", "location", "type", "required"}, "parameter");
+	reject_unknown_keys(node, {"name", "in", "location", "type", "required", "min", "max", "min_length", "max_length"},
+	                    "parameter");
 	expect_kind(node, yaml_node::kind::map, "parameter");
 	parameter_spec parameter;
 	parameter.span = span_of(node);
@@ -627,6 +712,7 @@ parameter_spec parse_parameter(const yaml_node &node) {
 	if (const auto *required = find_key(node, "required")) {
 		parameter.required = parse_bool(*required, "parameter required");
 	}
+	parameter.validation = parse_validation_rules(node);
 	return parameter;
 }
 

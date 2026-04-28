@@ -14,7 +14,7 @@ namespace {
 class overloaded_codegen_service {
 public:
 	generated::users_health_response health(generated::users_health_request request) {
-		last_user_id_ = std::move(request).user_id();
+		last_user_id_ = std::move(request).user_id;
 		return {};
 	}
 
@@ -33,7 +33,7 @@ private:
 class request_distinguished_service {
 public:
 	generated::users_health_response health(generated::users_health_request request) {
-		last_user_id_ = std::move(request).user_id();
+		last_user_id_ = std::move(request).user_id;
 		return {};
 	}
 
@@ -48,7 +48,7 @@ private:
 class noexcept_codegen_service {
 public:
 	generated::users_health_response health(generated::users_health_request request) noexcept {
-		last_user_id_ = std::move(request).user_id();
+		last_user_id_ = std::move(request).user_id;
 		return {};
 	}
 
@@ -63,12 +63,12 @@ private:
 class same_request_cv_selected_service {
 public:
 	generated::admin_health_response health(generated::users_health_request request) {
-		last_user_id_ = std::move(request).user_id();
+		last_user_id_ = std::move(request).user_id;
 		return {};
 	}
 
 	generated::users_health_response health(const generated::users_health_request &request) const {
-		last_const_user_id_ = request.user_id();
+		last_const_user_id_ = request.user_id;
 		return {};
 	}
 
@@ -84,7 +84,7 @@ private:
 class sync_only_codegen_service {
 public:
 	generated::users_health_response health(generated::users_health_request request) noexcept {
-		last_user_id_ = std::move(request).user_id();
+		last_user_id_ = std::move(request).user_id;
 		return {};
 	}
 
@@ -99,7 +99,7 @@ private:
 class mixed_result_codegen_service {
 public:
 	generated::users_health_request_handler_result health(generated::users_health_request request) {
-		last_user_id_ = std::move(request).user_id();
+		last_user_id_ = std::move(request).user_id;
 		if (last_user_id_.empty()) {
 			return warp::response::not_found("user health is unavailable");
 		}

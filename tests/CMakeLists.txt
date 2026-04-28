@@ -43,6 +43,7 @@ set(GENERATED_OVERLOADED_HANDLER_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/over
 set(GENERATED_MULTI_HEADER_PRIMARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/multi_header_primary")
 set(GENERATED_MULTI_HEADER_SECONDARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/multi_header_secondary")
 set(GENERATED_SINGLETON_REQUIRED_QUERY_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/singleton_required_query")
+set(GENERATED_NESTED_VALIDATION_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/nested_validation")
 
 warp_generate_stubs(
     TARGET generated_users_api_headers
@@ -92,6 +93,14 @@ warp_generate_stubs(
     RESOURCE_HEADER "generated_singleton_required_query_api_resources.hpp"
 )
 
+warp_generate_stubs(
+    TARGET generated_nested_validation_api_headers
+    SPEC "${PROJECT_SOURCE_DIR}/tests/fixtures/codegen/nested_validation_api.yaml"
+    OUTPUT_DIR "${GENERATED_NESTED_VALIDATION_DIR}"
+    MODEL_HEADER "generated_nested_validation_api_types.hpp"
+    RESOURCE_HEADER "generated_nested_validation_api_resources.hpp"
+)
+
 set(warp_http_unit_test_sources
     unit/request_test.cpp
     unit/response_test.cpp
@@ -120,6 +129,7 @@ set(warp_http_integration_test_sources
     integration/generated_api_integration_test.cpp
     integration/generated_query_routing_integration_test.cpp
     integration/generated_singleton_required_query_integration_test.cpp
+    integration/generated_nested_validation_integration_test.cpp
 )
 
 add_warp_runtime_gtest_suite(warp_http_integration_tests
@@ -128,10 +138,12 @@ add_warp_runtime_gtest_suite(warp_http_integration_tests
 add_dependencies(warp_http_integration_tests generated_users_api_headers)
 add_dependencies(warp_http_integration_tests generated_query_routing_api_headers)
 add_dependencies(warp_http_integration_tests generated_singleton_required_query_api_headers)
+add_dependencies(warp_http_integration_tests generated_nested_validation_api_headers)
 target_include_directories(warp_http_integration_tests PRIVATE
     "${GENERATED_CODEGEN_DIR}"
     "${GENERATED_QUERY_ROUTING_DIR}"
     "${GENERATED_SINGLETON_REQUIRED_QUERY_DIR}"
+    "${GENERATED_NESTED_VALIDATION_DIR}"
 )
 target_link_libraries(warp_http_integration_tests PRIVATE warp_codegen_runtime)
 

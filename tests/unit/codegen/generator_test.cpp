@@ -48,10 +48,13 @@ resources:
 	    yaml, {.namespace_name = "generated_api", .model_header_name = "models.hpp"});
 
 	EXPECT_NE(generated.model_header.find("namespace generated_api {"), std::string::npos);
-	EXPECT_NE(generated.model_header.find("class users_create_user_request {"), std::string::npos);
+	EXPECT_NE(generated.model_header.find("struct users_create_user_request {"), std::string::npos);
 	EXPECT_NE(generated.model_header.find("#include \"warp/codegen/json_object_contract.hpp\""), std::string::npos);
 	EXPECT_NE(generated.model_header.find("struct json_object_contract<generated_api::users_create_user_request_body>"),
 	          std::string::npos);
+	EXPECT_NE(generated.model_header.find("&generated_api::users_create_user_request_body::name"), std::string::npos);
+	EXPECT_EQ(generated.model_header.find("class Builder {"), std::string::npos);
+	EXPECT_EQ(generated.model_header.find("set_user_id("), std::string::npos);
 	EXPECT_NE(generated.resource_header.find("#include \"models.hpp\""), std::string::npos);
 	EXPECT_NE(generated.resource_header.find("using users_api_routes = warp::codegen::generated_resource<"),
 	          std::string::npos);
@@ -60,14 +63,25 @@ resources:
 	    generated.resource_header.find("struct request_contract_traits<generated_api::users_create_user_request> : "
 	                                   "warp::codegen::generated_request_contract<"),
 	    std::string::npos);
+	EXPECT_EQ(generated.resource_header.find("struct users_create_user_request_validator {"), std::string::npos);
+	EXPECT_EQ(generated.resource_header.find("struct users_create_user_request_body_validator {"), std::string::npos);
 	EXPECT_NE(
 	    generated.resource_header.find("struct response_contract_traits<generated_api::users_create_user_response> {"),
 	    std::string::npos);
 	EXPECT_NE(generated.resource_header.find("static decltype(auto) body(response_type &&value) {"), std::string::npos);
 	EXPECT_NE(generated.resource_header.find(
-	              "warp::codegen::path_setter_binding<&generated_api::users_create_user_request::set_user_id, "
+	              "warp::codegen::path_field_binding<&generated_api::users_create_user_request::user_id, "
 	              "\"user_id\">"),
 	          std::string::npos);
+	EXPECT_NE(generated.resource_header.find(
+	              "warp::codegen::header_field_binding<&generated_api::users_create_user_request::x_trace_id, "
+	              "\"x-trace-id\">"),
+	          std::string::npos);
+	EXPECT_NE(generated.resource_header.find(
+	              "warp::codegen::json_body_field_binding<&generated_api::users_create_user_request::body>"),
+	          std::string::npos);
+	EXPECT_NE(generated.resource_header.find("return (value.body);"), std::string::npos);
+	EXPECT_NE(generated.resource_header.find("return (std::move(value).body);"), std::string::npos);
 	EXPECT_NE(generated.resource_header.find("using users_create_user_request_endpoint = "
 	                                         "warp::codegen::generated_endpoint_binding<"),
 	          std::string::npos);

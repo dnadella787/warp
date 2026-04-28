@@ -31,21 +31,30 @@ resources:
             - name: user_id
               in: path
               type: string
+              min_length: 3
             - name: verbose
               in: query
               type: bool
               required: false
+            - name: filter
+              in: query
+              type: string
+              required: false
+              min_length: 2
             - name: x-trace-id
               in: header
               type: string
+              min_length: 3
           body:
             type: object
             fields:
               - name: name
                 type: string
+                min_length: 3
               - name: nickname
                 type: string
                 required: false
+                max_length: 5
         response:
           status: 201
           body:
@@ -69,6 +78,9 @@ Schema rules:
 - Array schemas use `type: array` with `items:`
 - Request parameters must be primitive
 - Path parameters must be present in both the route path and the request parameter list
+- Validation rules are supported on request parameters and request JSON body fields:
+  `min`, `max`, `min_length`, `max_length`
+- Invalid rule/type combinations and inverted ranges are rejected during model normalization
 - Nullable schemas are reserved for future support and currently rejected during model normalization
 - Generated type names and route-adapter aliases use `snake_case`
 - Generated C++ member names are sanitized to valid identifiers while preserving the wire name for binding, for example `x-trace-id` becomes `x_trace_id`
@@ -169,10 +181,12 @@ namespace warp::codegen {
 
 template <>
 struct request_contract_traits<generated_api::users_create_user_request>
-    : generated_request_contract<
-          generated_api::users_create_user_request,
-          path_setter_binding<&generated_api::users_create_user_request::set_user_id, "user_id">,
-          json_body_setter_binding<&generated_api::users_create_user_request::set_body>> {};
+    : validated_request_contract<
+          generated_request_contract<
+              generated_api::users_create_user_request,
+              path_field_binding<&generated_api::users_create_user_request::user_id, "user_id">,
+              json_body_field_binding<&generated_api::users_create_user_request::body>>,
+          generated_api::codegen_detail::users_create_user_request_validator> {};
 
 template <>
 struct response_contract_traits<generated_api::users_create_user_response> {
@@ -181,11 +195,11 @@ struct response_contract_traits<generated_api::users_create_user_response> {
     static constexpr bool has_body = true;
 
     static decltype(auto) body(const response_type &value) {
-        return value.body();
+        return (value.body);
     }
 
     static decltype(auto) body(response_type &&value) {
-        return std::move(value).body();
+        return (std::move(value).body);
     }
 };
 
@@ -226,16 +240,14 @@ class users_resource {
 public:
     generated_api::users_create_user_request_handler_result create_user(
         generated_api::users_create_user_request request) {
-        if (request.body().name().empty()) {
+        if (request.body.name.empty()) {
             return warp::response::bad_request("name must not be empty");
         }
 
-        return generated_api::users_create_user_response::builder()
-            .body(generated_api::users_create_user_response_body::builder()
-                      .id(42)
-                      .active(true)
-                      .build())
-            .build();
+        generated_api::users_create_user_response response;
+        response.body.id = 42;
+        response.body.active = true;
+        return response;
     }
 };
 ```
@@ -257,14 +269,16 @@ Each generated endpoint binds the incoming `warp::request` exactly once into a t
 
 - path/query/header parameters are parsed with explicit type checks
 - the resource header now uses reusable pointer-to-member binding templates instead of emitting one accessor struct per field
-- generated model headers describe JSON object schemas through reusable pointer-to-setter/getter metadata in `warp/codegen/json_object_contract.hpp`
-- JSON bodies require `Content-Type: application/json` and are converted with `boost::json::value_to`
+- generated model headers describe JSON object schemas through reusable public-member metadata in `warp/codegen/json_object_contract.hpp`
+- JSON bodies require a JSON `Content-Type` such as `application/json` or `application/*+json`, and are converted with `boost::json::value_to`
+- request validation runs after typed request binding and before handler dispatch
 - invalid bindings become `400 Bad Request` responses with an error payload
+- validation errors use wire names, not sanitized C++ member names
 
 Responses are serialized from the generated result type using reusable response contracts:
 
 - endpoints with a body serialize JSON automatically
-- generated response traits forward to `value.body()` directly instead of emitting fragile getter-member-pointer `static_cast` expressions
+- generated response traits forward to the public `body` member directly
 - endpoints without a body emit the configured HTTP status and an empty body
 - generated route adapters still expose `request_contract_traits` / `response_contract_traits` specializations for direct use when needed
 

@@ -1,9 +1,11 @@
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <variant>
 #include <vector>
 
 #include "codegen/diagnostics.hpp"
@@ -22,6 +24,21 @@ enum class value_kind {
 [[nodiscard]] std::string_view to_string(value_kind kind) noexcept;
 [[nodiscard]] bool is_primitive(value_kind kind) noexcept;
 
+using numeric_validation_value = std::variant<std::int64_t, double>;
+
+struct validation_rule_spec {
+	std::optional<numeric_validation_value> min;
+	source_span min_span {};
+	std::optional<numeric_validation_value> max;
+	source_span max_span {};
+	std::optional<std::size_t> min_length;
+	source_span min_length_span {};
+	std::optional<std::size_t> max_length;
+	source_span max_length_span {};
+
+	[[nodiscard]] bool empty() const noexcept;
+};
+
 struct schema;
 
 struct schema_field {
@@ -39,6 +56,7 @@ struct schema {
 	std::vector<std::unique_ptr<schema>> owned_children;
 	std::vector<schema_field> fields;
 	schema *element_type {nullptr};
+	validation_rule_spec validation;
 
 	schema() = default;
 	explicit schema(value_kind value) : kind(value) {
@@ -86,6 +104,7 @@ struct parameter_spec {
 	parameter_location location {parameter_location::query};
 	value_kind kind {value_kind::string_value};
 	bool required {false};
+	validation_rule_spec validation;
 };
 
 struct request_spec {

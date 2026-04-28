@@ -24,9 +24,10 @@ public:
 	generated::reports_search_response search(generated::reports_search_request request) {
 		handler_calls_.fetch_add(1, std::memory_order_relaxed);
 
-		return generated::reports_search_response::builder()
-		    .body(generated::reports_search_response_body::builder().route("search").query(request.query()).build())
-		    .build();
+		generated::reports_search_response response;
+		response.body.route = "search";
+		response.body.query = request.query;
+		return response;
 	}
 
 	[[nodiscard]] int handler_calls() const noexcept {

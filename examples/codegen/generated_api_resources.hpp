@@ -5,6 +5,50 @@
 
 namespace generated_api::codegen_detail {
 
+struct users_create_user_request_body_validator {
+	static std::optional<warp::codegen::binding_error>
+	validate(const generated_api::users_create_user_request_body &value, std::string_view field_path_prefix = {}) {
+		if (auto error =
+		        warp::codegen::validate_min_length("JSON body field", "name", value.name, 3, field_path_prefix);
+		    error.has_value()) {
+			return error;
+		}
+		if (value.nickname.has_value()) {
+			if (auto error = warp::codegen::validate_max_length("JSON body field", "nickname", *value.nickname, 5,
+			                                                    field_path_prefix);
+			    error.has_value()) {
+				return error;
+			}
+		}
+		return std::nullopt;
+	}
+};
+
+struct users_create_user_request_validator {
+	using request_type = generated_api::users_create_user_request;
+
+	static std::optional<warp::codegen::binding_error> validate(const request_type &value) {
+		if (auto error = warp::codegen::validate_min_length("path parameter", "user_id", value.user_id, 3);
+		    error.has_value()) {
+			return error;
+		}
+		if (value.filter.has_value()) {
+			if (auto error = warp::codegen::validate_min_length("query parameter", "filter", *value.filter, 2);
+			    error.has_value()) {
+				return error;
+			}
+		}
+		if (auto error = warp::codegen::validate_min_length("header", "x-trace-id", value.x_trace_id, 3);
+		    error.has_value()) {
+			return error;
+		}
+		if (auto error = users_create_user_request_body_validator::validate(value.body); error.has_value()) {
+			return error;
+		}
+		return std::nullopt;
+	}
+};
+
 struct users_create_user_request_handler_selector {
 	template <typename Signature, typename Service>
 	static consteval bool matches() {
@@ -33,12 +77,15 @@ namespace warp::codegen {
 
 template <>
 struct request_contract_traits<generated_api::users_create_user_request>
-    : warp::codegen::generated_request_contract<
-          generated_api::users_create_user_request,
-          warp::codegen::path_setter_binding<&generated_api::users_create_user_request::set_user_id, "user_id">,
-          warp::codegen::query_setter_binding<&generated_api::users_create_user_request::set_verbose, "verbose">,
-          warp::codegen::header_setter_binding<&generated_api::users_create_user_request::set_x_trace_id, "x-trace-id">,
-          warp::codegen::json_body_setter_binding<&generated_api::users_create_user_request::set_body>> {};
+    : warp::codegen::validated_request_contract<
+          warp::codegen::generated_request_contract<
+              generated_api::users_create_user_request,
+              warp::codegen::path_field_binding<&generated_api::users_create_user_request::user_id, "user_id">,
+              warp::codegen::query_field_binding<&generated_api::users_create_user_request::verbose, "verbose">,
+              warp::codegen::query_field_binding<&generated_api::users_create_user_request::filter, "filter">,
+              warp::codegen::header_field_binding<&generated_api::users_create_user_request::x_trace_id, "x-trace-id">,
+              warp::codegen::json_body_field_binding<&generated_api::users_create_user_request::body>>,
+          generated_api::codegen_detail::users_create_user_request_validator> {};
 
 template <>
 struct response_contract_traits<generated_api::users_create_user_response> {
@@ -47,11 +94,11 @@ struct response_contract_traits<generated_api::users_create_user_response> {
 	static constexpr bool has_body = true;
 
 	static decltype(auto) body(const response_type &value) {
-		return value.body();
+		return (value.body);
 	}
 
 	static decltype(auto) body(response_type &&value) {
-		return std::move(value).body();
+		return (std::move(value).body);
 	}
 };
 

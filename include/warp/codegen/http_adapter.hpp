@@ -7,6 +7,7 @@
 #include <boost/json/value_from.hpp>
 
 #include <concepts>
+#include <cstddef>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -52,6 +53,36 @@ inline binding_error make_unsupported_media_type(std::string code, std::string m
 	return binding_error {.status = boost::beast::http::status::unsupported_media_type,
 	                      .code = std::move(code),
 	                      .message = std::move(message)};
+}
+
+inline std::string make_validation_target(std::string_view field_name, std::string_view field_path_prefix) {
+	if (field_path_prefix.empty()) {
+		return std::string(field_name);
+	}
+
+	std::string target;
+	target.reserve(field_path_prefix.size() + 1 + field_name.size());
+	target.append(field_path_prefix);
+	target.push_back('.');
+	target.append(field_name);
+	return target;
+}
+
+inline binding_error make_validation_error(std::string_view location_name, std::string_view field_name,
+                                           std::string message, std::string_view field_path_prefix = {}) {
+	return make_bad_request("constraint_violation", "invalid " + std::string(location_name) + " '" +
+	                                                    make_validation_target(field_name, field_path_prefix) +
+	                                                    "': " + std::move(message));
+}
+
+template <typename T>
+concept validated_numeric_type =
+    (std::integral<std::remove_cvref_t<T>> || std::floating_point<std::remove_cvref_t<T>>) &&
+    !std::same_as<std::remove_cvref_t<T>, bool>;
+
+template <validated_numeric_type T>
+std::string format_validation_number(T value) {
+	return std::to_string(value);
 }
 
 } // namespace detail
@@ -445,7 +476,81 @@ parse_result<RequestContract> parse_http_request(const request &req) {
 	return request_contract_traits<RequestContract>::parse(req);
 }
 
+inline std::string append_validation_path(std::string_view prefix, std::string_view field_name) {
+	if (prefix.empty()) {
+		return std::string(field_name);
+	}
+
+	std::string path;
+	path.reserve(prefix.size() + 1 + field_name.size());
+	path.append(prefix);
+	path.push_back('.');
+	path.append(field_name);
+	return path;
+}
+
+inline std::string append_validation_index(std::string_view prefix, std::size_t index) {
+	std::string path;
+	path.reserve(prefix.size() + 2 + 20);
+	path.append(prefix);
+	path.push_back('[');
+	path.append(std::to_string(index));
+	path.push_back(']');
+	return path;
+}
+
+inline std::optional<binding_error> validate_min_length(std::string_view location_name, std::string_view field_name,
+                                                        std::string_view value, std::size_t min_length,
+                                                        std::string_view field_path_prefix = {}) {
+	if (value.size() >= min_length) {
+		return std::nullopt;
+	}
+	return detail::make_validation_error(location_name, field_name, "length must be >= " + std::to_string(min_length),
+	                                     field_path_prefix);
+}
+
+inline std::optional<binding_error> validate_max_length(std::string_view location_name, std::string_view field_name,
+                                                        std::string_view value, std::size_t max_length,
+                                                        std::string_view field_path_prefix = {}) {
+	if (value.size() <= max_length) {
+		return std::nullopt;
+	}
+	return detail::make_validation_error(location_name, field_name, "length must be <= " + std::to_string(max_length),
+	                                     field_path_prefix);
+}
+
+template <detail::validated_numeric_type Value, detail::validated_numeric_type Limit>
+std::optional<binding_error> validate_min_value(std::string_view location_name, std::string_view field_name,
+                                                Value value, Limit min_value, std::string_view field_path_prefix = {}) {
+	using common_type = std::common_type_t<Value, Limit>;
+	if (static_cast<common_type>(value) >= static_cast<common_type>(min_value)) {
+		return std::nullopt;
+	}
+	return detail::make_validation_error(
+	    location_name, field_name, "must be >= " + detail::format_validation_number(min_value), field_path_prefix);
+}
+
+template <detail::validated_numeric_type Value, detail::validated_numeric_type Limit>
+std::optional<binding_error> validate_max_value(std::string_view location_name, std::string_view field_name,
+                                                Value value, Limit max_value, std::string_view field_path_prefix = {}) {
+	using common_type = std::common_type_t<Value, Limit>;
+	if (static_cast<common_type>(value) <= static_cast<common_type>(max_value)) {
+		return std::nullopt;
+	}
+	return detail::make_validation_error(
+	    location_name, field_name, "must be <= " + detail::format_validation_number(max_value), field_path_prefix);
+}
+
 namespace detail {
+
+template <typename MemberPtr>
+struct binding_member_object_pointer_traits;
+
+template <typename Class, typename Value>
+struct binding_member_object_pointer_traits<Value Class::*> {
+	using class_type = Class;
+	using value_type = std::remove_cv_t<Value>;
+};
 
 template <typename Class, typename Value, auto Setter>
 struct member_setter {
@@ -460,6 +565,19 @@ struct member_setter {
 	}
 };
 
+template <typename Class, typename Value, auto Member>
+struct member_accessor {
+	using class_type = Class;
+	using value_type = Value;
+
+	static_assert(std::is_member_object_pointer_v<decltype(Member)>,
+	              "member_accessor requires a pointer to a data member");
+
+	static void set(class_type &out, value_type value) noexcept(noexcept(out.*Member = std::move(value))) {
+		out.*Member = std::move(value);
+	}
+};
+
 template <auto Setter>
 struct deduced_member_setter {
 	using traits = detail::member_function_traits<decltype(Setter)>;
@@ -468,6 +586,17 @@ struct deduced_member_setter {
 
 	static void set(class_type &out, value_type value) noexcept(noexcept(std::invoke(Setter, out, std::move(value)))) {
 		static_cast<void>(std::invoke(Setter, out, std::move(value)));
+	}
+};
+
+template <auto Member>
+struct deduced_member_accessor {
+	using traits = binding_member_object_pointer_traits<decltype(Member)>;
+	using class_type = typename traits::class_type;
+	using value_type = typename traits::value_type;
+
+	static void set(class_type &out, value_type value) noexcept(noexcept(out.*Member = std::move(value))) {
+		out.*Member = std::move(value);
 	}
 };
 
@@ -577,6 +706,18 @@ using header_member_binding = header_binding<detail::member_setter<Request, Valu
 template <typename Request, typename Value, auto Setter>
 using json_body_member_binding = json_body_binding<detail::member_setter<Request, Value, Setter>>;
 
+template <auto Member, http::fixed_string Name>
+using path_field_binding = path_binding<detail::deduced_member_accessor<Member>, Name>;
+
+template <auto Member, http::fixed_string Name>
+using query_field_binding = query_binding<detail::deduced_member_accessor<Member>, Name>;
+
+template <auto Member, http::fixed_string Name>
+using header_field_binding = header_binding<detail::deduced_member_accessor<Member>, Name>;
+
+template <auto Member>
+using json_body_field_binding = json_body_binding<detail::deduced_member_accessor<Member>>;
+
 template <auto Setter, http::fixed_string Name>
 using path_setter_binding = path_binding<detail::deduced_member_setter<Setter>, Name>;
 
@@ -630,6 +771,31 @@ private:
 		} else {
 			return Binding::parse(req);
 		}
+	}
+};
+
+template <typename Validator>
+concept request_validator = requires(const typename Validator::request_type &value) {
+	typename Validator::request_type;
+	{ Validator::validate(value) } -> std::same_as<std::optional<binding_error>>;
+};
+
+template <request_contract BaseContract, request_validator Validator>
+    requires std::same_as<typename BaseContract::request_type, typename Validator::request_type>
+struct validated_request_contract {
+	using request_type = typename BaseContract::request_type;
+
+	static parse_result<request_type> parse(const request &req) {
+		auto parsed = BaseContract::parse(req);
+		if (!parsed.has_value()) {
+			return parse_result<request_type>::failure(parsed.error());
+		}
+
+		if (auto error = Validator::validate(parsed.value()); error.has_value()) {
+			return parse_result<request_type>::failure(std::move(*error));
+		}
+
+		return parse_result<request_type>::success(std::move(parsed).value());
 	}
 };
 

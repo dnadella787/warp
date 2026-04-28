@@ -1,9 +1,12 @@
 #include "codegen/resource_emitter.hpp"
 #include "codegen/model.hpp"
 #include "codegen/spec_parser.hpp"
+#include "warp/codegen/http_adapter.hpp"
 
 #include <gtest/gtest.h>
 
+#include <cstdint>
+#include <optional>
 #include <string>
 
 namespace {
@@ -11,6 +14,38 @@ namespace {
 using warp::codegen::build_api_model;
 using warp::codegen::parse_api_spec;
 using warp::codegen::resource_emitter;
+
+struct validation_test_request {
+	std::optional<std::int64_t> limit;
+	std::string trace_id;
+};
+
+struct validation_test_request_validator {
+	using request_type = validation_test_request;
+
+	static std::optional<warp::codegen::binding_error> validate(const request_type &value) {
+		if (value.limit.has_value()) {
+			if (auto error = warp::codegen::validate_min_value("query parameter", "limit", *value.limit, 1);
+			    error.has_value()) {
+				return error;
+			}
+		}
+
+		if (auto error = warp::codegen::validate_min_length("header", "x-trace-id", value.trace_id, 3);
+		    error.has_value()) {
+			return error;
+		}
+
+		return std::nullopt;
+	}
+};
+
+using validation_test_base_contract = warp::codegen::generated_request_contract<
+    validation_test_request, warp::codegen::query_field_binding<&validation_test_request::limit, "limit">,
+    warp::codegen::header_field_binding<&validation_test_request::trace_id, "x-trace-id">>;
+
+using validation_test_contract =
+    warp::codegen::validated_request_contract<validation_test_base_contract, validation_test_request_validator>;
 
 TEST(ResourceEmitterTest, EmitsTraitsAndSharedOwnershipRouteAdapters) {
 	const auto spec = parse_api_spec(R"(
@@ -59,28 +94,30 @@ resources:
 	EXPECT_NE(output.find("struct request_contract_traits<generated_api::users_create_user_request> : "
 	                      "warp::codegen::generated_request_contract<"),
 	          std::string::npos);
-	EXPECT_NE(output.find("warp::codegen::path_setter_binding<&generated_api::users_create_user_request::set_user_id, "
+	EXPECT_NE(output.find("warp::codegen::generated_request_contract<"), std::string::npos);
+	EXPECT_EQ(output.find("struct users_create_user_request_validator {"), std::string::npos);
+	EXPECT_EQ(output.find("struct users_create_user_request_body_validator {"), std::string::npos);
+	EXPECT_EQ(output.find("if (value.verbose.has_value()) {\n        }"), std::string::npos);
+	EXPECT_NE(output.find("warp::codegen::path_field_binding<&generated_api::users_create_user_request::user_id, "
 	                      "\"user_id\">"),
 	          std::string::npos);
-	EXPECT_NE(output.find("warp::codegen::query_setter_binding<&generated_api::users_create_user_request::set_verbose, "
+	EXPECT_NE(output.find("warp::codegen::query_field_binding<&generated_api::users_create_user_request::verbose, "
 	                      "\"verbose\">"),
 	          std::string::npos);
-	EXPECT_NE(
-	    output.find("warp::codegen::header_setter_binding<&generated_api::users_create_user_request::set_x_trace_id, "
-	                "\"x-trace-id\">"),
-	    std::string::npos);
-	EXPECT_NE(
-	    output.find("warp::codegen::json_body_setter_binding<&generated_api::users_create_user_request::set_body>"),
-	    std::string::npos);
+	EXPECT_NE(output.find("warp::codegen::header_field_binding<&generated_api::users_create_user_request::x_trace_id, "
+	                      "\"x-trace-id\">"),
+	          std::string::npos);
+	EXPECT_NE(output.find("warp::codegen::json_body_field_binding<&generated_api::users_create_user_request::body>"),
+	          std::string::npos);
 	EXPECT_NE(output.find("struct response_contract_traits<generated_api::users_create_user_response> {"),
 	          std::string::npos);
 	EXPECT_NE(output.find("using response_type = generated_api::users_create_user_response;"), std::string::npos);
 	EXPECT_NE(output.find("static constexpr unsigned status_code = response_type::status_code;"), std::string::npos);
 	EXPECT_NE(output.find("static constexpr bool has_body = true;"), std::string::npos);
 	EXPECT_NE(output.find("static decltype(auto) body(const response_type &value) {"), std::string::npos);
-	EXPECT_NE(output.find("return value.body();"), std::string::npos);
+	EXPECT_NE(output.find("return (value.body);"), std::string::npos);
 	EXPECT_NE(output.find("static decltype(auto) body(response_type &&value) {"), std::string::npos);
-	EXPECT_NE(output.find("return std::move(value).body();"), std::string::npos);
+	EXPECT_NE(output.find("return (std::move(value).body);"), std::string::npos);
 	EXPECT_EQ(output.find("warp::codegen::deduced_body_response_contract<"), std::string::npos);
 	EXPECT_EQ(output.find("static_cast<const generated_api::users_create_user_response_body "
 	                      "&(generated_api::users_create_user_response::*)() const & noexcept>"
@@ -183,7 +220,7 @@ resources:
 	    std::string::npos);
 	EXPECT_NE(
 	    output.find(
-	        R"(warp::codegen::header_setter_binding<&generated_api::users_fetch_user_request::set_x_trace, "x-\"trace\"">)"),
+	        R"(warp::codegen::header_field_binding<&generated_api::users_fetch_user_request::x_trace, "x-\"trace\"">)"),
 	    std::string::npos);
 }
 
@@ -215,10 +252,16 @@ resources:
 	const auto secondary_output = resource_emitter().emit_header(build_api_model(secondary_spec));
 
 	EXPECT_NE(primary_output.find("namespace generated_primary_api::codegen_detail {"), std::string::npos);
+	EXPECT_NE(secondary_output.find("namespace generated_secondary_api::codegen_detail {"), std::string::npos);
+	EXPECT_EQ(primary_output.find("struct request_contract_traits<generated_primary_api::users_health_request> : "
+	                              "warp::codegen::validated_request_contract<"),
+	          std::string::npos);
+	EXPECT_EQ(secondary_output.find("struct request_contract_traits<generated_secondary_api::users_health_request> : "
+	                                "warp::codegen::validated_request_contract<"),
+	          std::string::npos);
 	EXPECT_NE(primary_output.find("struct request_contract_traits<generated_primary_api::users_health_request> : "
 	                              "warp::codegen::generated_request_contract<"),
 	          std::string::npos);
-	EXPECT_NE(secondary_output.find("namespace generated_secondary_api::codegen_detail {"), std::string::npos);
 	EXPECT_NE(secondary_output.find("struct request_contract_traits<generated_secondary_api::users_health_request> : "
 	                                "warp::codegen::generated_request_contract<"),
 	          std::string::npos);
@@ -234,6 +277,8 @@ resources:
 	EXPECT_EQ(secondary_output.find("struct request_contract_traits<generated_secondary_api::users_health_request> : "
 	                                "generated_secondary_api::users_health_request_contract {};"),
 	          std::string::npos);
+	EXPECT_EQ(primary_output.find("struct users_health_request_validator {"), std::string::npos);
+	EXPECT_EQ(secondary_output.find("struct users_health_request_validator {"), std::string::npos);
 	EXPECT_EQ(primary_output.find("using users_health_request_contract ="), std::string::npos);
 	EXPECT_EQ(secondary_output.find("using users_health_request_contract ="), std::string::npos);
 }
@@ -352,6 +397,32 @@ resources:
 	          std::string::npos);
 	EXPECT_EQ(output.find("reports_fetch_report_summary_query_route"), std::string::npos);
 	EXPECT_EQ(output.find("warp::http::required_query<\"summary\">"), std::string::npos);
+}
+
+TEST(ResourceEmitterTest, ValidatedRequestContractRunsPostBindingChecksWithWireNames) {
+	warp::request valid_request(boost::beast::http::verb::get, "/reports", 11);
+	valid_request.set("x-trace-id", "abc");
+
+	auto valid_result = validation_test_contract::parse(valid_request);
+	ASSERT_TRUE(valid_result.has_value());
+	EXPECT_FALSE(valid_result.value().limit.has_value());
+	EXPECT_EQ(valid_result.value().trace_id, "abc");
+
+	warp::request invalid_query_request(boost::beast::http::verb::get, "/reports?limit=0", 11);
+	invalid_query_request.set("x-trace-id", "abcdef");
+
+	auto invalid_query_result = validation_test_contract::parse(invalid_query_request);
+	ASSERT_FALSE(invalid_query_result.has_value());
+	EXPECT_EQ(invalid_query_result.error().code, "constraint_violation");
+	EXPECT_EQ(invalid_query_result.error().message, "invalid query parameter 'limit': must be >= 1");
+
+	warp::request invalid_header_request(boost::beast::http::verb::get, "/reports", 11);
+	invalid_header_request.set("x-trace-id", "ab");
+
+	auto invalid_header_result = validation_test_contract::parse(invalid_header_request);
+	ASSERT_FALSE(invalid_header_result.has_value());
+	EXPECT_EQ(invalid_header_result.error().code, "constraint_violation");
+	EXPECT_EQ(invalid_header_result.error().message, "invalid header 'x-trace-id': length must be >= 3");
 }
 
 } // namespace

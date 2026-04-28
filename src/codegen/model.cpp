@@ -153,6 +153,29 @@ schema_type::kind primitive_kind(value_kind kind) {
 	throw std::invalid_argument("expected a primitive schema kind");
 }
 
+source_span validation_span_or(source_span span, source_span fallback) {
+	return span.line == 0 ? fallback : span;
+}
+
+[[nodiscard]] std::string validation_subject(std::string_view noun, std::string_view name) {
+	return std::string(noun) + " '" + std::string(name) + "'";
+}
+
+[[nodiscard]] bool is_validation_value_integral(const numeric_validation_value &value) {
+	return std::holds_alternative<std::int64_t>(value);
+}
+
+[[nodiscard]] std::int64_t as_int64_validation_value(const numeric_validation_value &value) {
+	return std::get<std::int64_t>(value);
+}
+
+[[nodiscard]] double as_double_validation_value(const numeric_validation_value &value) {
+	if (const auto *integer = std::get_if<std::int64_t>(&value)) {
+		return static_cast<double>(*integer);
+	}
+	return std::get<double>(value);
+}
+
 bool status_forbids_body(int status_code) {
 	return (status_code >= 100 && status_code < 200) || status_code == 204 || status_code == 205 || status_code == 304;
 }
@@ -325,6 +348,106 @@ struct model_builder {
 	global_symbol_table global_symbols;
 	std::unordered_map<std::string, reserved_route_identity> route_identities;
 
+	[[nodiscard]] validation_rules normalize_validation_rules(const validation_rule_spec &input, value_kind kind,
+	                                                          source_span fallback_span,
+	                                                          std::string_view subject) const {
+		validation_rules output;
+
+		auto reject = [&](source_span span, std::string message) {
+			fail(validation_span_or(span, fallback_span), "model.invalid_validation_rule", std::move(message));
+		};
+
+		switch (kind) {
+		case value_kind::string_value:
+			if (input.min.has_value()) {
+				reject(input.min_span, std::string(subject) + " cannot use numeric rule 'min' with string type");
+			}
+			if (input.max.has_value()) {
+				reject(input.max_span, std::string(subject) + " cannot use numeric rule 'max' with string type");
+			}
+			output.min_length = input.min_length;
+			output.max_length = input.max_length;
+			if (output.min_length.has_value() && output.max_length.has_value() &&
+			    *output.min_length > *output.max_length) {
+				fail(validation_span_or(input.max_length_span, fallback_span), "model.invalid_validation_range",
+				     std::string(subject) + " has min_length greater than max_length");
+			}
+			return output;
+		case value_kind::int64_value:
+			if (input.min_length.has_value()) {
+				reject(input.min_length_span,
+				       std::string(subject) + " cannot use string rule 'min_length' with int64 type");
+			}
+			if (input.max_length.has_value()) {
+				reject(input.max_length_span,
+				       std::string(subject) + " cannot use string rule 'max_length' with int64 type");
+			}
+			if (input.min.has_value()) {
+				if (!is_validation_value_integral(*input.min)) {
+					reject(input.min_span, std::string(subject) + " must use an integer value for rule 'min'");
+				}
+				output.min = as_int64_validation_value(*input.min);
+			}
+			if (input.max.has_value()) {
+				if (!is_validation_value_integral(*input.max)) {
+					reject(input.max_span, std::string(subject) + " must use an integer value for rule 'max'");
+				}
+				output.max = as_int64_validation_value(*input.max);
+			}
+			if (output.min.has_value() && output.max.has_value() &&
+			    as_int64_validation_value(*output.min) > as_int64_validation_value(*output.max)) {
+				fail(validation_span_or(input.max_span, fallback_span), "model.invalid_validation_range",
+				     std::string(subject) + " has min greater than max");
+			}
+			return output;
+		case value_kind::double_value:
+			if (input.min_length.has_value()) {
+				reject(input.min_length_span,
+				       std::string(subject) + " cannot use string rule 'min_length' with double type");
+			}
+			if (input.max_length.has_value()) {
+				reject(input.max_length_span,
+				       std::string(subject) + " cannot use string rule 'max_length' with double type");
+			}
+			if (input.min.has_value()) {
+				output.min = as_double_validation_value(*input.min);
+			}
+			if (input.max.has_value()) {
+				output.max = as_double_validation_value(*input.max);
+			}
+			if (output.min.has_value() && output.max.has_value() &&
+			    as_double_validation_value(*output.min) > as_double_validation_value(*output.max)) {
+				fail(validation_span_or(input.max_span, fallback_span), "model.invalid_validation_range",
+				     std::string(subject) + " has min greater than max");
+			}
+			return output;
+		case value_kind::bool_value:
+			break;
+		case value_kind::object_value:
+			break;
+		case value_kind::array_value:
+			break;
+		}
+
+		if (input.min.has_value()) {
+			reject(input.min_span, std::string(subject) + " cannot use validation rule 'min' with type " +
+			                           std::string(to_string(kind)));
+		}
+		if (input.max.has_value()) {
+			reject(input.max_span, std::string(subject) + " cannot use validation rule 'max' with type " +
+			                           std::string(to_string(kind)));
+		}
+		if (input.min_length.has_value()) {
+			reject(input.min_length_span, std::string(subject) + " cannot use validation rule 'min_length' with type " +
+			                                  std::string(to_string(kind)));
+		}
+		if (input.max_length.has_value()) {
+			reject(input.max_length_span, std::string(subject) + " cannot use validation rule 'max_length' with type " +
+			                                  std::string(to_string(kind)));
+		}
+		return output;
+	}
+
 	[[nodiscard]] std::string cpp_type_name(const schema_type &type) const {
 		switch (type.type) {
 		case schema_type::kind::string_value:
@@ -370,6 +493,8 @@ struct model_builder {
 		if (input.nullable) {
 			fail(input.span, "model.nullable_unsupported", "nullable schemas are not supported");
 		}
+		static_cast<void>(
+		    normalize_validation_rules(input.validation, input.kind, input.span, validation_subject("schema", hint)));
 
 		switch (input.kind) {
 		case value_kind::string_value:
@@ -409,12 +534,15 @@ struct model_builder {
 			if (field.value == nullptr) {
 				fail(field.span, "model.missing_field_schema", "field '" + field.name + "' is missing a schema");
 			}
+			const auto field_validation = normalize_validation_rules(
+			    field.value->validation, field.value->kind, field.span, validation_subject("field", field.name));
 			object.fields.push_back(field_model {
 			    .span = field.span,
 			    .json_name = field.name,
 			    .member_name = member_symbols.canonical(field.name, field.span, "schema '" + object.name + "'"),
 			    .type = normalize_schema_type(*field.value, object.name + "_" + field.name),
 			    .required = field.required,
+			    .validation = std::move(field_validation),
 			});
 		}
 
@@ -460,6 +588,8 @@ struct model_builder {
 			    .location = parameter.location,
 			    .type = schema_type {primitive_kind(parameter.kind)},
 			    .required = parameter.required,
+			    .validation = normalize_validation_rules(parameter.validation, parameter.kind, parameter.span,
+			                                             validation_subject("parameter", parameter.name)),
 			});
 		}
 
@@ -658,6 +788,10 @@ struct model_builder {
 };
 
 } // namespace
+
+bool validation_rules::empty() const noexcept {
+	return !min.has_value() && !max.has_value() && !min_length.has_value() && !max_length.has_value();
+}
 
 schema_type::schema_type(const schema_type &other) : type(other.type), object_name(other.object_name) {
 	if (other.element_type) {

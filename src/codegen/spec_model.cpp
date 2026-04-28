@@ -11,6 +11,7 @@ schema clone_schema(const schema &source) {
 	copy.span = source.span;
 	copy.nullable = source.nullable;
 	copy.name = source.name;
+	copy.validation = source.validation;
 
 	for (const auto &child : source.owned_children) {
 		auto child_copy = std::make_unique<schema>(clone_schema(*child));
@@ -68,6 +69,10 @@ std::string_view to_string(value_kind kind) noexcept {
 bool is_primitive(value_kind kind) noexcept {
 	return kind == value_kind::string_value || kind == value_kind::int64_value || kind == value_kind::double_value ||
 	       kind == value_kind::bool_value;
+}
+
+bool validation_rule_spec::empty() const noexcept {
+	return !min.has_value() && !max.has_value() && !min_length.has_value() && !max_length.has_value();
 }
 
 schema::schema(const schema &other) : schema(clone_schema(other)) {

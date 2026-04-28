@@ -2,7 +2,9 @@
 
 #include <gtest/gtest.h>
 
+#include <cstdint>
 #include <string>
+#include <variant>
 
 namespace {
 
@@ -212,6 +214,94 @@ resources:
 	EXPECT_EQ(item.code, "spec.unknown_key");
 	EXPECT_EQ(item.span.line, 6U);
 	EXPECT_NE(item.message.find("unknown key 'typo_key'"), std::string::npos);
+}
+
+TEST(SpecParserTest, ParsesValidationRulesOnParametersAndFields) {
+	const auto spec = parse_api_spec(R"(
+resources:
+  - name: users
+    endpoints:
+      - name: create_user
+        method: POST
+        path: /users
+        request:
+          parameters:
+            - name: page
+              in: query
+              type: int64
+              required: false
+              min: 1
+              max: 50
+          body:
+            type: object
+            fields:
+              - name: display_name
+                type: string
+                required: false
+                min_length: 3
+                max_length: 32
+              - name: rating
+                type: double
+                min: 0.5
+                max: 5.0
+        response:
+          status: 204
+)");
+
+	ASSERT_EQ(spec.resources.size(), 1U);
+	const auto &endpoint = spec.resources.front().endpoints.front();
+	ASSERT_EQ(endpoint.request.parameters.size(), 1U);
+	EXPECT_FALSE(endpoint.request.parameters.front().required);
+	ASSERT_TRUE(endpoint.request.parameters.front().validation.min.has_value());
+	EXPECT_EQ(std::get<std::int64_t>(*endpoint.request.parameters.front().validation.min), 1);
+	ASSERT_TRUE(endpoint.request.parameters.front().validation.max.has_value());
+	EXPECT_EQ(std::get<std::int64_t>(*endpoint.request.parameters.front().validation.max), 50);
+	EXPECT_EQ(endpoint.request.parameters.front().validation.min_span.line, 14U);
+	EXPECT_EQ(endpoint.request.parameters.front().validation.max_span.line, 15U);
+
+	ASSERT_TRUE(endpoint.request.body.has_value());
+	ASSERT_EQ(endpoint.request.body->fields.size(), 2U);
+	const auto &display_name = endpoint.request.body->fields[0];
+	ASSERT_NE(display_name.value, nullptr);
+	EXPECT_FALSE(display_name.required);
+	ASSERT_TRUE(display_name.value->validation.min_length.has_value());
+	ASSERT_TRUE(display_name.value->validation.max_length.has_value());
+	EXPECT_EQ(*display_name.value->validation.min_length, 3U);
+	EXPECT_EQ(*display_name.value->validation.max_length, 32U);
+	EXPECT_EQ(display_name.value->validation.min_length_span.line, 22U);
+	EXPECT_EQ(display_name.value->validation.max_length_span.line, 23U);
+
+	const auto &rating = endpoint.request.body->fields[1];
+	ASSERT_NE(rating.value, nullptr);
+	ASSERT_TRUE(rating.value->validation.min.has_value());
+	ASSERT_TRUE(rating.value->validation.max.has_value());
+	EXPECT_DOUBLE_EQ(std::get<double>(*rating.value->validation.min), 0.5);
+	EXPECT_DOUBLE_EQ(std::get<double>(*rating.value->validation.max), 5.0);
+}
+
+TEST(SpecParserTest, RejectsInvalidValidationRuleLiterals) {
+	const auto item = capture_spec_diagnostic([&] {
+		static_cast<void>(parse_api_spec(R"(
+resources:
+  - name: users
+    endpoints:
+      - name: create_user
+        method: POST
+        path: /users
+        request:
+          parameters:
+            - name: page
+              in: query
+              type: int64
+              min: first
+        response:
+          status: 204
+)"));
+	});
+
+	EXPECT_EQ(item.code, "spec.parse");
+	EXPECT_EQ(item.span.line, 13U);
+	EXPECT_NE(item.message.find("validation rule 'min'"), std::string::npos);
 }
 
 } // namespace

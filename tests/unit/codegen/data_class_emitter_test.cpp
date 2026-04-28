@@ -71,26 +71,28 @@ resources:
 	const auto output = data_class_emitter().emit_header(build_api_model(spec));
 	EXPECT_NE(output.find("namespace generated_api {"), std::string::npos);
 	EXPECT_NE(output.find("#include \"warp/codegen/json_object_contract.hpp\""), std::string::npos);
-	EXPECT_NE(output.find("class users_create_user_request_body_addresses_item {"), std::string::npos);
-	EXPECT_NE(output.find("class users_create_user_request_body_profile {"), std::string::npos);
-	EXPECT_NE(output.find("class users_create_user_request_body {"), std::string::npos);
-	EXPECT_NE(output.find("class users_create_user_request {"), std::string::npos);
-	EXPECT_NE(output.find("std::string user_id_ {};"), std::string::npos);
-	EXPECT_NE(output.find("std::optional<bool> verbose_ {};"), std::string::npos);
-	EXPECT_NE(output.find("users_create_user_request_body body_ {};"), std::string::npos);
-	EXPECT_NE(output.find("class users_create_user_response_body {"), std::string::npos);
-	EXPECT_NE(output.find("class users_create_user_response {"), std::string::npos);
+	EXPECT_NE(output.find("struct users_create_user_request_body_addresses_item {"), std::string::npos);
+	EXPECT_NE(output.find("struct users_create_user_request_body_profile {"), std::string::npos);
+	EXPECT_NE(output.find("struct users_create_user_request_body {"), std::string::npos);
+	EXPECT_NE(output.find("struct users_create_user_request {"), std::string::npos);
+	EXPECT_NE(output.find("std::string user_id {};"), std::string::npos);
+	EXPECT_NE(output.find("std::optional<bool> verbose {};"), std::string::npos);
+	EXPECT_NE(output.find("users_create_user_request_body body {};"), std::string::npos);
+	EXPECT_NE(output.find("struct users_create_user_response_body {"), std::string::npos);
+	EXPECT_NE(output.find("struct users_create_user_response {"), std::string::npos);
 	EXPECT_NE(output.find("static constexpr unsigned status_code = 201;"), std::string::npos);
-	EXPECT_NE(output.find("[[nodiscard]] static Builder builder() {"), std::string::npos);
-	EXPECT_NE(output.find("users_create_user_request &set_user_id(std::string value) {"), std::string::npos);
-	EXPECT_NE(output.find("[[nodiscard]] const std::string &user_id() const & noexcept {"), std::string::npos);
+	EXPECT_NE(output.find("&generated_api::users_create_user_request_body_profile::display_name"), std::string::npos);
 	EXPECT_NE(output.find("requires warp::codegen::json_contract_type<T>"), std::string::npos);
 	EXPECT_NE(output.find("struct json_object_contract<generated_api::users_create_user_request_body_profile> {"),
 	          std::string::npos);
 	EXPECT_NE(output.find("make_required_json_field(\"display-name\","), std::string::npos);
+	EXPECT_EQ(output.find("class Builder {"), std::string::npos);
+	EXPECT_EQ(output.find("[[nodiscard]] static Builder builder() {"), std::string::npos);
+	EXPECT_EQ(output.find("set_user_id("), std::string::npos);
+	EXPECT_EQ(output.find("user_id() const & noexcept"), std::string::npos);
 	EXPECT_EQ(output.find("inline users_create_user_request_body tag_invoke("), std::string::npos);
 	EXPECT_EQ(output.find("users_create_user_request_body &&input) {"), std::string::npos);
-	EXPECT_EQ(substring_count(output, "class users_create_user_request_body_profile"), 1U);
+	EXPECT_EQ(substring_count(output, "struct users_create_user_request_body_profile"), 1U);
 }
 
 TEST(DataClassEmitterTest, OmitsBodyMembersWhenRequestOrResponseHasNoBody) {
@@ -106,10 +108,10 @@ resources:
 
 	const auto output = data_class_emitter().emit_header(build_api_model(spec));
 
-	EXPECT_NE(output.find("class system_health_request {"), std::string::npos);
-	EXPECT_NE(output.find("class system_health_response {"), std::string::npos);
+	EXPECT_NE(output.find("struct system_health_request {"), std::string::npos);
+	EXPECT_NE(output.find("struct system_health_response {"), std::string::npos);
 	EXPECT_NE(output.find("static constexpr unsigned status_code = 204;"), std::string::npos);
-	EXPECT_EQ(substring_count(output, " body_ {};"), 0U);
+	EXPECT_EQ(substring_count(output, " body {};"), 0U);
 }
 
 } // namespace

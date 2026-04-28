@@ -11,12 +11,13 @@ public:
 
 	generated_api::users_create_user_request_handler_result
 	create_user(generated_api::users_create_user_request request) {
-		if (request.body().name().empty()) {
+		if (request.body.name.empty()) {
 			return warp::response::bad_request("name must not be empty");
 		}
-		return generated_api::users_create_user_response::builder()
-		    .body(generated_api::users_create_user_response_body::builder().id(42).active(true).build())
-		    .build();
+		generated_api::users_create_user_response response;
+		response.body.id = 42;
+		response.body.active = true;
+		return response;
 	}
 
 	generated_api::users_health_request_handler_result health(generated_api::users_health_request request) {

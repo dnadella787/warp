@@ -6,7 +6,9 @@
 #include <set>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace warp::codegen {
@@ -74,8 +76,7 @@ std::string field_cpp_type(const schema_type &type, bool required) {
 
 struct generated_field {
 	std::string type_name;
-	std::string accessor_name;
-	std::string storage_name;
+	std::string member_name;
 	std::optional<std::string> json_name;
 };
 
@@ -84,8 +85,7 @@ std::vector<generated_field> schema_fields(const object_schema_model &schema) {
 	fields.reserve(schema.fields.size());
 	for (const auto &field : schema.fields) {
 		fields.push_back({.type_name = field_cpp_type(field.type, field.required),
-		                  .accessor_name = field.member_name,
-		                  .storage_name = field.member_name + "_",
+		                  .member_name = field.member_name,
 		                  .json_name = field.json_name});
 	}
 	return fields;
@@ -95,13 +95,11 @@ std::vector<generated_field> request_fields(const endpoint_model &endpoint) {
 	std::vector<generated_field> fields;
 	fields.reserve(endpoint.request.parameters.size() + (endpoint.request.body_type_name.has_value() ? 1U : 0U));
 	for (const auto &parameter : endpoint.request.parameters) {
-		fields.push_back({.type_name = field_cpp_type(parameter.type, parameter.required),
-		                  .accessor_name = parameter.member_name,
-		                  .storage_name = parameter.member_name + "_"});
+		fields.push_back(
+		    {.type_name = field_cpp_type(parameter.type, parameter.required), .member_name = parameter.member_name});
 	}
 	if (endpoint.request.body_type_name.has_value()) {
-		fields.push_back(
-		    {.type_name = *endpoint.request.body_type_name, .accessor_name = "body", .storage_name = "body_"});
+		fields.push_back({.type_name = *endpoint.request.body_type_name, .member_name = "body"});
 	}
 	return fields;
 }
@@ -110,90 +108,138 @@ std::vector<generated_field> response_fields(const endpoint_model &endpoint) {
 	if (!endpoint.response.body_type_name.has_value()) {
 		return {};
 	}
-	return {{.type_name = *endpoint.response.body_type_name, .accessor_name = "body", .storage_name = "body_"}};
+	return {{.type_name = *endpoint.response.body_type_name, .member_name = "body"}};
 }
 
 void emit_data_class(std::string &output, const std::string &name, const std::vector<generated_field> &fields,
                      const std::vector<std::string> &extra_public_lines = {}) {
-	append_line(output, "class " + name + " {");
-	append_line(output, "public:");
-	append_line(output, "\tclass Builder {");
-	append_line(output, "\tpublic:");
+	append_line(output, "struct " + name + " {");
 	for (const auto &field : fields) {
-		append_line(output, "\t\tBuilder &" + field.accessor_name + "(" + field.type_name + " value) {");
-		append_line(output, "\t\t\t" + field.storage_name + " = std::move(value);");
-		append_line(output, "\t\t\treturn *this;");
-		append_line(output, "\t\t}");
+		append_line(output, "\t" + field.type_name + " " + field.member_name + " {};");
 	}
-	append_line(output);
-	append_line(output, "\t\t[[nodiscard]] " + name + " build() && {");
-	append_line(output, "\t\t\t" + name + " out;");
-	for (const auto &field : fields) {
-		append_line(output, "\t\t\tout." + field.storage_name + " = std::move(" + field.storage_name + ");");
-	}
-	append_line(output, "\t\t\treturn out;");
-	append_line(output, "\t\t}");
-	append_line(output);
-	append_line(output, "\t\t[[nodiscard]] " + name + " build() const & {");
-	append_line(output, "\t\t\t" + name + " out;");
-	for (const auto &field : fields) {
-		append_line(output, "\t\t\tout." + field.storage_name + " = " + field.storage_name + ";");
-	}
-	append_line(output, "\t\t\treturn out;");
-	append_line(output, "\t\t}");
-	append_line(output);
-	append_line(output, "\tprivate:");
-	for (const auto &field : fields) {
-		append_line(output, "\t\t" + field.type_name + " " + field.storage_name + " {};");
-	}
-	append_line(output, "\t};");
-	append_line(output);
-	append_line(output, "\t" + name + "() = default;");
 	for (const auto &line : extra_public_lines) {
 		append_line(output, "\t" + line);
-	}
-	append_line(output, "\t[[nodiscard]] static Builder builder() {");
-	append_line(output, "\t\treturn Builder {};");
-	append_line(output, "\t}");
-	for (const auto &field : fields) {
-		append_line(output);
-		append_line(output,
-		            "\t[[nodiscard]] const " + field.type_name + " &" + field.accessor_name + "() const & noexcept {");
-		append_line(output, "\t\treturn " + field.storage_name + ";");
-		append_line(output, "\t}");
-		append_line(output);
-		append_line(output, "\t[[nodiscard]] " + field.type_name + " &" + field.accessor_name + "() & noexcept {");
-		append_line(output, "\t\treturn " + field.storage_name + ";");
-		append_line(output, "\t}");
-		append_line(output);
-		append_line(output, "\t[[nodiscard]] " + field.type_name + " &&" + field.accessor_name + "() && noexcept {");
-		append_line(output, "\t\treturn std::move(" + field.storage_name + ");");
-		append_line(output, "\t}");
-		append_line(output);
-		append_line(output, "\t" + name + " &set_" + field.accessor_name + "(" + field.type_name + " value) {");
-		append_line(output, "\t\t" + field.storage_name + " = std::move(value);");
-		append_line(output, "\t\treturn *this;");
-		append_line(output, "\t}");
-	}
-	append_line(output);
-	append_line(output, "private:");
-	for (const auto &field : fields) {
-		append_line(output, "\t" + field.type_name + " " + field.storage_name + " {};");
 	}
 	append_line(output, "};");
 	append_line(output);
 }
 
-std::string setter_pointer_type(const std::string &class_name, const generated_field &field) {
-	return class_name + " &(" + class_name + "::*)(" + field.type_name + ")";
+template <typename T>
+std::string scalar_literal(const T &value) {
+	if constexpr (std::is_same_v<T, bool>) {
+		return value ? "true" : "false";
+	} else if constexpr (std::is_floating_point_v<T>) {
+		return std::to_string(value);
+	} else {
+		return std::to_string(value);
+	}
 }
 
-std::string const_getter_pointer_type(const std::string &class_name, const generated_field &field) {
-	return "const " + field.type_name + " &(" + class_name + "::*)() const & noexcept";
+template <typename T>
+std::optional<std::string> optional_literal(const std::optional<T> &value) {
+	if (!value.has_value()) {
+		return std::nullopt;
+	}
+	return scalar_literal(*value);
 }
 
-std::string move_getter_pointer_type(const std::string &class_name, const generated_field &field) {
-	return field.type_name + " &&(" + class_name + "::*)() && noexcept";
+std::optional<std::string> optional_numeric_literal(const std::optional<numeric_validation_value> &value) {
+	if (!value.has_value()) {
+		return std::nullopt;
+	}
+	return std::visit([](const auto &numeric) { return scalar_literal(numeric); }, *value);
+}
+
+std::optional<std::string> numeric_min_literal(const validation_rules &validation) {
+	return optional_numeric_literal(validation.min);
+}
+
+std::optional<std::string> numeric_max_literal(const validation_rules &validation) {
+	return optional_numeric_literal(validation.max);
+}
+
+std::optional<std::string> string_min_length_literal(const validation_rules &validation) {
+	return optional_literal(validation.min_length);
+}
+
+std::optional<std::string> string_max_length_literal(const validation_rules &validation) {
+	return optional_literal(validation.max_length);
+}
+
+std::string validation_argument(const schema_type &type, const validation_rules &validation) {
+	switch (type.type) {
+	case schema_type::kind::string_value: {
+		const auto min_length = string_min_length_literal(validation);
+		const auto max_length = string_max_length_literal(validation);
+		if (!min_length.has_value() && !max_length.has_value()) {
+			return {};
+		}
+
+		std::string output = ", json_field_validation<std::string>{";
+		bool needs_separator = false;
+		if (min_length.has_value()) {
+			output.append(".min_length = " + *min_length);
+			needs_separator = true;
+		}
+		if (max_length.has_value()) {
+			if (needs_separator) {
+				output.append(", ");
+			}
+			output.append(".max_length = " + *max_length);
+		}
+		output.push_back('}');
+		return output;
+	}
+	case schema_type::kind::int64_value: {
+		const auto min = numeric_min_literal(validation);
+		const auto max = numeric_max_literal(validation);
+		if (!min.has_value() && !max.has_value()) {
+			return {};
+		}
+
+		std::string output = ", json_field_validation<std::int64_t>{";
+		bool needs_separator = false;
+		if (min.has_value()) {
+			output.append(".min = " + *min);
+			needs_separator = true;
+		}
+		if (max.has_value()) {
+			if (needs_separator) {
+				output.append(", ");
+			}
+			output.append(".max = " + *max);
+		}
+		output.push_back('}');
+		return output;
+	}
+	case schema_type::kind::double_value: {
+		const auto min = numeric_min_literal(validation);
+		const auto max = numeric_max_literal(validation);
+		if (!min.has_value() && !max.has_value()) {
+			return {};
+		}
+
+		std::string output = ", json_field_validation<double>{";
+		bool needs_separator = false;
+		if (min.has_value()) {
+			output.append(".min = " + *min);
+			needs_separator = true;
+		}
+		if (max.has_value()) {
+			if (needs_separator) {
+				output.append(", ");
+			}
+			output.append(".max = " + *max);
+		}
+		output.push_back('}');
+		return output;
+	}
+	case schema_type::kind::bool_value:
+	case schema_type::kind::object_value:
+	case schema_type::kind::array_value:
+		return {};
+	}
+	throw std::invalid_argument("unsupported schema type");
 }
 
 void emit_json_contract_specialization(std::string &output, std::string_view cpp_namespace,
@@ -208,12 +254,8 @@ void emit_json_contract_specialization(std::string &output, std::string_view cpp
 		const auto &generated = fields[i];
 		const auto helper_name = field.required ? "make_required_json_field" : "make_optional_json_field";
 		append_line(output, "\t\t" + std::string(helper_name) + "(\"" + escape_string_literal(field.json_name) + "\",");
-		append_line(output, "\t\t\tstatic_cast<" + setter_pointer_type(qualified_name, generated) + ">(&" +
-		                        qualified_name + "::set_" + generated.accessor_name + "),");
-		append_line(output, "\t\t\tstatic_cast<" + const_getter_pointer_type(qualified_name, generated) + ">(&" +
-		                        qualified_name + "::" + generated.accessor_name + "),");
-		append_line(output, "\t\t\tstatic_cast<" + move_getter_pointer_type(qualified_name, generated) + ">(&" +
-		                        qualified_name + "::" + generated.accessor_name + "))" +
+		append_line(output, "\t\t\t&" + qualified_name + "::" + generated.member_name +
+		                        validation_argument(field.type, field.validation) + ")" +
 		                        (i + 1U == schema.fields.size() ? "" : ","));
 	}
 	append_line(output, "\t);");

@@ -10,21 +10,30 @@ resources:
             - name: user_id
               in: path
               type: string
+              min_length: 3
             - name: verbose
               in: query
               type: bool
               required: false
+            - name: filter
+              in: query
+              type: string
+              required: false
+              min_length: 2
             - name: x-trace-id
               in: header
               type: string
+              min_length: 3
           body:
             type: object
             fields:
               - name: name
                 type: string
+                min_length: 3
               - name: nickname
                 type: string
                 required: false
+                max_length: 5
         response:
           status: 201
           body:

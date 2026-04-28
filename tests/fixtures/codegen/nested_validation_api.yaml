@@ -1,0 +1,26 @@
+cpp_namespace: generated_nested_api
+resources:
+  - name: batches
+    endpoints:
+      - name: create_batch
+        method: POST
+        path: /batches
+        request:
+          body:
+            type: object
+            fields:
+              - name: items
+                type: array
+                items:
+                  type: object
+                  fields:
+                    - name: name
+                      type: string
+                      min_length: 3
+        response:
+          status: 201
+          body:
+            type: object
+            fields:
+              - name: accepted
+                type: bool
