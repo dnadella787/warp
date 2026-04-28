@@ -12,7 +12,7 @@ namespace {
 
 struct mutable_resource {
 	void register_routes(warp::server::server_builder &builder) {
-		builder.get("/resource/health", [](const warp::request &) -> warp::response {
+		builder.get<"/resource/health">([](const warp::request &) -> warp::response {
 			return warp::response::ok(warp::body_builder().set("route", "resource-health").build());
 		});
 	}
@@ -20,7 +20,7 @@ struct mutable_resource {
 
 struct const_resource {
 	void register_routes(warp::server::server_builder &builder) const {
-		builder.get("/resource/const", [](const warp::request &) -> warp::response {
+		builder.get<"/resource/const">([](const warp::request &) -> warp::response {
 			return warp::response::ok(warp::body_builder().set("route", "resource-const").build());
 		});
 	}
@@ -28,27 +28,22 @@ struct const_resource {
 
 template <warp::event_loop_mode Mode>
 void expect_server_builds_for_mode() {
-	warp::server::server_builder builder;
-	auto &configured =
-	    builder.address("127.0.0.1")
+	auto server =
+	    warp::server::server_builder()
+	        .address("127.0.0.1")
 	        .port(8081)
 	        .worker_threads(2)
-	        .get("/health",
-	             [](const warp::request &) -> warp::response {
-		             return warp::response::ok(warp::body_builder().set("route", "health").build());
-	             })
-	        .post("/jobs",
-	              [](warp::request) -> warp::awaitable<warp::response> {
-		              co_return warp::response::accepted(warp::body_builder().set("queued", true).build());
-	              })
-	        .delete_("/jobs/{id}", [](const warp::request &req) -> warp::response {
+	        .get<"/health">([](const warp::request &) -> warp::response {
+		        return warp::response::ok(warp::body_builder().set("route", "health").build());
+	        })
+	        .template post<"/jobs">([](warp::request) -> warp::awaitable<warp::response> {
+		        co_return warp::response::accepted(warp::body_builder().set("queued", true).build());
+	        })
+	        .template delete_<"/jobs/{id}">([](const warp::request &req) -> warp::response {
 		        return warp::response::ok(
 		            warp::body_builder().set("deleted", true).set("id", req.path_param("id").value_or("")).build());
-	        });
-
-	EXPECT_EQ(&configured, &builder);
-
-	auto server = builder.build<Mode>();
+	        })
+	        .template build<Mode>();
 	server.stop();
 }
 
@@ -83,7 +78,7 @@ TEST(ServerBuilderSmokeTest, ConcurrentRunAndStopDoNotRaceServerLifecycle) {
 		        .address("127.0.0.1")
 		        .port(0)
 		        .worker_threads(2)
-		        .get("/health", [](const warp::request &) -> warp::response { return warp::response::ok("ok"); })
+		        .get<"/health">([](const warp::request &) -> warp::response { return warp::response::ok("ok"); })
 		        .build<warp::event_loop_mode::callbacks>();
 
 		std::thread callbacks_runner([&callbacks_server]() { callbacks_server.run(false); });
@@ -98,7 +93,7 @@ TEST(ServerBuilderSmokeTest, ConcurrentRunAndStopDoNotRaceServerLifecycle) {
 		        .address("127.0.0.1")
 		        .port(0)
 		        .worker_threads(2)
-		        .get("/health", [](const warp::request &) -> warp::response { return warp::response::ok("ok"); })
+		        .get<"/health">([](const warp::request &) -> warp::response { return warp::response::ok("ok"); })
 		        .build<warp::event_loop_mode::coroutines>();
 
 		std::thread coroutines_runner([&coroutines_server]() { coroutines_server.run(false); });

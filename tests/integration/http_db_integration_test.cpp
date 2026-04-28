@@ -15,13 +15,13 @@ namespace warp::tests {
 
 namespace asio = boost::asio;
 namespace http = boost::beast::http;
-namespace support = warp::tests::integration_support;
+namespace support = integration_support;
 
 template <typename ModeTag>
 class HttpDbIntegrationTest : public ::testing::Test {};
 
-using EventLoopModes = ::testing::Types<support::event_loop_mode_tag<warp::event_loop_mode::callbacks>,
-                                        support::event_loop_mode_tag<warp::event_loop_mode::coroutines>>;
+using EventLoopModes = ::testing::Types<support::event_loop_mode_tag<event_loop_mode::callbacks>,
+                                        support::event_loop_mode_tag<event_loop_mode::coroutines>>;
 
 struct EventLoopModeNames {
 	template <typename ModeTag>
@@ -46,18 +46,16 @@ TYPED_TEST(HttpDbIntegrationTest, DbRouteReturnsRequestedIdAndDatabaseNameWhenEn
 	                                                                     support::make_db_config(*env), 4, 2);
 
 	support::server_fixture fixture(
-	    warp::server::server_builder().get(
-	        "/db/{id}",
-	        [db_pool](warp::request req) -> warp::awaitable<warp::response> {
-		        const auto id = std::string(req.path_param("id").value_or("0"));
-		        const auto result = co_await db_pool->query(
-		            std::string("select ") + id + "::int as requested_id, current_database() as database_name");
-		        co_return warp::response::ok(
-		            warp::body_builder()
-		                .set("requested_id", result.rows() > 0 ? std::string(result.value(0, 0)) : id)
-		                .set("database_name", result.rows() > 0 ? std::string(result.value(0, 1)) : std::string {})
-		                .build());
-	        }),
+	    warp::server::server_builder().get<"/db/{id}">([db_pool](warp::request req) -> warp::awaitable<warp::response> {
+		    const auto id = std::string(req.path_param("id").value_or("0"));
+		    const auto result = co_await db_pool->query(std::string("select ") + id +
+		                                                "::int as requested_id, current_database() as database_name");
+		    co_return warp::response::ok(
+		        warp::body_builder()
+		            .set("requested_id", result.rows() > 0 ? std::string(result.value(0, 0)) : id)
+		            .set("database_name", result.rows() > 0 ? std::string(result.value(0, 1)) : std::string {})
+		            .build());
+	    }),
 	    TypeParam {});
 
 	auto client = support::connect_client(fixture.port);

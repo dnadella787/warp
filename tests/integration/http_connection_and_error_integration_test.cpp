@@ -43,16 +43,15 @@ TYPED_TEST_SUITE(HttpConnectionAndErrorIntegrationTest, EventLoopModes, EventLoo
 TYPED_TEST(HttpConnectionAndErrorIntegrationTest, ConnectionCloseStopsFollowingPipelinedRequests) {
 	auto after_processed = std::make_shared<std::atomic<int>>(0);
 
-	support::server_fixture fixture(
-	    warp::server::server_builder()
-	        .get("/close",
-	             [](const request &) -> response { return response::ok(body_builder().set("route", "close").build()); })
-	        .get("/after",
-	             [after_processed](const request &) -> response {
-		             after_processed->fetch_add(1, std::memory_order_acq_rel);
-		             return response::ok(body_builder().set("route", "after").build());
-	             }),
-	    TypeParam {});
+	support::server_fixture fixture(warp::server::server_builder()
+	                                    .get<"/close">([](const request &) -> response {
+		                                    return response::ok(body_builder().set("route", "close").build());
+	                                    })
+	                                    .template get<"/after">([after_processed](const request &) -> response {
+		                                    after_processed->fetch_add(1, std::memory_order_acq_rel);
+		                                    return response::ok(body_builder().set("route", "after").build());
+	                                    }),
+	                                TypeParam {});
 
 	auto client = support::connect_client(fixture.port);
 	const auto payload = support::make_get_request("/close", "close") + support::make_get_request("/after", "close");
@@ -72,23 +71,21 @@ TYPED_TEST(HttpConnectionAndErrorIntegrationTest, ThrowingHandlerReturnsErrorAnd
 	auto throw_started = std::make_shared<std::atomic<bool>>(false);
 
 	support::server_fixture fixture(
-	    warp::server::server_builder()
-	        .get("/throw",
-	             [throw_started](request) -> awaitable<response> {
-		             throw_started->store(true, std::memory_order_release);
-		             const auto executor = co_await asio::this_coro::executor;
-		             asio::steady_timer timer(executor);
-		             timer.expires_after(150ms);
-		             co_await timer.async_wait(asio::use_awaitable);
-		             throw std::runtime_error("boom");
-	             })
-	        .get("/fast",
-	             [throw_started](const request &) -> response {
-		             return response::ok(body_builder()
-		                                     .set("route", "fast")
-		                                     .set("saw_throw_started", throw_started->load(std::memory_order_acquire))
-		                                     .build());
-	             }),
+	    server::server_builder()
+	        .get<"/throw">([throw_started](request) -> awaitable<response> {
+		        throw_started->store(true, std::memory_order_release);
+		        const auto executor = co_await asio::this_coro::executor;
+		        asio::steady_timer timer(executor);
+		        timer.expires_after(150ms);
+		        co_await timer.async_wait(asio::use_awaitable);
+		        throw std::runtime_error("boom");
+	        })
+	        .template get<"/fast">([throw_started](const request &) -> response {
+		        return response::ok(body_builder()
+		                                .set("route", "fast")
+		                                .set("saw_throw_started", throw_started->load(std::memory_order_acquire))
+		                                .build());
+	        }),
 	    TypeParam {});
 
 	auto client = support::connect_client(fixture.port);
@@ -109,23 +106,21 @@ TYPED_TEST(HttpConnectionAndErrorIntegrationTest, ThrowingHandlerReturnsErrorAnd
 TYPED_TEST(HttpConnectionAndErrorIntegrationTest, MissingRouteResponseStillKeepsOrderingForLaterValidResponse) {
 	auto fast_finished = std::make_shared<std::atomic<bool>>(false);
 
-	support::server_fixture fixture(
-	    warp::server::server_builder()
-	        .get("/slow",
-	             [fast_finished](request) -> awaitable<response> {
-		             co_return co_await support::delayed_ok_response(150ms, [fast_finished]() {
-			             return body_builder()
-			                 .set("route", "slow")
-			                 .set("fast_finished_before_return", fast_finished->load(std::memory_order_acquire))
-			                 .build();
-		             });
-	             })
-	        .get("/fast",
-	             [fast_finished](const request &) -> response {
-		             fast_finished->store(true, std::memory_order_release);
-		             return response::ok(body_builder().set("route", "fast").build());
-	             }),
-	    TypeParam {});
+	support::server_fixture fixture(warp::server::server_builder()
+	                                    .get<"/slow">([fast_finished](request) -> awaitable<response> {
+		                                    co_return co_await support::delayed_ok_response(150ms, [fast_finished]() {
+			                                    return body_builder()
+			                                        .set("route", "slow")
+			                                        .set("fast_finished_before_return",
+			                                             fast_finished->load(std::memory_order_acquire))
+			                                        .build();
+		                                    });
+	                                    })
+	                                    .template get<"/fast">([fast_finished](const request &) -> response {
+		                                    fast_finished->store(true, std::memory_order_release);
+		                                    return response::ok(body_builder().set("route", "fast").build());
+	                                    }),
+	                                TypeParam {});
 
 	auto client = support::connect_client(fixture.port);
 	const auto payload = support::make_get_request("/slow") + support::make_get_request("/missing") +
@@ -152,19 +147,16 @@ TYPED_TEST(HttpConnectionAndErrorIntegrationTest, MissingRouteResponseStillKeeps
 
 TYPED_TEST(HttpConnectionAndErrorIntegrationTest, ConnectionClosedServerSideShouldNotContinue) {
 	auto after_processed = std::make_shared<std::atomic<int>>(0);
-	support::server_fixture fixture(warp::server::server_builder()
-	                                    .get("/close",
-	                                         [](const request &) -> response {
-		                                         auto resp = response::ok(body_builder().set("route", "close").build());
-		                                         resp.keep_alive(false);
-		                                         return resp;
-	                                         })
-	                                    .get("/after",
-	                                         [after_processed](const request &) -> response {
-		                                         after_processed->fetch_add(1, std::memory_order_acq_rel);
-		                                         return response::ok(body_builder().set("route", "after").build());
-	                                         }),
-	                                TypeParam {});
+	support::server_fixture fixture(server::server_builder()
+	                                    .get<"/close">([](const request &) -> response {
+		                                    auto resp = response::ok(body_builder().set("route", "close").build());
+		                                    resp.keep_alive(false);
+		                                    return resp;
+	                                    })
+	                                    .template get<"/after">([after_processed](const request &) -> response {
+		                                    after_processed->fetch_add(1, std::memory_order_acq_rel);
+		                                    return response::ok(body_builder().set("route", "after").build());
+	                                    }));
 
 	auto client = support::connect_client(fixture.port);
 	const auto payload = support::make_get_request("/close") + support::make_get_request("/after");
@@ -184,19 +176,16 @@ TYPED_TEST(HttpConnectionAndErrorIntegrationTest, ConnectionClosedServerSideShou
 TYPED_TEST(HttpConnectionAndErrorIntegrationTest, AsyncCloseRequestBlocksFasterSyncRequestsAfter) {
 	auto after_processed = std::make_shared<std::atomic<int>>(0);
 	support::server_fixture fixture(warp::server::server_builder()
-	                                    .get("/close",
-	                                         [](const request &) -> awaitable<response> {
-		                                         auto response = co_await support::delayed_ok_response(100ms, []() {
-			                                         return body_builder().set("route", "close").build();
-		                                         });
-		                                         response.keep_alive(false);
-		                                         co_return response;
-	                                         })
-	                                    .get("/after",
-	                                         [after_processed](const request &) -> response {
-		                                         after_processed->fetch_add(1, std::memory_order_acq_rel);
-		                                         return response::ok(body_builder().set("route", "after").build());
-	                                         }),
+	                                    .get<"/close">([](const request &) -> awaitable<response> {
+		                                    auto response = co_await support::delayed_ok_response(
+		                                        100ms, []() { return body_builder().set("route", "close").build(); });
+		                                    response.keep_alive(false);
+		                                    co_return response;
+	                                    })
+	                                    .template get<"/after">([after_processed](const request &) -> response {
+		                                    after_processed->fetch_add(1, std::memory_order_acq_rel);
+		                                    return response::ok(body_builder().set("route", "after").build());
+	                                    }),
 	                                TypeParam {});
 
 	auto client = support::connect_client(fixture.port);
@@ -219,19 +208,16 @@ TYPED_TEST(HttpConnectionAndErrorIntegrationTest,
 	auto after_processed = std::make_shared<std::atomic<int>>(0);
 
 	support::server_fixture fixture(warp::server::server_builder()
-	                                    .get("/close",
-	                                         [](const request &) -> awaitable<response> {
-		                                         auto response = co_await support::delayed_ok_response(100ms, []() {
-			                                         return body_builder().set("route", "close").build();
-		                                         });
-		                                         response.keep_alive(false);
-		                                         co_return response;
-	                                         })
-	                                    .get("/after",
-	                                         [after_processed](const request &) -> response {
-		                                         after_processed->fetch_add(1, std::memory_order_acq_rel);
-		                                         return response::ok(body_builder().set("route", "after").build());
-	                                         }),
+	                                    .get<"/close">([](const request &) -> awaitable<response> {
+		                                    auto response = co_await support::delayed_ok_response(
+		                                        100ms, []() { return body_builder().set("route", "close").build(); });
+		                                    response.keep_alive(false);
+		                                    co_return response;
+	                                    })
+	                                    .template get<"/after">([after_processed](const request &) -> response {
+		                                    after_processed->fetch_add(1, std::memory_order_acq_rel);
+		                                    return response::ok(body_builder().set("route", "after").build());
+	                                    }),
 	                                TypeParam {});
 
 	auto client = support::connect_client(fixture.port);
@@ -261,12 +247,11 @@ TYPED_TEST(HttpConnectionAndErrorIntegrationTest, StopCalledFromIoWorkerThreadDo
 	auto controller = std::make_shared<std::optional<warp::server::server::controller>>();
 
 	support::server_fixture fixture(
-	    warp::server::server_builder().get("/stop",
-	                                       [controller, stop_returned](const request &) -> response {
-		                                       controller->value().stop();
-		                                       stop_returned->store(true, std::memory_order_release);
-		                                       return response::ok(body_builder().set("route", "stop").build());
-	                                       }),
+	    warp::server::server_builder().get<"/stop">([controller, stop_returned](const request &) -> response {
+		    controller->value().stop();
+		    stop_returned->store(true, std::memory_order_release);
+		    return response::ok(body_builder().set("route", "stop").build());
+	    }),
 	    TypeParam {});
 	*controller = fixture.server.get_controller();
 

@@ -40,13 +40,9 @@ template server server_builder::build<http::event_loop_mode::coroutines>() const
 template <http::event_loop_mode Mode>
 [[nodiscard]] std::shared_ptr<server::impl_base> server_builder::make_impl() const {
 	registry registry;
-	for (const auto &route : routes_) {
-		if (route.typed_query_constraints.has_value()) {
-			registry.add_typed(route.verb, route.path, *route.typed_query_constraints, route.callback);
-			continue;
-		}
-		registry.add(route.verb, route.path, route.callback);
-	}
+	for (const auto &route : routes_)
+		registry.add_typed(route.verb, route.path, route.typed_query_constraints, route.callback);
+
 	return std::make_shared<server::server_impl<Mode>>(address_, port_, workers_, std::move(registry));
 }
 

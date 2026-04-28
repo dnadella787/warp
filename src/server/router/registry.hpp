@@ -36,10 +36,10 @@ private:
 	};
 
 	struct route_entry {
-		http::handler handler;
-		std::vector<route_parameter> parameters;
-		std::vector<http::compiled_query_constraint> query_constraints;
-		std::size_t registration_order {};
+		http::handler handler;                   // by value because we want the registry to own the value
+		std::vector<route_parameter> parameters; // child parameter based nodes
+		std::vector<http::compiled_query_constraint> query_constraints; // query params
+		std::size_t registration_order {}; // order registered in server_builder, used for tiebreaker
 	};
 
 	struct node {

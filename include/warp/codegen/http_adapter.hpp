@@ -1041,7 +1041,7 @@ auto bind_generated_endpoint(std::shared_ptr<Service> service) {
 template <typename Service, typename Route, request_contract RequestContract, typename ResponseType, auto MemberFn>
 struct endpoint_binding {
 	static void register_route(server::server_builder &builder, const std::shared_ptr<Service> &service) {
-		builder.route(Route {}, bind_endpoint<RequestContract, ResponseType>(service, MemberFn));
+		builder.route<Route>(bind_endpoint<RequestContract, ResponseType>(service, MemberFn));
 	}
 };
 
@@ -1049,7 +1049,7 @@ template <typename Service, typename Route, request_contract RequestContract, ty
           typename Selector>
 struct generated_endpoint_binding {
 	static void register_route(server::server_builder &builder, const std::shared_ptr<Service> &service) {
-		builder.route(Route {}, bind_generated_endpoint<RequestContract, ResponseContract, Service, Selector>(service));
+		builder.route<Route>(bind_generated_endpoint<RequestContract, ResponseContract, Service, Selector>(service));
 	}
 };
 
