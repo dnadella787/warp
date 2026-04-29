@@ -102,6 +102,7 @@ warp_generate_stubs(
 )
 
 set(warp_http_unit_test_sources
+    unit/logger_test.cpp
     unit/request_test.cpp
     unit/response_test.cpp
     unit/registry_test.cpp

@@ -5,8 +5,8 @@
 #include "callback_listener.hpp"
 
 #include <boost/asio/strand.hpp>
-#include <spdlog/spdlog.h>
 
+#include "warp/logging/logger.hpp"
 #include "../session/callback_http_session.hpp"
 
 namespace warp::server {
@@ -37,7 +37,7 @@ void callback_listener::on_accept(boost::beast::error_code ec, boost::asio::ip::
 		if (ec == boost::asio::error::operation_aborted)
 			return;
 
-		spdlog::error("Error in {} during {}: {}", COMPONENT, "on_accept", ec.message());
+		log::error("Error in {} during {}: {}", COMPONENT, "on_accept", ec.message());
 	} else {
 		std::make_shared<callback_http_session>(std::move(socket), registry_)->start();
 	}

@@ -3,6 +3,7 @@
 //
 #pragma once
 
+#include "logging/logger.hpp"
 #include "http/http.hpp"
 #include "http/event_loop_mode.hpp"
 #include "http/response_builder.hpp"

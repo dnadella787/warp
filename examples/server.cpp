@@ -2,7 +2,6 @@
 #include "warp/db/postgres/connection_config.hpp"
 #include "warp/db/postgres/connection_pool.hpp"
 
-#include <iostream>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -14,6 +13,11 @@
 #include "helpers.cpp"
 
 int main() {
+	auto app_logger = warp::log::logger::stderr_color("warp.example");
+	app_logger.set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] %v");
+	app_logger.set_level(warp::log::level::info);
+	app_logger.set_as_default();
+
 	auto db_pool = std::make_shared<warp::db::postgres::connection_pool>(boost::asio::system_executor {},
 	                                                                     example::make_db_config(), 4, 2);
 
@@ -24,19 +28,19 @@ int main() {
 	        .port(8080)
 	        .get<"/hello/{name}">([](const warp::request &req) -> warp::http::response {
 		        auto name = req.path_param("name").value_or("world");
+		        warp::log::info("Received a hello world request with name {}", name);
 		        auto resp = warp::http::response::ok("Hello, " + std::string(name) + "!", "text/plain");
 		        return resp;
 	        })
 	        .get<"/hello", warp::http::optional_query<"name">>(
 	            [](const warp::http::request req) -> warp::http::response {
 		            auto name = req.query_param("name").value_or("World");
-		            std::cout << "Received a hello world request with query parameter name with value: " << name
-		                      << std::endl;
+		            warp::log::info("Received a hello world request with query parameter name={}", name);
 		            auto resp = warp::response::ok(warp::body_builder().set("name", std::string(name)).build());
 		            return resp;
 	            })
 	        .get<"/ping">([](const warp::http::request) -> warp::http::response {
-		        std::cout << "ping request" << std::endl;
+		        warp::log::info("ping request");
 		        auto b = warp::body_builder().set("path", "ping").set("protocol", "http");
 		        auto resp = warp::response::ok(warp::body_builder().set("endpoint", b.json()).build());
 		        return resp;
@@ -56,8 +60,8 @@ int main() {
 		        co_return warp::response::ok(warp::body_builder().set("exchange_name", result.value(0, 1)).build());
 	        })
 	        .build<warp::event_loop_mode::coroutines>();
-	std::cout << "Warp example server running on http://127.0.0.1:8080" << std::endl;
-	std::cout << "Set WARP_DB_USER / WARP_DB_PASSWORD / WARP_DB_NAME to try GET /db/{id}" << std::endl;
+	warp::log::info("Warp example server running on http://127.0.0.1:8080");
+	warp::log::info("Set WARP_DB_USER / WARP_DB_PASSWORD / WARP_DB_NAME to try GET /db/{{id}}");
 	server.run();
 	return 0;
 }

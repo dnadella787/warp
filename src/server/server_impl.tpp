@@ -1,10 +1,10 @@
 #pragma once
 #include "server_impl.hpp"
 
-#include <iostream>
-
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/strand.hpp>
+
+#include "warp/logging/logger.hpp"
 
 namespace warp::server {
 
@@ -71,7 +71,7 @@ void server::server_impl<_>::run(bool blocking) {
 	try {
 		io_ctx_.run();
 	} catch (...) {
-		spdlog::error("Error in io_context::run() on main blocking thread for server_imp::start(), stopping server");
+		log::error("Error in io_context::run() on main blocking thread for server_impl::run(), stopping server");
 		stop();
 		throw;
 	}
@@ -131,7 +131,7 @@ void server::server_impl<Mode>::start_runner_threads() {
 					ctx.run();
 					break;
 				} catch (const std::exception &ex) {
-					std::cerr << "worker error: " << ex.what() << std::endl;
+					log::error("Worker error: {}", ex.what());
 				}
 			}
 		});

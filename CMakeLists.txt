@@ -99,7 +99,7 @@ if (NOT spdlog_FOUND)
     FetchContent_Declare(
             spdlog
             GIT_REPOSITORY https://github.com/gabime/spdlog.git
-            GIT_TAG v1.15.3
+            GIT_TAG v1.17.0
             UPDATE_DISCONNECTED ON)
     FetchContent_MakeAvailable(spdlog)
 endif ()
@@ -121,6 +121,7 @@ set(warp_codegen_sources
     src/codegen/stub_generator.cpp)
 
 set(warp_http_sources
+        src/logging/logger.cpp
         src/server/server.cpp
         src/server/server_builder.cpp
         src/server/server_impl.hpp
@@ -176,9 +177,9 @@ target_link_libraries(
     PUBLIC
         Boost::json
         Boost::headers
+        spdlog::spdlog_header_only
     PRIVATE
-        Threads::Threads
-        spdlog::spdlog_header_only)
+        Threads::Threads)
 
 add_library(warp_codegen_runtime INTERFACE)
 target_include_directories(
@@ -266,6 +267,7 @@ set(warp_public_headers
     include/warp/http/body_builder.hpp
     include/warp/http/event_loop_mode.hpp
     include/warp/http/http.hpp
+    include/warp/logging/logger.hpp
     include/warp/http/request.hpp
     include/warp/http/response.hpp
     include/warp/http/response_builder.hpp

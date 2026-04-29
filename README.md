@@ -54,6 +54,23 @@ Useful CMake options:
 - `warp_FETCH_BOOST=ON|OFF` fetches Boost with `FetchContent` when a suitable local install is unavailable
 - `WARP_BENCHMARK_SYNC_DB=ON|OFF` enables the synchronous DB benchmark variant
 
+### Logging
+
+Warp exposes a small `warp::logging` wrapper over `spdlog`. Warp's own runtime error paths log through the default logger, so applications can install one logger and use it for both framework and application messages.
+
+```cpp
+#include <warp/warp.hpp>
+
+int main() {
+    auto logger = warp::logging::logger::stderr_color("my-app");
+    logger.set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] %v");
+    logger.set_level(warp::logging::level::info);
+    logger.set_as_default();
+
+    warp::logging::info("application startup");
+}
+```
+
 On Apple Silicon, prefer adding `-DCMAKE_OSX_ARCHITECTURES=arm64` when configuring a fresh tree. If your shell is running under Rosetta, prefix configure, build, and run commands with `arch -arm64`.
 
 ### Testing

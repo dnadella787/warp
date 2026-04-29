@@ -5,8 +5,8 @@
 #include <boost/asio/redirect_error.hpp>
 #include <boost/asio/strand.hpp>
 #include <boost/asio/use_awaitable.hpp>
-#include <spdlog/spdlog.h>
 
+#include "warp/logging/logger.hpp"
 #include "../session/coroutine_http_session.hpp"
 
 namespace warp::server {
@@ -38,7 +38,7 @@ boost::asio::awaitable<void> coroutine_listener::accept_loop() {
 			// TODO: maybe alos check parent server_impl status before aborting
 			if (ec == boost::asio::error::operation_aborted)
 				co_return;
-			spdlog::error("Error in {} during {}: {}", COMPONENT, "accept_loop", ec.message());
+			log::error("Error in {} during {}: {}", COMPONENT, "accept_loop", ec.message());
 			continue;
 		}
 

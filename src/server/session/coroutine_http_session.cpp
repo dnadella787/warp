@@ -5,8 +5,8 @@
 #include <boost/asio/redirect_error.hpp>
 #include <boost/asio/use_awaitable.hpp>
 #include <boost/beast/http.hpp>
-#include <spdlog/spdlog.h>
 
+#include "warp/logging/logger.hpp"
 #include "callback_http_session.hpp"
 #include "../../common/util/lambda.h"
 
@@ -71,7 +71,7 @@ boost::asio::awaitable<void> coroutine_http_session::read_loop() {
 		}
 
 		if (ec) {
-			spdlog::error("Error in coroutine_http_session during read_loop: {}", ec.message());
+			log::error("Error in {} during {}: {}", COMPONENT, "read_loop", ec.message());
 			co_return shutdown();
 		}
 
@@ -139,7 +139,7 @@ boost::asio::awaitable<void> coroutine_http_session::write_loop() {
 		co_await beast::http::async_write(stream_, it->second.response,
 		                                  boost::asio::redirect_error(boost::asio::use_awaitable, ec));
 		if (ec) {
-			spdlog::error("Error in coroutine_http_session during write_loop: {}", ec.message());
+			log::error("Error in {} during {}: {}", COMPONENT, "write_loop", ec.message());
 			co_return shutdown();
 		}
 
@@ -223,8 +223,8 @@ void coroutine_http_session::complete_request(std::size_t sequence, http::respon
 
 	auto ctx_it = request_ctxs_.find(sequence);
 	if (ctx_it == request_ctxs_.end())
-		return spdlog::error("Error in coroutine_http_session during on_handler_complete(req_ctx.find): context could "
-		                     "not be found in session map on completion");
+		return log::error("Error in {} during {}: {}", COMPONENT, "on_handler_complete{req_ctx.find}",
+		                  "context could not be found in session map on completion");
 
 	// we checked before executing the handler to see if client wants to keep connection alive or close it,
 	// now we check the server's own decision before setting the decision based on both (client && server)
@@ -268,7 +268,7 @@ void coroutine_http_session::shutdown() {
 	boost::system::error_code ec;
 	stream_.socket().shutdown(tcp::socket::shutdown_send, ec);
 	if (ec && ec != boost::asio::error::not_connected)
-		spdlog::error("Error in coroutine_http_session during shutdown: {}", ec.message());
+		log::error("Error in {} during {}: {}", COMPONENT, "shutdown", ec.message());
 }
 
 void coroutine_http_session::finish_request(std::size_t sequence) {
