@@ -10,7 +10,7 @@
 #include <boost/beast/http.hpp>
 
 #include "connection_close_policy.h"
-#include "../router/registry.hpp"
+#include "server/router/registry.hpp"
 #include "warp/warp.hpp"
 
 namespace warp::server {

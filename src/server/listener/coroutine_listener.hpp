@@ -4,7 +4,7 @@
 #include <boost/beast/core.hpp>
 
 #include "http_listener.h"
-#include "../router/registry.hpp"
+#include "server/router/registry.hpp"
 
 namespace warp::server {
 

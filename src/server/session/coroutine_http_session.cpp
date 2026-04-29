@@ -7,7 +7,7 @@
 #include <boost/beast/http.hpp>
 
 #include "callback_http_session.hpp"
-#include "../../common/util/lambda.h"
+#include "common/util/lambda.h"
 
 namespace beast = boost::beast;
 using tcp = boost::asio::ip::tcp;

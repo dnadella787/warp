@@ -3,7 +3,7 @@
 #include <boost/asio/co_spawn.hpp>
 #include <boost/beast/http.hpp>
 
-#include "../../common/util/lambda.h"
+#include "common/util/lambda.h"
 
 namespace beast = boost::beast;   // from <boost/beast.hpp>
 using tcp = boost::asio::ip::tcp; // from <boost/asio/ip/tcp.hpp>

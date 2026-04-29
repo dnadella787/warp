@@ -6,7 +6,7 @@
 
 #include <boost/asio/strand.hpp>
 
-#include "../session/callback_http_session.hpp"
+#include "server/session/callback_http_session.hpp"
 
 namespace warp::server {
 

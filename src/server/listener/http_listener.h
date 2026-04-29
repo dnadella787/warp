@@ -7,7 +7,7 @@
 #include <boost/asio/strand.hpp>
 
 #include "base_listener.hpp"
-#include "../router/registry.hpp"
+#include "server/router/registry.hpp"
 #include "warp/logging/logger.hpp"
 
 namespace warp::server {
