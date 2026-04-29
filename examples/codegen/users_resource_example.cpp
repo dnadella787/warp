@@ -9,6 +9,7 @@ class users_resource {
 public:
 	explicit users_resource() = default;
 
+	// don't worry the middleware will make this no alloc handler dispatch using move semantics
 	generated_api::users_create_user_request_handler_result
 	create_user(generated_api::users_create_user_request request) {
 		if (request.body.name.empty()) {

@@ -3,6 +3,9 @@
 //
 
 #include "warp/server/server_builder.hpp"
+
+#include <algorithm>
+
 #include "server_impl.hpp"
 
 #include "router/registry.hpp"
@@ -48,7 +51,18 @@ template <http::event_loop_mode Mode>
 	for (const auto &route : routes_)
 		registry.add_typed(route.verb, route.path, route.typed_query_constraints, route.callback);
 
-	return std::make_shared<server::server_impl<Mode>>(address_, port_, workers_, std::move(registry),
+	auto ordered = interceptors_;
+	std::stable_sort(ordered.begin(), ordered.end(),
+	                 [](const auto &lhs, const auto &rhs) { return lhs.first < rhs.first; });
+
+	std::vector<detail::type_erased_interceptor> chain_entries;
+	chain_entries.reserve(ordered.size());
+	for (auto &[priority, interceptor] : ordered)
+		chain_entries.push_back(std::move(interceptor));
+
+	interceptor_chain chain {std::move(chain_entries)};
+
+	return std::make_shared<server::server_impl<Mode>>(address_, port_, workers_, std::move(registry), std::move(chain),
 	                                                   logger_.value_or(log::default_logger()));
 }
 

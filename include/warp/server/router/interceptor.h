@@ -9,44 +9,17 @@
 
 namespace warp::http {
 
-using InterceptorResult = std::optional<response>;
+template<typename T>
+concept valid_request_interceptor_response = std::same_as<T, void> || std::same_as<T, response> || std::same_as<T, std::optional<response>>;
 
-// lvalue and const lvalue by ref bind to value param
-template <typename H>
-inline constexpr bool is_movable_request_interceptor = requires(std::decay_t<H> &fn, request req) {
-    { std::invoke(fn, std::move(req)) } -> std::convertible_to<void>;
-};
-
-// lvalue and const lvalue by ref bind to value param
-template <typename H>
-inline constexpr bool is_lvalue_request_interceptor = requires(std::decay_t<H> &fn, request &req) {
-    { std::invoke(fn, req) } -> std::convertible_to<void>;
-};
-
-// request_interceptor
-template <typename H>
-inline constexpr bool is_request_interceptor = is_movable_request_interceptor<H> || is_lvalue_request_interceptor<H>;
-
-// normalized interceptor class
+// has to be by ref since we reuse the same request in the handler dispatch
+// so we cannot rely on move semantics for zero alloc dispatch like we can do with
+// handlers
 template <typename Interceptor>
-class interceptor {
-public:
-    explicit interceptor(Interceptor interceptor)
-        : interceptor_(std::move(interceptor)) {}
-
-    InterceptorResult operator()(warp::request& req) {
-        using result_t = std::invoke_result_t<decltype(&Interceptor::intercept), Interceptor&, request&>;
-
-        if constexpr (std::is_void_v<result_t>) {
-            interceptor_.intercept(req);
-            return std::nullopt;
-        } else {
-            return interceptor_.intercept(req);
-        }
-    }
-
-private:
-    Interceptor interceptor_;
+concept request_interceptor = requires(std::decay_t<Interceptor> &i, request &req) {
+    requires valid_request_interceptor_response<decltype(i.intercept(req))>;
 };
+
+using interceptor_result = std::optional<response>;
 
 }

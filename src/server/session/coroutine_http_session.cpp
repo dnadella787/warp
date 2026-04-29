@@ -15,9 +15,9 @@ using tcp = boost::asio::ip::tcp;
 namespace warp::server {
 
 coroutine_http_session::coroutine_http_session(boost::asio::ip::tcp::socket &&socket, registry &routes,
-                                               log::logger logger)
-    : stream_(std::move(socket)), routes_(routes), logger_(std::move(logger)), read_signal_(stream_.get_executor()),
-      write_signal_(stream_.get_executor()) {
+                                               const interceptor_chain &interceptor_chain, log::logger logger)
+    : stream_(std::move(socket)), routes_(routes), interceptor_chain_(interceptor_chain), logger_(std::move(logger)),
+      read_signal_(stream_.get_executor()), write_signal_(stream_.get_executor()) {
 }
 
 void coroutine_http_session::start() {

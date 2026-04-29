@@ -13,6 +13,7 @@
 #include <utility>
 #include <vector>
 
+#include "router/interceptor.h"
 #include "router/route_types.h"
 #include "warp/http/event_loop_mode.hpp"
 #include "warp/http/http.hpp"
@@ -23,6 +24,8 @@
 namespace warp::server {
 
 namespace detail {
+
+using type_erased_interceptor = std::function<http::interceptor_result(request &)>;
 
 [[nodiscard]] constexpr bool is_unreserved_query_component_char(unsigned char ch) noexcept {
 	return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '-' || ch == '.' ||
@@ -122,8 +125,15 @@ public:
 		                   make_route_handler(std::forward<H>(handler)));
 	}
 
+	template <int Priority, http::request_interceptor Interceptor>
+	server_builder &interceptor(Interceptor &&handler) {
+		// template deduction to preserve interceptor value type
+		interceptors_.push_back(std::pair(Priority, make_interceptor(std::forward<Interceptor>(handler))));
+		return *this;
+	}
+
 	// default mode is callback
-	template <http::event_loop_mode Mode = http::event_loop_mode::callbacks>
+	template <http::event_loop_mode Mode = event_loop_mode::callbacks>
 	[[nodiscard]] server build() const;
 
 private:
@@ -182,6 +192,19 @@ private:
 		}
 	}
 
+	template <http::request_interceptor Interceptor>
+	static detail::type_erased_interceptor make_interceptor(Interceptor &&interceptor) {
+		return [interceptor = std::forward<Interceptor>(interceptor)](request &req) -> http::interceptor_result {
+			using result_t = decltype(interceptor.intercept(req));
+			if constexpr (std::is_void_v<result_t>) {
+				interceptor.intercept(req);
+				return std::nullopt;
+			} else {
+				return interceptor.intercept(req);
+			}
+		};
+	}
+
 	struct route_definition {
 		http::method verb;
 		std::string path;
@@ -194,6 +217,7 @@ private:
 	std::size_t workers_ {1};
 	std::optional<log::logger> logger_;
 	std::vector<route_definition> routes_;
+	std::vector<std::pair<int, detail::type_erased_interceptor>> interceptors_;
 };
 
 } // namespace warp::server

@@ -11,6 +11,7 @@
 #include <boost/beast/http.hpp>
 
 #include "connection_close_policy.h"
+#include "server/interceptors/interceptor_chain.h"
 #include "server/router/registry.hpp"
 #include "warp/warp.hpp"
 
@@ -18,7 +19,8 @@ namespace warp::server {
 
 class coroutine_http_session : public std::enable_shared_from_this<coroutine_http_session> {
 public:
-	coroutine_http_session(boost::asio::ip::tcp::socket &&socket, registry &routes, log::logger logger);
+	coroutine_http_session(boost::asio::ip::tcp::socket &&socket, registry &routes,
+	                       const interceptor_chain &interceptor_chain, log::logger logger);
 
 	void start();
 
@@ -39,7 +41,8 @@ private:
 
 	boost::beast::tcp_stream stream_;
 	boost::beast::flat_buffer buffer_;
-	registry &routes_;
+	const registry &routes_;
+	const interceptor_chain &interceptor_chain_;
 	log::logger logger_;
 	std::map<std::size_t, request_context> request_ctxs_;
 	std::map<std::size_t, pending_write> pending_responses_;

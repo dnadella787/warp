@@ -12,8 +12,8 @@ namespace warp::server {
 
 // The socket executor is already a strand from the listener::do_accept method
 callback_http_session::callback_http_session(boost::asio::ip::tcp::socket &&socket, registry &routes,
-                                             log::logger logger)
-    : stream_(std::move(socket)), routes_(routes), logger_(std::move(logger)) {
+                                             const interceptor_chain &interceptor_chain, log::logger logger)
+    : stream_(std::move(socket)), routes_(routes), interceptor_chain_(interceptor_chain), logger_(std::move(logger)) {
 }
 
 void callback_http_session::start() {

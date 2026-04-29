@@ -10,9 +10,10 @@
 
 namespace warp::server {
 
-coroutine_listener::coroutine_listener(boost::asio::io_context &ioc, registry &registry, const std::string &address,
+coroutine_listener::coroutine_listener(boost::asio::io_context &ioc, registry &registry,
+                                       const interceptor_chain &interceptor_chain, const std::string &address,
                                        const unsigned short port, log::logger logger)
-    : http_listener(ioc, registry, address, port, std::move(logger)) {
+    : http_listener(ioc, registry, address, port, interceptor_chain, std::move(logger)) {
 }
 
 void coroutine_listener::execute() {
@@ -42,7 +43,7 @@ boost::asio::awaitable<void> coroutine_listener::accept_loop() {
 		}
 
 		// create the session as another coroutine
-		std::make_shared<coroutine_http_session>(std::move(socket), registry_, logger_)->start();
+		std::make_shared<coroutine_http_session>(std::move(socket), registry_, interceptor_chain_, logger_)->start();
 	}
 }
 

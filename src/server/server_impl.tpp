@@ -8,9 +8,10 @@ namespace warp::server {
 
 template <http::event_loop_mode Mode>
 server::server_impl<Mode>::server_impl(const std::string &address, std::uint16_t port, std::size_t workers,
-                                       registry routes, log::logger logger)
-: pool_size_(workers ? workers : 1), io_ctx_(static_cast<int>(pool_size_)), routes_(std::move(routes)),
-	logger_(std::move(logger)), listener_(std::make_shared<listener_t>(io_ctx_, routes_, address, port, logger_)) {
+                                       registry routes, interceptor_chain interceptor_chain, log::logger logger)
+: pool_size_(workers ? workers : 1), io_ctx_(static_cast<int>(pool_size_)), routes_(std::move(routes)), interceptor_chain_(std::move(interceptor_chain)),
+	logger_(std::move(logger)),
+	listener_(std::make_shared<listener_t>(io_ctx_, routes_, interceptor_chain_, address, port, logger_)) {
 	threads_.reserve(pool_size_);
 }
 
