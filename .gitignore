@@ -5,3 +5,4 @@ cmake-build*
 build**
 AGENTS.md
 .agents/
+warp-custom-server.log

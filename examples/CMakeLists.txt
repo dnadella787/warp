@@ -27,6 +27,14 @@ target_link_libraries(warp_example_request
         warp_http
         Boost::headers)
 
+add_executable(warp_custom_logger_server)
+target_sources(warp_custom_logger_server
+    PRIVATE
+        custom_logger_server.cpp)
+target_link_libraries(warp_custom_logger_server
+    PRIVATE
+        warp_http)
+
 add_executable(users_resource_example)
 target_sources(users_resource_example
     PRIVATE

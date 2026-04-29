@@ -6,14 +6,13 @@
 
 #include <boost/asio/strand.hpp>
 
-#include "warp/logging/logger.hpp"
 #include "../session/callback_http_session.hpp"
 
 namespace warp::server {
 
 callback_listener::callback_listener(boost::asio::io_context &ioc, registry &registry, const std::string &address,
-                                     unsigned short port)
-    : http_listener(ioc, registry, address, port) {
+                                     unsigned short port, log::logger logger)
+    : http_listener(ioc, registry, address, port, std::move(logger)) {
 }
 
 void callback_listener::execute() {
@@ -37,9 +36,9 @@ void callback_listener::on_accept(boost::beast::error_code ec, boost::asio::ip::
 		if (ec == boost::asio::error::operation_aborted)
 			return;
 
-		log::error("Error in {} during {}: {}", COMPONENT, "on_accept", ec.message());
+		logger_.error("Error in {} during {}: {}", COMPONENT, "on_accept", ec.message());
 	} else {
-		std::make_shared<callback_http_session>(std::move(socket), registry_)->start();
+		std::make_shared<callback_http_session>(std::move(socket), registry_, logger_)->start();
 	}
 
 	do_accept();

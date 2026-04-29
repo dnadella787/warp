@@ -6,14 +6,13 @@
 #include <boost/asio/strand.hpp>
 #include <boost/asio/use_awaitable.hpp>
 
-#include "warp/logging/logger.hpp"
 #include "../session/coroutine_http_session.hpp"
 
 namespace warp::server {
 
 coroutine_listener::coroutine_listener(boost::asio::io_context &ioc, registry &registry, const std::string &address,
-                                       const unsigned short port)
-    : http_listener(ioc, registry, address, port) {
+                                       const unsigned short port, log::logger logger)
+    : http_listener(ioc, registry, address, port, std::move(logger)) {
 }
 
 void coroutine_listener::execute() {
@@ -38,12 +37,12 @@ boost::asio::awaitable<void> coroutine_listener::accept_loop() {
 			// TODO: maybe alos check parent server_impl status before aborting
 			if (ec == boost::asio::error::operation_aborted)
 				co_return;
-			log::error("Error in {} during {}: {}", COMPONENT, "accept_loop", ec.message());
+			logger_.error("Error in {} during {}: {}", COMPONENT, "accept_loop", ec.message());
 			continue;
 		}
 
 		// create the session as another coroutine
-		std::make_shared<coroutine_http_session>(std::move(socket), registry_)->start();
+		std::make_shared<coroutine_http_session>(std::move(socket), registry_, logger_)->start();
 	}
 }
 

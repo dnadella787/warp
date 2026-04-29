@@ -12,7 +12,7 @@ class coroutine_listener final : public http_listener<coroutine_listener>,
                                  public std::enable_shared_from_this<coroutine_listener> {
 public:
 	coroutine_listener(boost::asio::io_context &ioc, registry &registry, const std::string &address,
-	                   unsigned short port);
+	                   unsigned short port, log::logger logger);
 
 	void execute();
 

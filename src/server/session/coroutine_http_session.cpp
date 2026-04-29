@@ -6,7 +6,6 @@
 #include <boost/asio/use_awaitable.hpp>
 #include <boost/beast/http.hpp>
 
-#include "warp/logging/logger.hpp"
 #include "callback_http_session.hpp"
 #include "../../common/util/lambda.h"
 
@@ -15,8 +14,9 @@ using tcp = boost::asio::ip::tcp;
 
 namespace warp::server {
 
-coroutine_http_session::coroutine_http_session(boost::asio::ip::tcp::socket &&socket, registry &routes)
-    : stream_(std::move(socket)), routes_(routes), read_signal_(stream_.get_executor()),
+coroutine_http_session::coroutine_http_session(boost::asio::ip::tcp::socket &&socket, registry &routes,
+                                               log::logger logger)
+    : stream_(std::move(socket)), routes_(routes), logger_(std::move(logger)), read_signal_(stream_.get_executor()),
       write_signal_(stream_.get_executor()) {
 }
 
@@ -71,7 +71,7 @@ boost::asio::awaitable<void> coroutine_http_session::read_loop() {
 		}
 
 		if (ec) {
-			log::error("Error in {} during {}: {}", COMPONENT, "read_loop", ec.message());
+			logger_.error("Error in {} during {}: {}", COMPONENT, "read_loop", ec.message());
 			co_return shutdown();
 		}
 
@@ -139,7 +139,7 @@ boost::asio::awaitable<void> coroutine_http_session::write_loop() {
 		co_await beast::http::async_write(stream_, it->second.response,
 		                                  boost::asio::redirect_error(boost::asio::use_awaitable, ec));
 		if (ec) {
-			log::error("Error in {} during {}: {}", COMPONENT, "write_loop", ec.message());
+			logger_.error("Error in {} during {}: {}", COMPONENT, "write_loop", ec.message());
 			co_return shutdown();
 		}
 
@@ -223,8 +223,8 @@ void coroutine_http_session::complete_request(std::size_t sequence, http::respon
 
 	auto ctx_it = request_ctxs_.find(sequence);
 	if (ctx_it == request_ctxs_.end())
-		return log::error("Error in {} during {}: {}", COMPONENT, "on_handler_complete{req_ctx.find}",
-		                  "context could not be found in session map on completion");
+		return logger_.error("Error in {} during {}: {}", COMPONENT, "on_handler_complete{req_ctx.find}",
+		                     "context could not be found in session map on completion");
 
 	// we checked before executing the handler to see if client wants to keep connection alive or close it,
 	// now we check the server's own decision before setting the decision based on both (client && server)
@@ -268,7 +268,7 @@ void coroutine_http_session::shutdown() {
 	boost::system::error_code ec;
 	stream_.socket().shutdown(tcp::socket::shutdown_send, ec);
 	if (ec && ec != boost::asio::error::not_connected)
-		log::error("Error in {} during {}: {}", COMPONENT, "shutdown", ec.message());
+		logger_.error("Error in {} during {}: {}", COMPONENT, "shutdown", ec.message());
 }
 
 void coroutine_http_session::finish_request(std::size_t sequence) {

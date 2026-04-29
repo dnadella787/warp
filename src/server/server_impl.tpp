@@ -4,14 +4,13 @@
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/strand.hpp>
 
-#include "warp/logging/logger.hpp"
-
 namespace warp::server {
 
 template <http::event_loop_mode Mode>
-server::server_impl<Mode>::server_impl(const std::string &address, std::uint16_t port, std::size_t workers, registry routes)
+server::server_impl<Mode>::server_impl(const std::string &address, std::uint16_t port, std::size_t workers,
+                                       registry routes, log::logger logger)
 : pool_size_(workers ? workers : 1), io_ctx_(static_cast<int>(pool_size_)), routes_(std::move(routes)),
-	listener_(std::make_shared<listener_t>(io_ctx_, routes_, address, port)) {
+	logger_(std::move(logger)), listener_(std::make_shared<listener_t>(io_ctx_, routes_, address, port, logger_)) {
 	threads_.reserve(pool_size_);
 }
 
@@ -71,7 +70,7 @@ void server::server_impl<_>::run(bool blocking) {
 	try {
 		io_ctx_.run();
 	} catch (...) {
-		log::error("Error in io_context::run() on main blocking thread for server_impl::run(), stopping server");
+		logger_.error("Error in io_context::run() on main blocking thread for server_impl::run(), stopping server");
 		stop();
 		throw;
 	}
@@ -125,13 +124,13 @@ void server::server_impl<Mode>::stop() {
 template <http::event_loop_mode Mode>
 void server::server_impl<Mode>::start_runner_threads() {
 	for (std::size_t i = 0; i < pool_size_; i++) {
-		threads_.emplace_back([&ctx = io_ctx_]() {
+		threads_.emplace_back([&ctx = io_ctx_, logger = logger_]() {
 			for (;;) {
 				try {
 					ctx.run();
 					break;
 				} catch (const std::exception &ex) {
-					log::error("Worker error: {}", ex.what());
+					logger.error("Worker error: {}", ex.what());
 				}
 			}
 		});

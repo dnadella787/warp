@@ -13,6 +13,7 @@
 #include "listener/base_listener.hpp"
 #include "listener/traits.hpp"
 #include "router/registry.hpp"
+#include "warp/logging/logger.hpp"
 #include "warp/server/server.hpp"
 
 namespace warp::server {
@@ -20,12 +21,15 @@ namespace warp::server {
 template <http::event_loop_mode Mode>
 class server::server_impl : public impl_base {
 public:
-	server_impl(const std::string &address, std::uint16_t port, std::size_t workers, registry routes);
+	server_impl(const std::string &address, std::uint16_t port, std::size_t workers, registry routes,
+	            log::logger logger);
 
 	void run(bool blocking) override;
 	void stop() override;
 
 private:
+	friend struct detail::server_test_access;
+
 	enum class lifecycle_state {
 		stopped,
 		starting,
@@ -40,6 +44,7 @@ private:
 	std::size_t pool_size_;
 	boost::asio::io_context io_ctx_;
 	registry routes_;
+	log::logger logger_;
 	std::shared_ptr<base_listener> listener_;
 	std::optional<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> guard_;
 	std::vector<std::thread> threads_;

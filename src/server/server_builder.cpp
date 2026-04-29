@@ -24,6 +24,11 @@ server_builder &server_builder::worker_threads(std::size_t count) {
 	return *this;
 }
 
+server_builder &server_builder::logger(log::logger logger) {
+	logger_ = std::move(logger);
+	return *this;
+}
+
 template <http::event_loop_mode Mode>
 server server_builder::build() const {
 	return make_server<Mode>();
@@ -43,7 +48,8 @@ template <http::event_loop_mode Mode>
 	for (const auto &route : routes_)
 		registry.add_typed(route.verb, route.path, route.typed_query_constraints, route.callback);
 
-	return std::make_shared<server::server_impl<Mode>>(address_, port_, workers_, std::move(registry));
+	return std::make_shared<server::server_impl<Mode>>(address_, port_, workers_, std::move(registry),
+	                                                   logger_.value_or(log::default_logger()));
 }
 
 } // namespace warp::server

@@ -17,7 +17,7 @@ namespace warp::server {
 
 class callback_http_session : public std::enable_shared_from_this<callback_http_session> {
 public:
-	callback_http_session(boost::asio::ip::tcp::socket &&socket, registry &routes);
+	callback_http_session(boost::asio::ip::tcp::socket &&socket, registry &routes, log::logger logger);
 
 	void start();
 
@@ -35,6 +35,7 @@ private:
 	boost::beast::tcp_stream stream_;
 	boost::beast::flat_buffer buffer_;
 	registry &routes_;
+	log::logger logger_;
 	std::map<std::size_t, request_context> request_ctxs_;
 	std::map<std::size_t, pending_write> pending_responses_;
 	connection_close_policy close_policy_;

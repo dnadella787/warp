@@ -56,20 +56,56 @@ Useful CMake options:
 
 ### Logging
 
-Warp exposes a small `warp::logging` wrapper over `spdlog`. Warp's own runtime error paths log through the default logger, so applications can install one logger and use it for both framework and application messages.
+Warp exposes a small `warp::log` wrapper over `spdlog`. In normal use you configure sinks through `warp::log::sink`, create a `warp::log::logger`, and optionally install it in two places:
+
+- `logger.set_as_default()` for application-level `warp::log::info(...)` style logging
+- `warp::server::server_builder::logger(...)` for Warp server internals such as listener/session/server error paths
 
 ```cpp
 #include <warp/warp.hpp>
+#include <warp/server/server_builder.hpp>
 
 int main() {
-    auto logger = warp::logging::logger::stderr_color("my-app");
-    logger.set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] %v");
-    logger.set_level(warp::logging::level::info);
-    logger.set_as_default();
+    auto app_logger = warp::log::logger::stderr_color("my-app");
+    app_logger.set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] %v");
+    app_logger.set_level(warp::log::level::info);
+    app_logger.set_as_default();
 
-    warp::logging::info("application startup");
+    auto server = warp::server::server_builder()
+        .logger(app_logger)
+        .get<"/health">([](const warp::request &) -> warp::response {
+            return warp::response::ok("ok");
+        })
+        .build();
+
+    warp::log::info("application startup");
 }
 ```
+
+`warp::server::server_builder::logger(...)` captures the logger object that server internals will use when `build()` runs. If you omit `.logger(...)`, `build()` captures the then-current `warp::log::default_logger()` instead. Later `warp::log::set_default_logger(...)` or `logger.set_as_default()` calls affect future default-log lookups and future server builds, but they do not retarget servers that were already built.
+
+For a multi-sink logger that writes to both stdout and a file, see `examples/custom_logger_server.cpp` and run:
+
+```bash
+./build/examples/warp_custom_logger_server
+```
+
+That example uses:
+
+```cpp
+auto combined_logger = warp::log::logger("warp.custom_logger_server",
+                                         {warp::log::sink::stdout_color(),
+                                          warp::log::sink::basic_file("warp-custom-server.log", true)});
+combined_logger.flush_on(warp::log::level::info);
+combined_logger.set_as_default();
+
+auto server = warp::server::server_builder()
+    .logger(combined_logger)
+    // routes...
+    .build();
+```
+
+`warp::log::sink::basic_file("warp-custom-server.log", true)` truncates the file on startup so each run starts from a clean log. The file sink is otherwise buffered; the example enables `flush_on(info)` so `tail -f warp-custom-server.log` shows new requests before shutdown instead of only after buffered output is flushed later.
 
 On Apple Silicon, prefer adding `-DCMAKE_OSX_ARCHITECTURES=arm64` when configuring a fresh tree. If your shell is running under Rosetta, prefix configure, build, and run commands with `arch -arm64`.
 
@@ -123,6 +159,15 @@ export WARP_DB_PASSWORD=...
 export WARP_DB_NAME=...
 
 ./build/examples/warp_example_server
+```
+
+### Run The Custom Logger Example
+
+`warp_custom_logger_server` is a dedicated logging example. It configures a logger with both stdout and file sinks, truncates `warp-custom-server.log` on startup, enables `flush_on(info)` so the file updates while the server is running, installs that logger as the default app logger, and passes it into `server_builder::logger(...)` so the server internals capture the same logger at build time.
+
+```bash
+./build/examples/warp_custom_logger_server
+cat warp-custom-server.log
 ```
 
 ### Run Example Requests

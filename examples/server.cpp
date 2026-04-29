@@ -26,6 +26,8 @@ int main() {
 	        .address("127.0.0.1")
 	        .worker_threads(4)
 	        .port(8080)
+	        // build() captures this logger for Warp's internal listener/session/server logs.
+	        .logger(app_logger)
 	        .get<"/hello/{name}">([](const warp::request &req) -> warp::http::response {
 		        auto name = req.path_param("name").value_or("world");
 		        warp::log::info("Received a hello world request with name {}", name);
@@ -62,6 +64,7 @@ int main() {
 	        .build<warp::event_loop_mode::coroutines>();
 	warp::log::info("Warp example server running on http://127.0.0.1:8080");
 	warp::log::info("Set WARP_DB_USER / WARP_DB_PASSWORD / WARP_DB_NAME to try GET /db/{{id}}");
+	warp::log::info("Changing the default logger after build() does not retarget this server.");
 	server.run();
 	return 0;
 }

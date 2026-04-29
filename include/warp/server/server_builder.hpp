@@ -17,6 +17,7 @@
 
 #include "warp/http/event_loop_mode.hpp"
 #include "warp/http/http.hpp"
+#include "warp/logging/logger.hpp"
 #include "warp/server/router/route_path.hpp"
 #include "warp/server/router/route_spec.hpp"
 #include "warp/server/server.hpp"
@@ -127,6 +128,7 @@ public:
 	server_builder &address(std::string address);
 	server_builder &port(std::uint16_t port);
 	server_builder &worker_threads(std::size_t count);
+	server_builder &logger(log::logger logger);
 
 	/*
 	 * `register_resource` accepts lvalue
@@ -248,6 +250,7 @@ private:
 	std::string address_ {"0.0.0.0"};
 	std::uint16_t port_ {8080};
 	std::size_t workers_ {1};
+	std::optional<log::logger> logger_;
 	std::vector<route_definition> routes_;
 };
 

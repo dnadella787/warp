@@ -9,8 +9,8 @@ namespace warp::server {
 class callback_listener final : public http_listener<callback_listener>,
                                 public std::enable_shared_from_this<callback_listener> {
 public:
-	callback_listener(boost::asio::io_context &ioc, registry &registry, const std::string &address,
-	                  unsigned short port);
+	callback_listener(boost::asio::io_context &ioc, registry &registry, const std::string &address, unsigned short port,
+	                  log::logger logger);
 
 	void execute();
 

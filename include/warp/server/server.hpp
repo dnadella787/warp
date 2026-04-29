@@ -9,6 +9,10 @@ namespace warp::server {
 
 class server_builder;
 
+namespace detail {
+struct server_test_access;
+}
+
 class server {
 	// We use impl_base because server_impl is a template class whose full type is not
 	// known at compile time since server is not template based. We have no way to store
@@ -50,6 +54,7 @@ public:
 
 private:
 	friend class server_builder;
+	friend struct detail::server_test_access;
 	explicit server(std::shared_ptr<impl_base> impl);
 
 	// we use std::shared_ptr instead of std::unique_ptr so controller can get a std::weak_ptr to impl
