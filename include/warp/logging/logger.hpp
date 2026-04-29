@@ -121,4 +121,4 @@ void critical(spdlog::format_string_t<Args...> fmt, Args &&...args) {
 	spdlog::critical(fmt, std::forward<Args>(args)...);
 }
 
-} // namespace warp::logging
+} // namespace warp::log

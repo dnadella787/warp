@@ -7,41 +7,41 @@ namespace {
 
 [[nodiscard]] spdlog::level::level_enum to_spdlog_level(level value) noexcept {
 	switch (value) {
-		case level::trace:
-			return spdlog::level::trace;
-		case level::debug:
-			return spdlog::level::debug;
-		case level::info:
-			return spdlog::level::info;
-		case level::warn:
-			return spdlog::level::warn;
-		case level::error:
-			return spdlog::level::err;
-		case level::critical:
-			return spdlog::level::critical;
-		case level::off:
-			return spdlog::level::off;
+	case level::trace:
+		return spdlog::level::trace;
+	case level::debug:
+		return spdlog::level::debug;
+	case level::info:
+		return spdlog::level::info;
+	case level::warn:
+		return spdlog::level::warn;
+	case level::error:
+		return spdlog::level::err;
+	case level::critical:
+		return spdlog::level::critical;
+	case level::off:
+		return spdlog::level::off;
 	}
 	return spdlog::level::off;
 }
 
 [[nodiscard]] level from_spdlog_level(spdlog::level::level_enum value) noexcept {
 	switch (value) {
-		case spdlog::level::trace:
-			return level::trace;
-		case spdlog::level::debug:
-			return level::debug;
-		case spdlog::level::info:
-			return level::info;
-		case spdlog::level::warn:
-			return level::warn;
-		case spdlog::level::err:
-			return level::error;
-		case spdlog::level::critical:
-			return level::critical;
-		case spdlog::level::off:
-		case spdlog::level::n_levels:
-			return level::off;
+	case spdlog::level::trace:
+		return level::trace;
+	case spdlog::level::debug:
+		return level::debug;
+	case spdlog::level::info:
+		return level::info;
+	case spdlog::level::warn:
+		return level::warn;
+	case spdlog::level::err:
+		return level::error;
+	case spdlog::level::critical:
+		return level::critical;
+	case spdlog::level::off:
+	case spdlog::level::n_levels:
+		return level::off;
 	}
 	return level::off;
 }
@@ -169,4 +169,4 @@ void critical(std::string_view message) {
 	spdlog::critical(message);
 }
 
-} // namespace warp::logging
+} // namespace warp::log
