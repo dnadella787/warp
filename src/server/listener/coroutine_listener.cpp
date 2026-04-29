@@ -38,7 +38,7 @@ boost::asio::awaitable<void> coroutine_listener::accept_loop() {
 			// TODO: maybe alos check parent server_impl status before aborting
 			if (ec == boost::asio::error::operation_aborted)
 				co_return;
-			logger_.error("Error in {} during {}: {}", COMPONENT, "accept_loop", ec.message());
+			logger_.error("Error in coroutine_listener during accept_loop: {}", ec.message());
 			continue;
 		}
 

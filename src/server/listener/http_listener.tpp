@@ -19,25 +19,25 @@ http_listener<T>::http_listener(boost::asio::io_context &ioc, registry &registry
 
     acceptor_.open(endpoint.protocol(), ec);
     if (ec) {
-        logger_.error("Error in {} during {}: {}", "base_listener", "open", ec.message());
+        logger_.error("Error in base_listener during open: {}", ec.message());
         throw std::runtime_error(ec.message());
     }
 
     acceptor_.set_option(boost::asio::socket_base::reuse_address(true), ec);
     if (ec) {
-        logger_.error("Error in {} during {}: {}", "base_listener", "set_option{reuse_address=true}", ec.message());
+        logger_.error("Error in base_listener during set_option{{reuse_address=true}}: {}", ec.message());
         throw std::runtime_error(ec.message());
     }
 
     acceptor_.bind(endpoint, ec);
     if (ec) {
-        logger_.error("Error in {} during {}: {}", "base_listener", "bind", ec.message());
+        logger_.error("Error in base_listener during bind: {}", ec.message());
         throw std::runtime_error(ec.message());
     }
 
     acceptor_.listen(boost::asio::socket_base::max_listen_connections, ec);
     if (ec) {
-        logger_.error("Error in {} during {}: {}", "base_listener", "listen", ec.message());
+        logger_.error("Error in base_listener during listen: {}", ec.message());
         throw std::runtime_error(ec.message());
     }
 }

@@ -19,7 +19,7 @@ namespace warp::server {
 
 class coroutine_http_session : public std::enable_shared_from_this<coroutine_http_session> {
 public:
-	coroutine_http_session(boost::asio::ip::tcp::socket &&socket, registry &routes,
+	coroutine_http_session(boost::asio::ip::tcp::socket &&socket, const registry &routes,
 	                       const interceptor_chain &interceptor_chain, log::logger logger);
 
 	void start();

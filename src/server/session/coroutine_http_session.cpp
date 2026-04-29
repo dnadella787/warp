@@ -14,7 +14,7 @@ using tcp = boost::asio::ip::tcp;
 
 namespace warp::server {
 
-coroutine_http_session::coroutine_http_session(boost::asio::ip::tcp::socket &&socket, registry &routes,
+coroutine_http_session::coroutine_http_session(boost::asio::ip::tcp::socket &&socket, const registry &routes,
                                                const interceptor_chain &interceptor_chain, log::logger logger)
     : stream_(std::move(socket)), routes_(routes), interceptor_chain_(interceptor_chain), logger_(std::move(logger)),
       read_signal_(stream_.get_executor()), write_signal_(stream_.get_executor()) {
@@ -71,7 +71,7 @@ boost::asio::awaitable<void> coroutine_http_session::read_loop() {
 		}
 
 		if (ec) {
-			logger_.error("Error in {} during {}: {}", COMPONENT, "read_loop", ec.message());
+			logger_.error("Error in coroutine_http_session during read_loop: {}", ec.message());
 			co_return shutdown();
 		}
 
@@ -139,7 +139,7 @@ boost::asio::awaitable<void> coroutine_http_session::write_loop() {
 		co_await beast::http::async_write(stream_, it->second.response,
 		                                  boost::asio::redirect_error(boost::asio::use_awaitable, ec));
 		if (ec) {
-			logger_.error("Error in {} during {}: {}", COMPONENT, "write_loop", ec.message());
+			logger_.error("Error in coroutine_http_session during write_loop: {}", ec.message());
 			co_return shutdown();
 		}
 
@@ -223,7 +223,7 @@ void coroutine_http_session::complete_request(std::size_t sequence, http::respon
 
 	auto ctx_it = request_ctxs_.find(sequence);
 	if (ctx_it == request_ctxs_.end())
-		return logger_.error("Error in {} during {}: {}", COMPONENT, "on_handler_complete{req_ctx.find}",
+		return logger_.error("Error in coroutine_http_session during on_handler_complete{{req_ctx.find}}: {}",
 		                     "context could not be found in session map on completion");
 
 	// we checked before executing the handler to see if client wants to keep connection alive or close it,
@@ -268,7 +268,7 @@ void coroutine_http_session::shutdown() {
 	boost::system::error_code ec;
 	stream_.socket().shutdown(tcp::socket::shutdown_send, ec);
 	if (ec && ec != boost::asio::error::not_connected)
-		logger_.error("Error in {} during {}: {}", COMPONENT, "shutdown", ec.message());
+		logger_.error("Error in coroutine_http_session during shutdown: {}", ec.message());
 }
 
 void coroutine_http_session::finish_request(std::size_t sequence) {

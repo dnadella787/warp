@@ -37,7 +37,7 @@ void callback_listener::on_accept(boost::beast::error_code ec, boost::asio::ip::
 		if (ec == boost::asio::error::operation_aborted)
 			return;
 
-		logger_.error("Error in {} during {}: {}", COMPONENT, "on_accept", ec.message());
+		logger_.error("Error in listener during on_accept: {}", ec.message());
 	} else {
 		std::make_shared<callback_http_session>(std::move(socket), registry_, interceptor_chain_, logger_)->start();
 	}

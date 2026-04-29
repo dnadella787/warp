@@ -11,7 +11,7 @@ using tcp = boost::asio::ip::tcp; // from <boost/asio/ip/tcp.hpp>
 namespace warp::server {
 
 // The socket executor is already a strand from the listener::do_accept method
-callback_http_session::callback_http_session(boost::asio::ip::tcp::socket &&socket, registry &routes,
+callback_http_session::callback_http_session(boost::asio::ip::tcp::socket &&socket, const registry &routes,
                                              const interceptor_chain &interceptor_chain, log::logger logger)
     : stream_(std::move(socket)), routes_(routes), interceptor_chain_(interceptor_chain), logger_(std::move(logger)) {
 }
@@ -67,7 +67,7 @@ void callback_http_session::on_read(beast::error_code ec, std::size_t) {
 	}
 
 	if (ec) {
-		logger_.error("Error in {} during {}: {}", COMPONENT, "on_read", ec.message());
+		logger_.error("Error in http_session during on_read: {}", ec.message());
 		return shutdown(true);
 	}
 
@@ -123,7 +123,7 @@ void callback_http_session::on_handler_complete(std::size_t sequence, std::excep
 
 	auto ctx_it = request_ctxs_.find(sequence);
 	if (ctx_it == request_ctxs_.end())
-		return logger_.error("Error in {} during {}: {}", COMPONENT, "on_handler_complete{req_ctx.find}",
+		return logger_.error("Error in http_session during on_handler_complete{{req_ctx.find}}: {}",
 		                     "context could not be found in session map on completion");
 
 	// Unhandled exception is returned to end user as 500
@@ -181,7 +181,7 @@ void callback_http_session::on_write(std::size_t sequence, beast::error_code ec,
 	write_in_progress_ = false;
 
 	if (ec) {
-		logger_.error("Error in {} during {}: {}", COMPONENT, "on_write", ec.message());
+		logger_.error("Error in http_session during on_write: {}", ec.message());
 		// we error out b/c HTTP 1.1 requires resp to come in same order, so if this
 		// write fails, we either have to retry this or cancel the rest too
 		return shutdown(true);
@@ -193,7 +193,7 @@ void callback_http_session::on_write(std::size_t sequence, beast::error_code ec,
 		close_after_write = it->second.close_after_write;
 		pending_responses_.erase(sequence);
 	} else {
-		logger_.error("Error in {} during {}: {}", COMPONENT, "on_write{pending_responses.find}",
+		logger_.error("Error in http_session during on_write{{pending_responses.find}}: {}",
 		              "could not find response in pending response map to erase");
 	}
 
@@ -232,13 +232,13 @@ void callback_http_session::shutdown(bool force) {
 	boost::system::error_code ec;
 	stream_.socket().shutdown(tcp::socket::shutdown_send, ec);
 	if (ec)
-		logger_.error("Error in {} during {}: {}", COMPONENT, "shutdown", ec.message());
+		logger_.error("Error in http_session during shutdown: {}", ec.message());
 
 	if (force) {
 		ec.clear();
 		stream_.socket().close(ec);
 		if (ec)
-			logger_.error("Error in {} during {}: {}", COMPONENT, "shutdown", ec.message());
+			logger_.error("Error in http_session during shutdown: {}", ec.message());
 	}
 }
 
