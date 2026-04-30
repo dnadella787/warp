@@ -5,6 +5,8 @@
 #include "generated_api_types.hpp"
 #include "warp/server/server_builder.hpp"
 
+#include "../helpers.cpp"
+
 class users_resource {
 public:
 	explicit users_resource() = default;
@@ -30,7 +32,16 @@ public:
 int main() {
 	auto service = std::make_shared<users_resource>();
 	generated_api::users_api_routes routes(service);
-	auto server = warp::server::server_builder().address("127.0.0.1").port(8080).register_resource(routes).build();
+	auto authz_interceptor = example::authz_interceptor {"Bob"};
+	auto log_interceptor = example::response_log_interceptor {};
+
+	auto server = warp::server::server_builder()
+	                  .address("127.0.0.1")
+	                  .port(8080)
+	                  .register_resource(routes)
+	                  .interceptor<1>(authz_interceptor)
+	                  .interceptor<1>(log_interceptor)
+	                  .build();
 	server.run();
 	return 0;
 }

@@ -33,7 +33,7 @@ struct log_interceptor {
 	static void intercept(warp::request &request) {
 		warp::log::info("Entering request log interceptor");
 
-		auto maybe_name = request.path_param("name");
+		auto maybe_name = request.query_param("name");
 		if (!maybe_name) {
 			warp::log::info("Name path param not available for this request");
 			return;

@@ -51,18 +51,18 @@ TEST(InterceptorChainTest, RequestChainRunsInOrderUntilAnInterceptorReturnsAResp
 	EXPECT_EQ(events, (std::vector<std::string> {"first", "second"}));
 }
 
-TEST(InterceptorChainTest, RequestChainReturnsNulloptWhenNoInterceptorShortCircuits) {
+TEST(InterceptorChainTest, RequestChainReturnsNulloptAndLaterInterceptorsSeeUpdatedTargetMetadata) {
 	std::vector<std::string> events;
 	interceptor_chain<request> chain(
 	    std::vector<type_erased_req_interceptor> {[&events](request &req) -> std::optional<response> {
 		                                              events.push_back("first");
-		                                              req.target("/changed?via=interceptor");
+		                                              req.target("/before?via=interceptor");
 		                                              req.refresh_target_metadata();
 		                                              return std::nullopt;
 	                                              },
 	                                              [&events](request &req) -> std::optional<response> {
 		                                              events.push_back("second");
-		                                              EXPECT_EQ(req.path(), "/changed");
+		                                              EXPECT_EQ(req.path(), "/before");
 		                                              EXPECT_EQ(req.query_param("via"), "interceptor");
 		                                              return std::nullopt;
 	                                              }});
@@ -71,7 +71,7 @@ TEST(InterceptorChainTest, RequestChainReturnsNulloptWhenNoInterceptorShortCircu
 	const auto result = chain.run(req);
 
 	EXPECT_FALSE(result.has_value());
-	EXPECT_EQ(req.path(), "/changed");
+	EXPECT_EQ(req.path(), "/before");
 	EXPECT_EQ(req.query_param("via"), "interceptor");
 	EXPECT_EQ(events, (std::vector<std::string> {"first", "second"}));
 }

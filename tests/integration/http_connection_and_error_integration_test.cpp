@@ -108,6 +108,16 @@ struct response_recording_interceptor {
 	}
 };
 
+struct throwing_response_interceptor {
+	std::shared_ptr<interceptor_event_log> events;
+	std::string name;
+
+	void intercept(response &) const {
+		events->record(name);
+		throw std::runtime_error("response interceptor failed");
+	}
+};
+
 } // namespace
 
 TYPED_TEST(HttpConnectionAndErrorIntegrationTest, ConnectionCloseStopsFollowingPipelinedRequests) {
@@ -139,9 +149,11 @@ TYPED_TEST(HttpConnectionAndErrorIntegrationTest, ConnectionCloseStopsFollowingP
 
 TYPED_TEST(HttpConnectionAndErrorIntegrationTest, ThrowingHandlerReturnsErrorAndStillPreservesSubsequentResponseOrder) {
 	auto throw_started = std::make_shared<std::atomic<bool>>(false);
+	auto events = std::make_shared<interceptor_event_log>();
 
 	support::server_fixture fixture(
 	    server::server_builder()
+	        .template interceptor<0>(response_recording_interceptor {.events = events, .name = "resp"})
 	        .get<"/throw">([throw_started](request) -> awaitable<response> {
 		        throw_started->store(true, std::memory_order_release);
 		        const auto executor = co_await asio::this_coro::executor;
@@ -167,7 +179,9 @@ TYPED_TEST(HttpConnectionAndErrorIntegrationTest, ThrowingHandlerReturnsErrorAnd
 	const auto second_body = support::parse_object_body(second);
 
 	EXPECT_EQ(first.result(), http::status::internal_server_error);
+	EXPECT_EQ(first[http::field::server], "resp");
 	EXPECT_EQ(second.result(), http::status::ok);
+	EXPECT_EQ(second[http::field::server], "resp");
 	EXPECT_EQ(std::string(second_body.at("route").as_string()), "fast");
 	EXPECT_TRUE(second_body.at("saw_throw_started").as_bool());
 	EXPECT_TRUE(support::read_until_eof(*client));
@@ -236,24 +250,126 @@ TYPED_TEST(HttpConnectionAndErrorIntegrationTest, ResponseInterceptorsRunForAsyn
 	EXPECT_TRUE(support::read_until_eof(*client));
 }
 
-TYPED_TEST(HttpConnectionAndErrorIntegrationTest, MissingRouteResponseStillKeepsOrderingForLaterValidResponse) {
-	auto fast_finished = std::make_shared<std::atomic<bool>>(false);
+TYPED_TEST(HttpConnectionAndErrorIntegrationTest, RequestInterceptorTargetRewriteDoesNotRerouteAfterMatching) {
+	auto after_processed = std::make_shared<std::atomic<int>>(0);
+
+	struct rewrite_target_interceptor {
+		void intercept(request &req) const {
+			req.target("/after?via=interceptor");
+			req.refresh_target_metadata();
+		}
+	};
 
 	support::server_fixture fixture(warp::server::server_builder()
-	                                    .get<"/slow">([fast_finished](request) -> awaitable<response> {
-		                                    co_return co_await support::delayed_ok_response(150ms, [fast_finished]() {
-			                                    return body_builder()
-			                                        .set("route", "slow")
-			                                        .set("fast_finished_before_return",
-			                                             fast_finished->load(std::memory_order_acquire))
-			                                        .build();
-		                                    });
+	                                    .template interceptor<0>(rewrite_target_interceptor {})
+	                                    .template get<"/before">([](const request &req) -> response {
+		                                    return response::ok(
+		                                        body_builder()
+		                                            .set("route", "before")
+		                                            .set("seen_path", std::string(req.path()))
+		                                            .set("via", std::string(req.query_param("via").value_or("")))
+		                                            .build());
 	                                    })
-	                                    .template get<"/fast">([fast_finished](const request &) -> response {
-		                                    fast_finished->store(true, std::memory_order_release);
-		                                    return response::ok(body_builder().set("route", "fast").build());
+	                                    .template get<"/after">([after_processed](const request &) -> response {
+		                                    after_processed->fetch_add(1, std::memory_order_acq_rel);
+		                                    return response::ok(body_builder().set("route", "after").build());
 	                                    }),
 	                                TypeParam {});
+
+	auto client = support::connect_client(fixture.port);
+	support::send_requests(*client, support::make_get_request("/before", "close"));
+
+	const auto resp = support::read_response(*client);
+	const auto body = support::parse_object_body(resp);
+	EXPECT_EQ(resp.result(), http::status::ok);
+	EXPECT_EQ(std::string(body.at("route").as_string()), "before");
+	EXPECT_EQ(std::string(body.at("seen_path").as_string()), "/after");
+	EXPECT_EQ(std::string(body.at("via").as_string()), "interceptor");
+	EXPECT_EQ(after_processed->load(std::memory_order_acquire), 0);
+	EXPECT_TRUE(support::read_until_eof(*client));
+}
+
+TYPED_TEST(HttpConnectionAndErrorIntegrationTest, ResponseInterceptorsRunForThrownSyncHandlers) {
+	auto events = std::make_shared<interceptor_event_log>();
+
+	support::server_fixture fixture(
+	    warp::server::server_builder()
+	        .template interceptor<0>(response_recording_interceptor {.events = events, .name = "resp"})
+	        .get<"/throw-sync">([](const request &) -> response { throw std::runtime_error("boom"); }),
+	    TypeParam {});
+
+	auto client = support::connect_client(fixture.port);
+	support::send_requests(*client, support::make_get_request("/throw-sync", "close"));
+
+	const auto resp = support::read_response(*client);
+	EXPECT_EQ(resp.result(), http::status::internal_server_error);
+	EXPECT_EQ(resp[http::field::server], "resp");
+	EXPECT_EQ(events->snapshot(), (std::vector<std::string> {"resp"}));
+	EXPECT_TRUE(support::read_until_eof(*client));
+}
+
+TYPED_TEST(HttpConnectionAndErrorIntegrationTest, ThrowingResponseInterceptorFallsBackToInternalServerError) {
+	auto events = std::make_shared<interceptor_event_log>();
+
+	support::server_fixture fixture(
+	    warp::server::server_builder()
+	        .template interceptor<0>(throwing_response_interceptor {.events = events, .name = "throw"})
+	        .get<"/ok">(
+	            [](const request &) -> response { return response::ok(body_builder().set("route", "ok").build()); }),
+	    TypeParam {});
+
+	auto client = support::connect_client(fixture.port);
+	support::send_requests(*client, support::make_get_request("/ok", "close"));
+
+	const auto resp = support::read_response(*client);
+	EXPECT_EQ(resp.result(), http::status::internal_server_error);
+	EXPECT_EQ(std::string(support::parse_object_body(resp).at("error").as_string()), "Internal Server Error");
+	EXPECT_TRUE(resp[http::field::server].empty());
+	EXPECT_EQ(events->snapshot(), (std::vector<std::string> {"throw"}));
+	EXPECT_TRUE(support::read_until_eof(*client));
+}
+
+TYPED_TEST(HttpConnectionAndErrorIntegrationTest,
+           ThrowingResponseInterceptorFallsBackToInternalServerErrorForThrownHandlers) {
+	auto events = std::make_shared<interceptor_event_log>();
+
+	support::server_fixture fixture(
+	    warp::server::server_builder()
+	        .template interceptor<0>(throwing_response_interceptor {.events = events, .name = "throw"})
+	        .get<"/throw">([](const request &) -> response { throw std::runtime_error("boom"); }),
+	    TypeParam {});
+
+	auto client = support::connect_client(fixture.port);
+	support::send_requests(*client, support::make_get_request("/throw", "close"));
+
+	const auto resp = support::read_response(*client);
+	EXPECT_EQ(resp.result(), http::status::internal_server_error);
+	EXPECT_EQ(std::string(support::parse_object_body(resp).at("error").as_string()), "Internal Server Error");
+	EXPECT_TRUE(resp[http::field::server].empty());
+	EXPECT_EQ(events->snapshot(), (std::vector<std::string> {"throw"}));
+	EXPECT_TRUE(support::read_until_eof(*client));
+}
+
+TYPED_TEST(HttpConnectionAndErrorIntegrationTest, MissingRouteResponseStillKeepsOrderingForLaterValidResponse) {
+	auto fast_finished = std::make_shared<std::atomic<bool>>(false);
+	auto events = std::make_shared<interceptor_event_log>();
+
+	support::server_fixture fixture(
+	    warp::server::server_builder()
+	        .template interceptor<0>(response_recording_interceptor {.events = events, .name = "resp"})
+	        .get<"/slow">([fast_finished](request) -> awaitable<response> {
+		        co_return co_await support::delayed_ok_response(150ms, [fast_finished]() {
+			        return body_builder()
+			            .set("route", "slow")
+			            .set("fast_finished_before_return", fast_finished->load(std::memory_order_acquire))
+			            .build();
+		        });
+	        })
+	        .template get<"/fast">([fast_finished](const request &) -> response {
+		        fast_finished->store(true, std::memory_order_release);
+		        return response::ok(body_builder().set("route", "fast").build());
+	        }),
+	    TypeParam {});
 
 	auto client = support::connect_client(fixture.port);
 	const auto payload = support::make_get_request("/slow") + support::make_get_request("/missing") +
@@ -269,12 +385,38 @@ TYPED_TEST(HttpConnectionAndErrorIntegrationTest, MissingRouteResponseStillKeeps
 
 	// The not-found middle request must not reorder around slow or fast responses.
 	EXPECT_EQ(first.result(), http::status::ok);
+	EXPECT_EQ(first[http::field::server], "resp");
 	EXPECT_EQ(std::string(first_body.at("route").as_string()), "slow");
 	EXPECT_TRUE(first_body.at("fast_finished_before_return").as_bool());
 	EXPECT_EQ(second.result(), http::status::not_found);
+	EXPECT_EQ(second[http::field::server], "resp");
 	EXPECT_EQ(std::string(second_body.at("error").as_string()), "Not Found");
 	EXPECT_EQ(third.result(), http::status::ok);
+	EXPECT_EQ(third[http::field::server], "resp");
 	EXPECT_EQ(std::string(third_body.at("route").as_string()), "fast");
+	EXPECT_TRUE(support::read_until_eof(*client));
+}
+
+TYPED_TEST(HttpConnectionAndErrorIntegrationTest,
+           ThrowingResponseInterceptorFallsBackToInternalServerErrorForMissingRoutes) {
+	auto events = std::make_shared<interceptor_event_log>();
+
+	support::server_fixture fixture(
+	    warp::server::server_builder()
+	        .template interceptor<0>(throwing_response_interceptor {.events = events, .name = "throw"})
+	        .get<"/present">([](const request &) -> response {
+		        return response::ok(body_builder().set("route", "present").build());
+	        }),
+	    TypeParam {});
+
+	auto client = support::connect_client(fixture.port);
+	support::send_requests(*client, support::make_get_request("/missing", "close"));
+
+	const auto resp = support::read_response(*client);
+	EXPECT_EQ(resp.result(), http::status::internal_server_error);
+	EXPECT_EQ(std::string(support::parse_object_body(resp).at("error").as_string()), "Internal Server Error");
+	EXPECT_TRUE(resp[http::field::server].empty());
+	EXPECT_EQ(events->snapshot(), (std::vector<std::string> {"throw"}));
 	EXPECT_TRUE(support::read_until_eof(*client));
 }
 

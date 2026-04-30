@@ -188,19 +188,18 @@ void coroutine_http_session::notify_write_loop() {
 
 void coroutine_http_session::dispatch_sync_handler(std::size_t sequence, const http::sync_handler &handler,
                                                    http::request req) {
+	response resp;
 	try {
 		if (auto intercepted = req_interceptor_chain_.run(req); intercepted.has_value()) {
-			auto response = std::move(*intercepted);
-			resp_interceptor_chain_.run(response);
-			return complete_request(sequence, std::move(response));
+			resp = std::move(*intercepted);
+		} else {
+			resp = handler(std::move(req));
 		}
-
-		auto resp = handler(std::move(req));
-		resp_interceptor_chain_.run(resp);
-		complete_request(sequence, std::move(resp));
 	} catch (...) {
-		complete_request(sequence, http::response::server_error());
+		resp = response::server_error();
 	}
+
+	complete_request(sequence, std::move(resp));
 }
 
 void coroutine_http_session::dispatch_async_handler(std::size_t sequence, const http::async_handler &handler,
@@ -214,20 +213,18 @@ boost::asio::awaitable<void> coroutine_http_session::run_async_handler(std::shar
                                                                        std::size_t sequence,
                                                                        const http::async_handler &handler,
                                                                        http::request req) {
+	response resp;
 	try {
 		if (auto intercepted = self->req_interceptor_chain_.run(req); intercepted.has_value()) {
-			auto response = std::move(*intercepted);
-			self->resp_interceptor_chain_.run(response);
-			self->complete_request(sequence, std::move(response));
-			co_return;
+			resp = std::move(*intercepted);
+		} else {
+			resp = co_await handler(std::move(req));
 		}
-
-		auto resp = co_await handler(std::move(req));
-		self->resp_interceptor_chain_.run(resp);
-		self->complete_request(sequence, std::move(resp));
 	} catch (...) {
-		self->complete_request(sequence, http::response::server_error());
+		resp = response::server_error();
 	}
+
+	self->complete_request(sequence, std::move(resp));
 }
 
 void coroutine_http_session::complete_request(std::size_t sequence, http::response response) {
@@ -238,6 +235,13 @@ void coroutine_http_session::complete_request(std::size_t sequence, http::respon
 	if (ctx_it == request_ctxs_.end())
 		return logger_.error("Error in coroutine_http_session during on_handler_complete{{req_ctx.find}}: {}",
 		                     "context could not be found in session map on completion");
+
+	// we only run the response interceptors if the request should not be dropped
+	try {
+		resp_interceptor_chain_.run(response);
+	} catch (...) {
+		response = http::response::server_error();
+	}
 
 	// we checked before executing the handler to see if client wants to keep connection alive or close it,
 	// now we check the server's own decision before setting the decision based on both (client && server)

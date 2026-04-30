@@ -109,10 +109,9 @@ void callback_http_session::dispatch_sync_handler(std::size_t sequence, const ht
 		else
 			response = handler(std::move(request));
 
-		resp_interceptor_chain_.run(response);
 		on_handler_complete(sequence, nullptr, std::move(response));
 	} catch (...) {
-		on_handler_complete(sequence, std::current_exception(), {});
+		return on_handler_complete(sequence, std::current_exception(), {});
 	}
 }
 
@@ -126,19 +125,13 @@ void callback_http_session::dispatch_async_handler(std::size_t sequence, const h
 boost::asio::awaitable<http::response>
 callback_http_session::run_async_handler(std::shared_ptr<callback_http_session> self,
                                          const http::async_handler &handler, http::request req) {
-	if (auto intercepted = self->req_interceptor_chain_.run(req); intercepted.has_value()) {
-		auto response = std::move(*intercepted);
-		self->resp_interceptor_chain_.run(response);
-		co_return response;
-	}
-
-	auto response = co_await handler(std::move(req));
-	self->resp_interceptor_chain_.run(response);
-	co_return response;
+	if (auto intercepted = self->req_interceptor_chain_.run(req); intercepted.has_value())
+		co_return std::move(*intercepted);
+	else
+		co_return co_await handler(std::move(req));
 }
 
-void callback_http_session::on_handler_complete(std::size_t sequence, std::exception_ptr eptr,
-                                                warp::response response) {
+void callback_http_session::on_handler_complete(std::size_t sequence, std::exception_ptr eptr, response response) {
 	// shutdown could be initiated during the async request handler execution in
 	// which case we should dump this response because we already told the client we are not
 	// writing out anymore responses
@@ -154,6 +147,14 @@ void callback_http_session::on_handler_complete(std::size_t sequence, std::excep
 	// TODO: set keep alive to false for uncaught exceptions but let user configure that
 	if (eptr)
 		response = http::response::server_error();
+
+	// we run the resp interceptor chain no matter what (unless request should be dropped),
+	// even if uncaught exception but if the chain itself returns an error, just return 5xx, don't rerun it
+	try {
+		resp_interceptor_chain_.run(response);
+	} catch (...) {
+		response = http::response::server_error();
+	}
 
 	const auto decision = close_policy_.on_response_ready(ctx_it->second, response);
 	if (!close_policy_.accepting_requests())
