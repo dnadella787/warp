@@ -3,6 +3,7 @@
 //
 #pragma once
 #include "warp/db/postgres/connection_config.hpp"
+#include "warp/warp.hpp"
 
 namespace example {
 
@@ -25,5 +26,48 @@ namespace example {
 	}
 	return config;
 }
+
+struct log_interceptor {
+	log_interceptor() = default;
+
+	static void intercept(warp::request &request) {
+		warp::log::info("Entering request log interceptor");
+
+		auto maybe_name = request.path_param("name");
+		if (!maybe_name) {
+			warp::log::info("Name path param not available for this request");
+			return;
+		}
+
+		warp::log::info("Name path param passed: {}", maybe_name.value());
+	}
+};
+
+class authz_interceptor {
+public:
+	authz_interceptor() = delete;
+	authz_interceptor(std::string_view allowed_name) : allowed_name_(allowed_name) {
+	}
+
+	std::optional<warp::response> intercept(warp::request &request) const {
+		warp::log::info("Entering request authz interceptor");
+
+		auto maybe_name = request.query_param("name");
+		if (!maybe_name) {
+			warp::log::info("Name path param not available for this request, rejecting with 404");
+			return warp::response::not_found();
+		}
+
+		if (maybe_name.value() != allowed_name_) {
+			warp::log::info("Name {} not authorized for API requests, rejecting with 404", maybe_name.value());
+			return warp::response::not_found();
+		}
+
+		return std::nullopt;
+	}
+
+private:
+	std::string_view allowed_name_;
+};
 
 } // namespace example

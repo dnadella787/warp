@@ -91,26 +91,42 @@ void callback_http_session::on_read(beast::error_code ec, std::size_t) {
 		stop_reading_ = true;
 
 	if (const auto *handler = routes_.find(request)) {
-		std::visit(common::overloaded {[&](const http::sync_handler &h) {
-			                               try {
-				                               auto resp = h(std::move(request));
-				                               on_handler_complete(sequence, nullptr, std::move(resp));
-			                               } catch (const std::exception &e) {
-				                               on_handler_complete(sequence, std::current_exception(), {});
-			                               }
-		                               },
-		                               [&](const http::async_handler &h) {
-			                               boost::asio::co_spawn(
-			                                   stream_.get_executor(), h(std::move(request)),
-			                                   beast::bind_front_handler(&callback_http_session::on_handler_complete,
-			                                                             shared_from_this(), sequence));
-		                               }},
+		std::visit(common::overloaded {
+		               [&](const http::sync_handler &h) {
+			               try {
+				               response response;
+				               if (auto intercepted = interceptor_chain_.run(request); intercepted.has_value())
+					               response = std::move(*intercepted);
+				               else
+					               response = h(std::move(request));
+
+				               on_handler_complete(sequence, nullptr, std::move(response));
+			               } catch (const std::exception &e) {
+				               on_handler_complete(sequence, std::current_exception(), {});
+			               }
+		               },
+		               [&](const http::async_handler &h) {
+			               boost::asio::co_spawn(stream_.get_executor(),
+			                                     execute_async_handler(shared_from_this(), h, std::move(request)),
+			                                     beast::bind_front_handler(&callback_http_session::on_handler_complete,
+			                                                               shared_from_this(), sequence));
+		               }},
 		           *handler);
 	} else {
 		on_handler_complete(sequence, nullptr, http::response::not_found());
 	}
 
 	maybe_read();
+}
+
+boost::asio::awaitable<http::response>
+callback_http_session::execute_async_handler(std::shared_ptr<callback_http_session> self,
+                                             const http::async_handler &handler, http::request req) {
+	if (auto intercepted = self->interceptor_chain_.run(req); intercepted.has_value()) {
+		co_return std::move(*intercepted);
+	}
+
+	co_return co_await handler(std::move(req));
 }
 
 void callback_http_session::on_handler_complete(std::size_t sequence, std::exception_ptr eptr,

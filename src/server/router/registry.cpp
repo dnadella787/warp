@@ -1,9 +1,6 @@
 #include "registry.hpp"
 
-#include <boost/asio/awaitable.hpp>
-
 #include <algorithm>
-#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -48,8 +45,8 @@ http::compiled_route compile_typed_route(http::method verb, std::string_view pat
 
 } // namespace
 
-registry::registry(const registry &other) {
-	next_registration_order_ = other.next_registration_order_;
+registry::registry(const registry &other) : next_registration_order_(other.next_registration_order_) {
+	method_roots_.reserve(other.method_roots_.size());
 	for (const auto &[verb, root] : other.method_roots_) {
 		method_roots_.emplace(verb, clone_node(root));
 	}
@@ -59,11 +56,13 @@ registry &registry::operator=(const registry &other) {
 	if (this == &other) {
 		return *this;
 	}
+
 	method_roots_.clear();
-	next_registration_order_ = other.next_registration_order_;
+	method_roots_.reserve(other.method_roots_.size());
 	for (const auto &[verb, root] : other.method_roots_) {
 		method_roots_.emplace(verb, clone_node(root));
 	}
+	next_registration_order_ = other.next_registration_order_;
 	return *this;
 }
 

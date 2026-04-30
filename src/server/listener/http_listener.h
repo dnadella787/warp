@@ -26,13 +26,13 @@ concept CanBeBuiltWith = requires(Args&&... args) {
 template <typename T>
 concept WarpListener =
     Executor<T> &&
-    CanBeBuiltWith<T, boost::asio::io_context&, registry&, const interceptor_chain&, std::string, unsigned short,
+    CanBeBuiltWith<T, boost::asio::io_context&, const registry&, const interceptor_chain&, std::string, unsigned short,
                    log::logger>;
 
 template<typename T>
 class http_listener : public base_listener  {
 public:
-    http_listener(boost::asio::io_context &ioc, registry &registry, const std::string &address, unsigned short port,
+    http_listener(boost::asio::io_context &ioc, const registry &registry, const std::string &address, unsigned short port,
                   const interceptor_chain &interceptor_chain, log::logger logger) requires WarpListener<T>;
 
     void run() override;

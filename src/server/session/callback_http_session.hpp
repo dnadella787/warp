@@ -1,6 +1,5 @@
 #pragma once
 
-#include <iostream>
 #include <map>
 #include <memory>
 #include <optional>
@@ -27,6 +26,10 @@ private:
 	void maybe_read();
 	void do_read();
 	void on_read(boost::beast::error_code ec, std::size_t bytes_transferred);
+
+	boost::asio::awaitable<http::response> execute_async_handler(std::shared_ptr<callback_http_session> self,
+	                                                             const http::async_handler &handler, http::request req);
+
 	void on_handler_complete(std::size_t sequence, std::exception_ptr eptr, warp::response response);
 	void maybe_write();
 	void do_write();
@@ -55,7 +58,6 @@ private:
 	bool stop_reading_ {false};             // stop accepting new requests, but still drain already accepted ones
 	bool shutdown_started_ {false};         // session shutdown has begun; do not start more reads or writes
 	static constexpr std::size_t pipeline_limit_ {8};
-	static constexpr std::string_view COMPONENT {"http_session"};
 };
 
 } // namespace warp::server

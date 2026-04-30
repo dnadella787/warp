@@ -90,6 +90,9 @@ public:
 	[[nodiscard]] std::optional<std::string_view> query_param(const char *key) const;
 	[[nodiscard]] std::optional<std::string_view> query_param(const std::string &key) const;
 	[[nodiscard]] std::optional<std::string_view> query_param(std::string_view key) const;
+	[[nodiscard]] std::optional<std::string_view> header_param(const char *key) const;
+	[[nodiscard]] std::optional<std::string_view> header_param(const std::string &key) const;
+	[[nodiscard]] std::optional<std::string_view> header_param(std::string_view key) const;
 
 	void set_path_params(parameter_map params);
 	[[nodiscard]] const parameter_map &path_params() const noexcept;
@@ -167,6 +170,21 @@ inline std::optional<std::string_view> request::query_param(const std::string &k
 inline std::optional<std::string_view> request::query_param(std::string_view key) const {
 	if (auto it = query_params_.find(key); it != query_params_.end()) {
 		return it->second;
+	}
+	return std::nullopt;
+}
+
+inline std::optional<std::string_view> request::header_param(const char *key) const {
+	return header_param(std::string_view {key});
+}
+
+inline std::optional<std::string_view> request::header_param(const std::string &key) const {
+	return header_param(std::string_view {key});
+}
+
+inline std::optional<std::string_view> request::header_param(std::string_view key) const {
+	if (auto it = find(key); it != end()) {
+		return it->value();
 	}
 	return std::nullopt;
 }

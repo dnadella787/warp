@@ -42,27 +42,26 @@ template <http::event_loop_mode Mode>
 	return server {make_impl<Mode>()};
 }
 
-template server server_builder::build<http::event_loop_mode::callbacks>() const;
-template server server_builder::build<http::event_loop_mode::coroutines>() const;
+template server server_builder::build<event_loop_mode::callbacks>() const;
+template server server_builder::build<event_loop_mode::coroutines>() const;
 
 template <http::event_loop_mode Mode>
 [[nodiscard]] std::shared_ptr<server::impl_base> server_builder::make_impl() const {
 	registry registry;
-	for (const auto &route : routes_)
-		registry.add_typed(route.verb, route.path, route.typed_query_constraints, route.callback);
+	for (const auto &[verb, path, constraints, handler] : routes_)
+		registry.add_typed(verb, path, constraints, handler);
 
-	auto ordered = interceptors_;
-	std::stable_sort(ordered.begin(), ordered.end(),
-	                 [](const auto &lhs, const auto &rhs) { return lhs.first < rhs.first; });
+	auto interceptors = interceptors_;
+	std::stable_sort(interceptors.begin(), interceptors.end(),
+	                 [](const auto &lhs, const auto &rhs) { return lhs.priority < rhs.priority; });
 
 	std::vector<detail::type_erased_interceptor> chain_entries;
-	chain_entries.reserve(ordered.size());
-	for (auto &[priority, interceptor] : ordered)
-		chain_entries.push_back(std::move(interceptor));
+	chain_entries.reserve(interceptors.size());
+	for (auto &entry : interceptors)
+		chain_entries.push_back(std::move(entry.callback));
 
-	interceptor_chain chain {std::move(chain_entries)};
-
-	return std::make_shared<server::server_impl<Mode>>(address_, port_, workers_, std::move(registry), std::move(chain),
+	return std::make_shared<server::server_impl<Mode>>(address_, port_, workers_, std::move(registry),
+	                                                   interceptor_chain {std::move(chain_entries)},
 	                                                   logger_.value_or(log::default_logger()));
 }
 

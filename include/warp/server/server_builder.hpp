@@ -25,8 +25,6 @@ namespace warp::server {
 
 namespace detail {
 
-using type_erased_interceptor = std::function<http::interceptor_result(request &)>;
-
 [[nodiscard]] constexpr bool is_unreserved_query_component_char(unsigned char ch) noexcept {
 	return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '-' || ch == '.' ||
 	       ch == '_' || ch == '~';
@@ -127,8 +125,10 @@ public:
 
 	template <int Priority, http::request_interceptor Interceptor>
 	server_builder &interceptor(Interceptor &&handler) {
-		// template deduction to preserve interceptor value type
-		interceptors_.push_back(std::pair(Priority, make_interceptor(std::forward<Interceptor>(handler))));
+		interceptors_.push_back(
+		    interceptor_definition {.priority = Priority,
+		                            .registration_order = next_interceptor_registration_order_++,
+		                            .callback = make_interceptor(std::forward<Interceptor>(handler))});
 		return *this;
 	}
 
@@ -176,8 +176,7 @@ private:
 			return http::sync_handler {
 			    [fn = std::move(fn)](http::request req) mutable -> http::response { return std::invoke(fn, req); }};
 		}
-		// sync_handler for request (by value) which needs std::move for
-		// zero allocations
+		// sync_handler for request (by value) which needs std::move for zero allocations
 		else if constexpr (is_movable_sync_route_handler<fn_type>) {
 			return http::sync_handler {[fn = std::move(fn)](http::request req) mutable -> http::response {
 				return std::invoke(fn, std::move(req));
@@ -194,7 +193,9 @@ private:
 
 	template <http::request_interceptor Interceptor>
 	static detail::type_erased_interceptor make_interceptor(Interceptor &&interceptor) {
-		return [interceptor = std::forward<Interceptor>(interceptor)](request &req) -> http::interceptor_result {
+		using interceptor_t = std::decay_t<Interceptor>;
+		return [interceptor =
+		            interceptor_t(std::forward<Interceptor>(interceptor))](request &req) -> http::interceptor_result {
 			using result_t = decltype(interceptor.intercept(req));
 			if constexpr (std::is_void_v<result_t>) {
 				interceptor.intercept(req);
@@ -212,12 +213,19 @@ private:
 		http::handler callback;
 	};
 
+	struct interceptor_definition {
+		int priority;
+		std::size_t registration_order;
+		detail::type_erased_interceptor callback;
+	};
+
 	std::string address_ {"0.0.0.0"};
 	std::uint16_t port_ {8080};
 	std::size_t workers_ {1};
 	std::optional<log::logger> logger_;
 	std::vector<route_definition> routes_;
-	std::vector<std::pair<int, detail::type_erased_interceptor>> interceptors_;
+	std::vector<interceptor_definition> interceptors_;
+	std::size_t next_interceptor_registration_order_ {};
 };
 
 } // namespace warp::server

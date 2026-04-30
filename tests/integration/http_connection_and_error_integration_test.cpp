@@ -7,10 +7,12 @@
 #include <boost/asio/use_awaitable.hpp>
 
 #include <atomic>
+#include <mutex>
 #include <memory>
 #include <optional>
 #include <stdexcept>
 #include <thread>
+#include <vector>
 
 #include "gmock/gmock-matchers.h"
 #include "warp/warp.hpp"
@@ -39,6 +41,59 @@ struct EventLoopModeNames {
 };
 
 TYPED_TEST_SUITE(HttpConnectionAndErrorIntegrationTest, EventLoopModes, EventLoopModeNames);
+
+namespace {
+
+struct interceptor_event_log {
+	void record(std::string event) {
+		std::lock_guard lock(mutex);
+		events.push_back(std::move(event));
+	}
+
+	[[nodiscard]] std::vector<std::string> snapshot() const {
+		std::lock_guard lock(mutex);
+		return events;
+	}
+
+	void clear() {
+		std::lock_guard lock(mutex);
+		events.clear();
+	}
+
+	mutable std::mutex mutex;
+	std::vector<std::string> events;
+};
+
+struct path_param_recording_interceptor {
+	std::shared_ptr<interceptor_event_log> events;
+
+	void intercept(request &req) const {
+		events->record("path=" + std::string(req.path_param("id").value_or("missing")));
+	}
+};
+
+struct optional_blocking_interceptor {
+	std::shared_ptr<interceptor_event_log> events;
+
+	std::optional<response> intercept(request &req) const {
+		events->record("block-check");
+		if (req.query_param("block").value_or("") == "true") {
+			return response::forbidden("blocked");
+		}
+		return std::nullopt;
+	}
+};
+
+struct ordered_recording_interceptor {
+	std::shared_ptr<interceptor_event_log> events;
+	std::string name;
+
+	void intercept(request &) const {
+		events->record(name);
+	}
+};
+
+} // namespace
 
 TYPED_TEST(HttpConnectionAndErrorIntegrationTest, ConnectionCloseStopsFollowingPipelinedRequests) {
 	auto after_processed = std::make_shared<std::atomic<int>>(0);
@@ -100,6 +155,40 @@ TYPED_TEST(HttpConnectionAndErrorIntegrationTest, ThrowingHandlerReturnsErrorAnd
 	EXPECT_EQ(second.result(), http::status::ok);
 	EXPECT_EQ(std::string(second_body.at("route").as_string()), "fast");
 	EXPECT_TRUE(second_body.at("saw_throw_started").as_bool());
+	EXPECT_TRUE(support::read_until_eof(*client));
+}
+
+TYPED_TEST(HttpConnectionAndErrorIntegrationTest, InterceptorsRunInPriorityOrderAndCanShortCircuitHandlers) {
+	auto events = std::make_shared<interceptor_event_log>();
+
+	support::server_fixture fixture(
+	    warp::server::server_builder()
+	        .template interceptor<2>(ordered_recording_interceptor {.events = events, .name = "equal-a"})
+	        .template interceptor<0>(path_param_recording_interceptor {.events = events})
+	        .template interceptor<1>(optional_blocking_interceptor {.events = events})
+	        .template interceptor<2>(ordered_recording_interceptor {.events = events, .name = "equal-b"})
+	        .get<"/items/{id}">([events](const request &) -> response {
+		        events->record("handler");
+		        return response::ok(body_builder().set("route", "handler").build());
+	        }),
+	    TypeParam {});
+
+	auto client = support::connect_client(fixture.port);
+
+	support::send_requests(*client, support::make_get_request("/items/42"));
+	const auto allowed = support::read_response(*client);
+	EXPECT_EQ(allowed.result(), http::status::ok);
+	EXPECT_EQ(std::string(support::parse_object_body(allowed).at("route").as_string()), "handler");
+	EXPECT_EQ(events->snapshot(),
+	          (std::vector<std::string> {"path=42", "block-check", "equal-a", "equal-b", "handler"}));
+
+	events->clear();
+
+	support::send_requests(*client, support::make_get_request("/items/99?block=true", "close"));
+	const auto blocked = support::read_response(*client);
+	EXPECT_EQ(blocked.result(), http::status::forbidden);
+	EXPECT_EQ(std::string(support::parse_object_body(blocked).at("error").as_string()), "blocked");
+	EXPECT_EQ(events->snapshot(), (std::vector<std::string> {"path=99", "block-check"}));
 	EXPECT_TRUE(support::read_until_eof(*client));
 }
 

@@ -10,7 +10,7 @@
 
 namespace warp::server {
 
-callback_listener::callback_listener(boost::asio::io_context &ioc, registry &registry,
+callback_listener::callback_listener(boost::asio::io_context &ioc, const registry &registry,
                                      const interceptor_chain &interceptor_chain, const std::string &address,
                                      unsigned short port, log::logger logger)
     : http_listener(ioc, registry, address, port, interceptor_chain, std::move(logger)) {

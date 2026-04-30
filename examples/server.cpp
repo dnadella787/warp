@@ -20,7 +20,8 @@ int main() {
 
 	auto db_pool = std::make_shared<warp::db::postgres::connection_pool>(boost::asio::system_executor {},
 	                                                                     example::make_db_config(), 4, 2);
-
+	auto interceptor = example::log_interceptor {};
+	auto authz_interceptor = example::authz_interceptor {"Bob"};
 	auto server =
 	    warp::server::server_builder()
 	        .address("127.0.0.1")
@@ -28,6 +29,8 @@ int main() {
 	        .port(8080)
 	        // build() captures this logger for Warp's internal listener/session/server logs.
 	        .logger(app_logger)
+	        .interceptor<1>(interceptor)
+	        .interceptor<2>(authz_interceptor)
 	        .get<"/hello/{name}">([](const warp::request &req) -> warp::http::response {
 		        auto name = req.path_param("name").value_or("world");
 		        warp::log::info("Received a hello world request with name {}", name);
@@ -61,7 +64,7 @@ int main() {
 
 		        co_return warp::response::ok(warp::body_builder().set("exchange_name", result.value(0, 1)).build());
 	        })
-	        .build<warp::event_loop_mode::coroutines>();
+	        .build<warp::event_loop_mode::callbacks>();
 	warp::log::info("Warp example server running on http://127.0.0.1:8080");
 	warp::log::info("Set WARP_DB_USER / WARP_DB_PASSWORD / WARP_DB_NAME to try GET /db/{{id}}");
 	warp::log::info("Changing the default logger after build() does not retarget this server.");

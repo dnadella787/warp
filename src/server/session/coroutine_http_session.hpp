@@ -57,7 +57,6 @@ private:
 	bool shutdown_started_ {false};
 
 	static constexpr std::size_t pipeline_limit_ {8};
-	static constexpr std::string_view COMPONENT {"coroutine_http_session"};
 };
 
 } // namespace warp::server

@@ -96,16 +96,22 @@ boost::asio::awaitable<void> coroutine_http_session::read_loop() {
 			stop_reading_ = true;
 
 		if (const auto *handler = routes_.find(req)) {
-			std::visit(common::overloaded {
-			               [&](const http::sync_handler &h) { execute_sync_handler(sequence, h, std::move(req)); },
-			               [&](const http::async_handler &h) {
-				               boost::asio::co_spawn(
-				                   stream_.get_executor(), // little trick to extend http_session lifetime by
-				                                           // passing it to async coroutine
-				                   execute_async_handler(shared_from_this(), sequence, h, std::move(req)),
-				                   boost::asio::detached);
-			               }},
-			           *handler);
+			std::visit(
+			    common::overloaded {[&](const http::sync_handler &h) {
+				                        if (auto intercepted = interceptor_chain_.run(req); intercepted.has_value()) {
+					                        return complete_request(sequence, std::move(*intercepted));
+				                        }
+
+				                        execute_sync_handler(sequence, h, std::move(req));
+			                        },
+			                        [&](const http::async_handler &h) {
+				                        boost::asio::co_spawn(
+				                            stream_.get_executor(), // little trick to extend http_session lifetime by
+				                                                    // passing it to async coroutine
+				                            execute_async_handler(shared_from_this(), sequence, h, std::move(req)),
+				                            boost::asio::detached);
+			                        }},
+			    *handler);
 		} else {
 			complete_request(sequence, http::response::not_found());
 		}
@@ -210,6 +216,11 @@ boost::asio::awaitable<void> coroutine_http_session::execute_async_handler(std::
                                                                            const http::async_handler &handler,
                                                                            http::request req) {
 	try {
+		if (auto intercepted = self->interceptor_chain_.run(req); intercepted.has_value()) {
+			self->complete_request(sequence, std::move(*intercepted));
+			co_return;
+		}
+
 		auto resp = co_await handler(std::move(req));
 		self->complete_request(sequence, std::move(resp));
 	} catch (...) {

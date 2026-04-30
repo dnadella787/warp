@@ -8,7 +8,7 @@
 namespace warp::server {
 
 template <typename T>
-http_listener<T>::http_listener(boost::asio::io_context &ioc, registry &registry, const std::string &address,
+http_listener<T>::http_listener(boost::asio::io_context &ioc, const registry &registry, const std::string &address,
                                 const unsigned short port, const interceptor_chain &interceptor_chain,
                                 log::logger logger) requires WarpListener<T>
     : ioc_(ioc), acceptor_(boost::asio::make_strand(ioc)), registry_(registry),
