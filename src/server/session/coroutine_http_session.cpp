@@ -190,7 +190,9 @@ void coroutine_http_session::dispatch_sync_handler(std::size_t sequence, const h
                                                    http::request req) {
 	try {
 		if (auto intercepted = req_interceptor_chain_.run(req); intercepted.has_value()) {
-			return complete_request(sequence, std::move(*intercepted));
+			auto response = std::move(*intercepted);
+			resp_interceptor_chain_.run(response);
+			return complete_request(sequence, std::move(response));
 		}
 
 		auto resp = handler(std::move(req));
@@ -214,7 +216,9 @@ boost::asio::awaitable<void> coroutine_http_session::run_async_handler(std::shar
                                                                        http::request req) {
 	try {
 		if (auto intercepted = self->req_interceptor_chain_.run(req); intercepted.has_value()) {
-			self->complete_request(sequence, std::move(*intercepted));
+			auto response = std::move(*intercepted);
+			self->resp_interceptor_chain_.run(response);
+			self->complete_request(sequence, std::move(response));
 			co_return;
 		}
 

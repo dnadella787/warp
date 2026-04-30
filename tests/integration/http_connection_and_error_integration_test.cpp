@@ -93,6 +93,21 @@ struct ordered_recording_interceptor {
 	}
 };
 
+struct response_recording_interceptor {
+	std::shared_ptr<interceptor_event_log> events;
+	std::string name;
+
+	void intercept(response &resp) const {
+		events->record(name);
+		const auto existing = resp[http::field::server];
+		if (existing.empty()) {
+			resp.set(http::field::server, name);
+			return;
+		}
+		resp.set(http::field::server, std::string(existing) + "," + name);
+	}
+};
+
 } // namespace
 
 TYPED_TEST(HttpConnectionAndErrorIntegrationTest, ConnectionCloseStopsFollowingPipelinedRequests) {
@@ -167,6 +182,8 @@ TYPED_TEST(HttpConnectionAndErrorIntegrationTest, InterceptorsRunInPriorityOrder
 	        .template interceptor<0>(path_param_recording_interceptor {.events = events})
 	        .template interceptor<1>(optional_blocking_interceptor {.events = events})
 	        .template interceptor<2>(ordered_recording_interceptor {.events = events, .name = "equal-b"})
+	        .template interceptor<1>(response_recording_interceptor {.events = events, .name = "resp-a"})
+	        .template interceptor<1>(response_recording_interceptor {.events = events, .name = "resp-b"})
 	        .get<"/items/{id}">([events](const request &) -> response {
 		        events->record("handler");
 		        return response::ok(body_builder().set("route", "handler").build());
@@ -179,8 +196,9 @@ TYPED_TEST(HttpConnectionAndErrorIntegrationTest, InterceptorsRunInPriorityOrder
 	const auto allowed = support::read_response(*client);
 	EXPECT_EQ(allowed.result(), http::status::ok);
 	EXPECT_EQ(std::string(support::parse_object_body(allowed).at("route").as_string()), "handler");
-	EXPECT_EQ(events->snapshot(),
-	          (std::vector<std::string> {"path=42", "block-check", "equal-a", "equal-b", "handler"}));
+	EXPECT_EQ(allowed[http::field::server], "resp-a,resp-b");
+	EXPECT_EQ(events->snapshot(), (std::vector<std::string> {"path=42", "block-check", "equal-a", "equal-b", "handler",
+	                                                         "resp-a", "resp-b"}));
 
 	events->clear();
 
@@ -188,7 +206,33 @@ TYPED_TEST(HttpConnectionAndErrorIntegrationTest, InterceptorsRunInPriorityOrder
 	const auto blocked = support::read_response(*client);
 	EXPECT_EQ(blocked.result(), http::status::forbidden);
 	EXPECT_EQ(std::string(support::parse_object_body(blocked).at("error").as_string()), "blocked");
-	EXPECT_EQ(events->snapshot(), (std::vector<std::string> {"path=99", "block-check"}));
+	EXPECT_EQ(blocked[http::field::server], "resp-a,resp-b");
+	EXPECT_EQ(events->snapshot(), (std::vector<std::string> {"path=99", "block-check", "resp-a", "resp-b"}));
+	EXPECT_TRUE(support::read_until_eof(*client));
+}
+
+TYPED_TEST(HttpConnectionAndErrorIntegrationTest, ResponseInterceptorsRunForAsyncHandlersInPriorityOrder) {
+	auto events = std::make_shared<interceptor_event_log>();
+
+	support::server_fixture fixture(
+	    warp::server::server_builder()
+	        .template interceptor<2>(response_recording_interceptor {.events = events, .name = "equal-a"})
+	        .template interceptor<0>(response_recording_interceptor {.events = events, .name = "first"})
+	        .template interceptor<2>(response_recording_interceptor {.events = events, .name = "equal-b"})
+	        .get<"/async">([events](request) -> awaitable<response> {
+		        events->record("handler");
+		        co_return response::ok(body_builder().set("route", "async").build());
+	        }),
+	    TypeParam {});
+
+	auto client = support::connect_client(fixture.port);
+	support::send_requests(*client, support::make_get_request("/async", "close"));
+
+	const auto resp = support::read_response(*client);
+	EXPECT_EQ(resp.result(), http::status::ok);
+	EXPECT_EQ(std::string(support::parse_object_body(resp).at("route").as_string()), "async");
+	EXPECT_EQ(resp[http::field::server], "first,equal-a,equal-b");
+	EXPECT_EQ(events->snapshot(), (std::vector<std::string> {"handler", "first", "equal-a", "equal-b"}));
 	EXPECT_TRUE(support::read_until_eof(*client));
 }
 

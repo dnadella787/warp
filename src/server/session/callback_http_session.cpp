@@ -127,7 +127,9 @@ boost::asio::awaitable<http::response>
 callback_http_session::run_async_handler(std::shared_ptr<callback_http_session> self,
                                          const http::async_handler &handler, http::request req) {
 	if (auto intercepted = self->req_interceptor_chain_.run(req); intercepted.has_value()) {
-		co_return std::move(*intercepted);
+		auto response = std::move(*intercepted);
+		self->resp_interceptor_chain_.run(response);
+		co_return response;
 	}
 
 	auto response = co_await handler(std::move(req));

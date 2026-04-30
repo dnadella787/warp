@@ -90,7 +90,7 @@ It also inserts `NASDAQ` and `NYSE` into `exchanges`, which is enough for:
 Once the exports are in place, the DB integration suite can run with:
 
 ```bash
-./build-test/tests/warp_http_db_integration_tests
+./build/tests/warp_http_db_integration_tests
 ```
 
 If the variables are unset, the DB integration tests still skip as before.

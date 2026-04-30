@@ -114,7 +114,7 @@ On Apple Silicon, prefer adding `-DCMAKE_OSX_ARCHITECTURES=arm64` when configuri
 Configure a test build:
 
 ```bash
-cmake -S . -B build-test \
+cmake -S . -B build \
   -DCMAKE_BUILD_TYPE=RelWithDebInfo \
   -Dwarp_BUILD_DB=ON \
   -Dwarp_BUILD_TESTS=ON \
@@ -125,16 +125,16 @@ cmake -S . -B build-test \
 Build and run the full suite:
 
 ```bash
-cmake --build build-test -j4
-ctest --test-dir build-test --output-on-failure
+cmake --build build -j4
+ctest --test-dir build --output-on-failure
 ```
 
 Main test executables:
 
 ```bash
-./build-test/tests/warp_http_unit_tests
-./build-test/tests/warp_http_smoke_tests
-./build-test/tests/warp_http_integration_tests
+./build/tests/warp_http_unit_tests
+./build/tests/warp_http_smoke_tests
+./build/tests/warp_http_integration_tests
 ```
 
 Notes:
@@ -257,14 +257,14 @@ Generate headers:
 Warp includes a Google Benchmark target for comparing callback and coroutine event-loop overhead under sustained concurrent load.
 
 ```bash
-cmake -S . -B build-bench \
+cmake -S . -B build \
   -DCMAKE_BUILD_TYPE=Release \
   -Dwarp_BUILD_DB=ON \
   -Dwarp_BUILD_BENCHMARKS=ON \
   -Dwarp_BUILD_TESTS=OFF \
   -Dwarp_BUILD_EXAMPLES=OFF
-cmake --build build-bench --target warp_http_event_loop_benchmark -j4
-./build-bench/benchmarks/warp_http_event_loop_benchmark \
+cmake --build build --target warp_http_event_loop_benchmark -j4
+./build/benchmarks/warp_http_event_loop_benchmark \
   --warp-benchmark-concurrency=1k,5k,10k \
   --warp-benchmark-client-threads=8 \
   --warp-benchmark-warmup=5s \

@@ -122,7 +122,7 @@ The benchmark binary contains:
 Enable benchmarks at configure time:
 
 ```bash
-cmake -S . -B build-bench \
+cmake -S . -B build \
   -DCMAKE_BUILD_TYPE=Release \
   -Dwarp_BUILD_DB=ON \
   -Dwarp_BUILD_BENCHMARKS=ON \
@@ -133,7 +133,7 @@ cmake -S . -B build-bench \
 Build the benchmark:
 
 ```bash
-cmake --build build-bench --target warp_http_event_loop_benchmark -j4
+cmake --build build --target warp_http_event_loop_benchmark -j4
 ```
 
 If you are on Apple Silicon and your shell is running under Rosetta, use `arch -arm64` for configure, build, and run steps so the benchmark links against the native Homebrew libraries.
@@ -144,7 +144,7 @@ Example:
 `warp-benchmark-concurrency` is technically just the number of client side sessions spawned but each client side session creates a corresponding server side session too. You will end up creating 2 * `warp-benchmark-concurrency` sessions and using the same number of socket file descriptors. Check your system limits accordingly or the listener crash on occasion trying to create new sockets for incoming requests.
 
 ```bash
-./build-bench/benchmarks/warp_http_event_loop_benchmark \
+./build/benchmarks/warp_http_event_loop_benchmark \
   --warp-benchmark-concurrency=1k,5k,10k \
   --warp-benchmark-client-threads=8 \
   --warp-benchmark-warmup=5s \

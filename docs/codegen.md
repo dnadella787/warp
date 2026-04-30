@@ -292,10 +292,10 @@ Responses are serialized from the generated result type using reusable response 
 ## Running tests
 
 ```bash
-cmake -S . -B build-test -Dwarp_BUILD_EXAMPLES=OFF -Dwarp_BUILD_BENCHMARKS=OFF
-cmake --build build-test --target warp_http_unit_tests warp_http_integration_tests -j4
-./build-test/tests/warp_http_unit_tests --gtest_filter='ApiModelTest.*:SpecParserTest.*:DataClassEmitterTest.*:ApiStubGeneratorTest.*:ResourceEmitterTest.*'
-./build-test/tests/warp_http_integration_tests --gtest_filter='GeneratedApiIntegrationTest.*'
+cmake -S . -B build -Dwarp_BUILD_EXAMPLES=OFF -Dwarp_BUILD_BENCHMARKS=OFF
+cmake --build build --target warp_http_unit_tests warp_http_integration_tests -j4
+./build/tests/warp_http_unit_tests --gtest_filter='ApiModelTest.*:SpecParserTest.*:DataClassEmitterTest.*:ApiStubGeneratorTest.*:ResourceEmitterTest.*'
+./build/tests/warp_http_integration_tests --gtest_filter='GeneratedApiIntegrationTest.*'
 ```
 
 ## Example files
