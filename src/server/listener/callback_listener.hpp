@@ -6,12 +6,15 @@
 
 namespace warp::server {
 
-class callback_listener final : public http_listener<callback_listener>,
-                                public std::enable_shared_from_this<callback_listener> {
+class callback_listener final
+    : public http_listener<callback_listener, route_executor_table<http::event_loop_mode::callbacks>>,
+      public std::enable_shared_from_this<callback_listener> {
 public:
 	callback_listener(boost::asio::io_context &ioc, const registry &registry,
-	                  const interceptor_chain &interceptor_chain, const std::string &address, unsigned short port,
-	                  log::logger logger);
+	                  const route_executor_table<http::event_loop_mode::callbacks> &route_executors,
+	                  const interceptor_chain<request> &req_interceptor_chain,
+	                  const interceptor_chain<response> &resp_interceptor_chain, const std::string &address,
+	                  unsigned short port, log::logger logger);
 
 	void execute();
 

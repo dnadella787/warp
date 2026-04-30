@@ -8,10 +8,15 @@ namespace warp::server {
 
 template <http::event_loop_mode Mode>
 server::server_impl<Mode>::server_impl(const std::string &address, std::uint16_t port, std::size_t workers,
-                                       registry routes, interceptor_chain interceptor_chain, log::logger logger)
-: pool_size_(workers ? workers : 1), io_ctx_(static_cast<int>(pool_size_)), routes_(std::move(routes)), interceptor_chain_(std::move(interceptor_chain)),
-	logger_(std::move(logger)),
-	listener_(std::make_shared<listener_t>(io_ctx_, routes_, interceptor_chain_, address, port, logger_)) {
+                                       registry routes, route_executor_table<Mode> route_executors,
+                                       interceptor_chain<request> req_interceptor_chain,
+                                       interceptor_chain<response> resp_interceptor_chain, log::logger logger)
+    : pool_size_(workers ? workers : 1), io_ctx_(static_cast<int>(pool_size_)), routes_(std::move(routes)),
+      route_executors_(std::move(route_executors)), req_interceptor_chain_(std::move(req_interceptor_chain)),
+      resp_interceptor_chain_(std::move(resp_interceptor_chain)),
+      logger_(std::move(logger)),
+      listener_(std::make_shared<listener_t>(io_ctx_, routes_, route_executors_, req_interceptor_chain_,
+                                             resp_interceptor_chain_, address, port, logger_)) {
 	threads_.reserve(pool_size_);
 }
 

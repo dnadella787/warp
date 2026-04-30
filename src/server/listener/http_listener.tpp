@@ -7,12 +7,17 @@
 
 namespace warp::server {
 
-template <typename T>
-http_listener<T>::http_listener(boost::asio::io_context &ioc, const registry &registry, const std::string &address,
-                                const unsigned short port, const interceptor_chain &interceptor_chain,
-                                log::logger logger) requires WarpListener<T>
-    : ioc_(ioc), acceptor_(boost::asio::make_strand(ioc)), registry_(registry),
-      interceptor_chain_(interceptor_chain), logger_(std::move(logger)) {
+template <typename T, typename RouteExecutors>
+http_listener<T, RouteExecutors>::http_listener(boost::asio::io_context &ioc, const registry &registry,
+                                                const RouteExecutors &route_executors,
+                                                const interceptor_chain<request> &req_interceptor_chain,
+                                                const interceptor_chain<response> &resp_interceptor_chain,
+                                                const std::string &address, const unsigned short port,
+                                                log::logger logger)
+    requires warp_listener<T, RouteExecutors>
+    : ioc_(ioc), acceptor_(boost::asio::make_strand(ioc)), registry_(registry), route_executors_(route_executors),
+      req_interceptor_chain_(req_interceptor_chain), resp_interceptor_chain_(resp_interceptor_chain),
+      logger_(std::move(logger)) {
     auto const addr = boost::asio::ip::make_address(address);
     auto const endpoint = boost::asio::ip::tcp::endpoint{addr, port};
     boost::beast::error_code ec;
@@ -42,8 +47,8 @@ http_listener<T>::http_listener(boost::asio::io_context &ioc, const registry &re
     }
 }
 
-template <typename  T>
-void http_listener<T>::run() {
+template <typename T, typename RouteExecutors>
+void http_listener<T, RouteExecutors>::run() {
     static_cast<T*>(this)->execute();
 }
 } // namespace warp::server

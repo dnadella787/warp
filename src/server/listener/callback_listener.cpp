@@ -11,9 +11,12 @@
 namespace warp::server {
 
 callback_listener::callback_listener(boost::asio::io_context &ioc, const registry &registry,
-                                     const interceptor_chain &interceptor_chain, const std::string &address,
-                                     unsigned short port, log::logger logger)
-    : http_listener(ioc, registry, address, port, interceptor_chain, std::move(logger)) {
+                                     const route_executor_table<http::event_loop_mode::callbacks> &route_executors,
+                                     const interceptor_chain<request> &req_interceptor_chain,
+                                     const interceptor_chain<response> &resp_interceptor_chain,
+                                     const std::string &address, unsigned short port, log::logger logger)
+    : http_listener(ioc, registry, route_executors, req_interceptor_chain, resp_interceptor_chain, address, port,
+                    std::move(logger)) {
 }
 
 void callback_listener::execute() {
@@ -39,7 +42,9 @@ void callback_listener::on_accept(boost::beast::error_code ec, boost::asio::ip::
 
 		logger_.error("Error in listener during on_accept: {}", ec.message());
 	} else {
-		std::make_shared<callback_http_session>(std::move(socket), registry_, interceptor_chain_, logger_)->start();
+		std::make_shared<callback_http_session>(std::move(socket), registry_, route_executors_, req_interceptor_chain_,
+		                                        resp_interceptor_chain_, logger_)
+		    ->start();
 	}
 
 	do_accept();

@@ -13,7 +13,7 @@
 #include <utility>
 #include <vector>
 
-#include "router/interceptor.h"
+#include "interceptor/interceptor.h"
 #include "router/route_types.h"
 #include "warp/http/event_loop_mode.hpp"
 #include "warp/http/http.hpp"
@@ -124,11 +124,20 @@ public:
 	}
 
 	template <int Priority, http::request_interceptor Interceptor>
-	server_builder &interceptor(Interceptor &&handler) {
-		interceptors_.push_back(
-		    interceptor_definition {.priority = Priority,
-		                            .registration_order = next_interceptor_registration_order_++,
-		                            .callback = make_interceptor(std::forward<Interceptor>(handler))});
+	server_builder &interceptor(Interceptor &&interceptor_obj) {
+		req_interceptors_.push_back(interceptor_definition<detail::type_erased_req_interceptor> {
+		    .priority = Priority,
+		    .registration_order = next_interceptor_registration_order_++,
+		    .callback = make_interceptor(std::forward<Interceptor>(interceptor_obj))});
+		return *this;
+	}
+
+	template <int Priority, http::response_interceptor Interceptor>
+	server_builder &interceptor(Interceptor &&interceptor_obj) {
+		resp_interceptors_.push_back(interceptor_definition<detail::type_erased_resp_interceptor> {
+		    .priority = Priority,
+		    .registration_order = next_interceptor_registration_order_++,
+		    .callback = make_response_interceptor(std::forward<Interceptor>(interceptor_obj))});
 		return *this;
 	}
 
@@ -185,17 +194,20 @@ private:
 		// async handlers
 		else {
 			return http::async_handler {
-			    [fn = std::move(fn)](http::request &&req) mutable -> http::awaitable<http::response> {
-				    co_return co_await std::invoke(fn, std::move(req));
+			    [fn = std::move(fn)](http::request req) mutable -> http::awaitable<http::response> {
+				    return std::invoke(fn, std::move(req));
 			    }};
 		}
 	}
 
 	template <http::request_interceptor Interceptor>
-	static detail::type_erased_interceptor make_interceptor(Interceptor &&interceptor) {
-		using interceptor_t = std::decay_t<Interceptor>;
-		return [interceptor =
-		            interceptor_t(std::forward<Interceptor>(interceptor))](request &req) -> http::interceptor_result {
+	static detail::type_erased_req_interceptor make_interceptor(Interceptor &&interceptor) {
+		/**
+		 * lambda caputres will deduce lvalue ref, rvalue by value (meaning copy)
+		 * TODO: maybe use std::move or std::ref instead in the future to reduce alloc
+		 * but also lifetime issues between server and interceptor obj
+		 */
+		return [interceptor = std::forward<Interceptor>(interceptor)](request &req) -> http::req_interceptor_result {
 			using result_t = decltype(interceptor.intercept(req));
 			if constexpr (std::is_void_v<result_t>) {
 				interceptor.intercept(req);
@@ -206,6 +218,13 @@ private:
 		};
 	}
 
+	template <http::response_interceptor Interceptor>
+	static detail::type_erased_resp_interceptor make_response_interceptor(Interceptor &&interceptor) {
+		return [interceptor = std::forward<Interceptor>(interceptor)](response &resp) -> void {
+			interceptor.intercept(resp);
+		};
+	}
+
 	struct route_definition {
 		http::method verb;
 		std::string path;
@@ -213,10 +232,14 @@ private:
 		http::handler callback;
 	};
 
+	/**
+	 * @tparam TypeErasedInterceptorFunc can be of type type_erased_req_interceptor or type_erased_resp_interceptor
+	 */
+	template <detail::erased_interceptor_type TypeErasedInterceptorFunc>
 	struct interceptor_definition {
 		int priority;
 		std::size_t registration_order;
-		detail::type_erased_interceptor callback;
+		TypeErasedInterceptorFunc callback;
 	};
 
 	std::string address_ {"0.0.0.0"};
@@ -224,7 +247,8 @@ private:
 	std::size_t workers_ {1};
 	std::optional<log::logger> logger_;
 	std::vector<route_definition> routes_;
-	std::vector<interceptor_definition> interceptors_;
+	std::vector<interceptor_definition<detail::type_erased_req_interceptor>> req_interceptors_;
+	std::vector<interceptor_definition<detail::type_erased_resp_interceptor>> resp_interceptors_;
 	std::size_t next_interceptor_registration_order_ {};
 };
 

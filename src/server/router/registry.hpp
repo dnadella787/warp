@@ -16,17 +16,31 @@ namespace warp::server {
 
 class registry {
 public:
+	struct route_id {
+		std::size_t value {};
+
+		[[nodiscard]] std::size_t index() const noexcept {
+			return value;
+		}
+
+		friend bool operator==(const route_id &, const route_id &) = default;
+	};
+
+	struct route_match {
+		route_id id;
+	};
+
 	registry() = default;
 	registry(const registry &other);
 	registry &operator=(const registry &other);
 	registry(registry &&) noexcept = default;
 	registry &operator=(registry &&) noexcept = default;
-	void add(http::method verb, std::string path, http::handler h);
-	void add_route(http::method verb, std::string path, http::handler h);
-	void add_typed(http::method verb, std::string path,
-	               const std::vector<http::query_constraint_descriptor> &query_constraints, http::handler h);
-	void add_compiled(http::compiled_route route, http::handler h);
-	[[nodiscard]] const http::handler *find(http::request &req) const;
+	[[nodiscard]] route_id add(http::method verb, std::string path);
+	[[nodiscard]] route_id add_route(http::method verb, std::string path);
+	[[nodiscard]] route_id add_typed(http::method verb, std::string path,
+	                                 const std::vector<http::query_constraint_descriptor> &query_constraints);
+	[[nodiscard]] route_id add_compiled(http::compiled_route route);
+	[[nodiscard]] std::optional<route_match> find(http::request &req) const;
 
 private:
 	struct route_parameter {
@@ -35,10 +49,9 @@ private:
 	};
 
 	struct route_entry {
-		http::handler handler;                   // by value because we want the registry to own the value
-		std::vector<route_parameter> parameters; // child parameter based nodes
+		route_id id {};
+		std::vector<route_parameter> parameters;                        // child parameter based nodes
 		std::vector<http::compiled_query_constraint> query_constraints; // query params
-		std::size_t registration_order {}; // order registered in server_builder, used for tiebreaker
 	};
 
 	struct node {
@@ -67,7 +80,7 @@ private:
 	                              const route_entry &route);
 
 	std::unordered_map<http::method, node, method_hash> method_roots_;
-	std::size_t next_registration_order_ {};
+	std::size_t next_route_id_ {};
 };
 
 } // namespace warp::server

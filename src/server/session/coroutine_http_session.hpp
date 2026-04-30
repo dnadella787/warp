@@ -11,6 +11,7 @@
 #include <boost/beast/http.hpp>
 
 #include "connection_close_policy.h"
+#include "server/execution/route_executor_table.hpp"
 #include "server/interceptors/interceptor_chain.h"
 #include "server/router/registry.hpp"
 #include "warp/warp.hpp"
@@ -20,19 +21,22 @@ namespace warp::server {
 class coroutine_http_session : public std::enable_shared_from_this<coroutine_http_session> {
 public:
 	coroutine_http_session(boost::asio::ip::tcp::socket &&socket, const registry &routes,
-	                       const interceptor_chain &interceptor_chain, log::logger logger);
+	                       const route_executor_table<http::event_loop_mode::coroutines> &route_executors,
+	                       const interceptor_chain<request> &req_chain, const interceptor_chain<response> &resp_chain,
+	                       log::logger logger);
 
 	void start();
+	void dispatch_sync_handler(std::size_t sequence, const http::sync_handler &handler, http::request req);
+	void dispatch_async_handler(std::size_t sequence, const http::async_handler &handler, http::request req);
 
 private:
 	boost::asio::awaitable<void> read_loop();
 	boost::asio::awaitable<void> write_loop();
 	boost::asio::awaitable<void> wait_for_read_ready();
 	boost::asio::awaitable<void> wait_for_write_ready();
-	void execute_sync_handler(std::size_t sequence, const http::sync_handler &handler, http::request req);
-	static boost::asio::awaitable<void> execute_async_handler(std::shared_ptr<coroutine_http_session> self,
-	                                                          std::size_t sequence, const http::async_handler &handler,
-	                                                          http::request req);
+	static boost::asio::awaitable<void> run_async_handler(std::shared_ptr<coroutine_http_session> self,
+	                                                      std::size_t sequence, const http::async_handler &handler,
+	                                                      http::request req);
 	void complete_request(std::size_t sequence, http::response response);
 	void notify_read_loop();
 	void notify_write_loop();
@@ -42,7 +46,9 @@ private:
 	boost::beast::tcp_stream stream_;
 	boost::beast::flat_buffer buffer_;
 	const registry &routes_;
-	const interceptor_chain &interceptor_chain_;
+	const route_executor_table<event_loop_mode::coroutines> &route_executors_;
+	const interceptor_chain<request> &req_interceptor_chain_;
+	const interceptor_chain<response> &resp_interceptor_chain_;
 	log::logger logger_;
 	std::map<std::size_t, request_context> request_ctxs_;
 	std::map<std::size_t, pending_write> pending_responses_;

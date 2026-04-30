@@ -9,6 +9,7 @@
 #include <boost/beast/http.hpp>
 
 #include "connection_close_policy.h"
+#include "server/execution/route_executor_table.hpp"
 #include "server/interceptors/interceptor_chain.h"
 #include "server/router/registry.hpp"
 #include "warp/warp.hpp"
@@ -18,17 +19,22 @@ namespace warp::server {
 class callback_http_session : public std::enable_shared_from_this<callback_http_session> {
 public:
 	callback_http_session(boost::asio::ip::tcp::socket &&socket, const registry &routes,
-	                      const interceptor_chain &interceptor_chain, log::logger logger);
+	                      const route_executor_table<event_loop_mode::callbacks> &route_executors,
+	                      const interceptor_chain<request> &req_chain, const interceptor_chain<response> &resp_chain,
+	                      log::logger logger);
 
 	void start();
+	void dispatch_sync_handler(std::size_t sequence, const http::sync_handler &handler, http::request request);
+	void dispatch_async_handler(std::size_t sequence, const http::async_handler &handler, http::request request);
 
 private:
 	void maybe_read();
 	void do_read();
 	void on_read(boost::beast::error_code ec, std::size_t bytes_transferred);
 
-	boost::asio::awaitable<http::response> execute_async_handler(std::shared_ptr<callback_http_session> self,
-	                                                             const http::async_handler &handler, http::request req);
+	static boost::asio::awaitable<http::response> run_async_handler(std::shared_ptr<callback_http_session> self,
+	                                                                const http::async_handler &handler,
+	                                                                http::request req);
 
 	void on_handler_complete(std::size_t sequence, std::exception_ptr eptr, warp::response response);
 	void maybe_write();
@@ -40,7 +46,9 @@ private:
 	boost::beast::tcp_stream stream_;
 	boost::beast::flat_buffer buffer_;
 	const registry &routes_;
-	const interceptor_chain &interceptor_chain_;
+	const route_executor_table<event_loop_mode::callbacks> &route_executors_;
+	const interceptor_chain<request> &req_interceptor_chain_;
+	const interceptor_chain<response> &resp_interceptor_chain_;
 	log::logger logger_;
 	std::map<std::size_t, request_context> request_ctxs_;
 	std::map<std::size_t, pending_write> pending_responses_;

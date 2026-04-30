@@ -48,21 +48,34 @@ template server server_builder::build<event_loop_mode::coroutines>() const;
 template <http::event_loop_mode Mode>
 [[nodiscard]] std::shared_ptr<server::impl_base> server_builder::make_impl() const {
 	registry registry;
-	for (const auto &[verb, path, constraints, handler] : routes_)
-		registry.add_typed(verb, path, constraints, handler);
+	route_executor_table<Mode> route_executors(routes_.size());
+	for (const auto &[verb, path, constraints, handler] : routes_) {
+		const auto route_id = registry.add_typed(verb, path, constraints);
+		route_executors.set(route_id, handler);
+	}
 
-	auto interceptors = interceptors_;
-	std::stable_sort(interceptors.begin(), interceptors.end(),
+	auto req_interceptors = req_interceptors_;
+	std::stable_sort(req_interceptors.begin(), req_interceptors.end(),
 	                 [](const auto &lhs, const auto &rhs) { return lhs.priority < rhs.priority; });
 
-	std::vector<detail::type_erased_interceptor> chain_entries;
-	chain_entries.reserve(interceptors.size());
-	for (auto &entry : interceptors)
-		chain_entries.push_back(std::move(entry.callback));
+	std::vector<detail::type_erased_req_interceptor> req_chain_entries;
+	req_chain_entries.reserve(req_interceptors.size());
+	for (auto &entry : req_interceptors)
+		req_chain_entries.push_back(std::move(entry.callback));
 
-	return std::make_shared<server::server_impl<Mode>>(address_, port_, workers_, std::move(registry),
-	                                                   interceptor_chain {std::move(chain_entries)},
-	                                                   logger_.value_or(log::default_logger()));
+	auto resp_interceptors = resp_interceptors_;
+	std::stable_sort(resp_interceptors.begin(), resp_interceptors.end(),
+	                 [](const auto &lhs, const auto &rhs) { return lhs.priority < rhs.priority; });
+
+	std::vector<detail::type_erased_resp_interceptor> resp_chain_entries;
+	resp_chain_entries.reserve(resp_interceptors.size());
+	for (auto &entry : resp_interceptors)
+		resp_chain_entries.push_back(std::move(entry.callback));
+
+	return std::make_shared<server::server_impl<Mode>>(
+	    address_, port_, workers_, std::move(registry), std::move(route_executors),
+	    interceptor_chain<request> {std::move(req_chain_entries)},
+	    interceptor_chain<response> {std::move(resp_chain_entries)}, logger_.value_or(log::default_logger()));
 }
 
 } // namespace warp::server

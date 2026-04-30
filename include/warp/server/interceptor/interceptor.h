@@ -24,12 +24,26 @@ concept request_interceptor = requires(const std::decay_t<Interceptor> &i, reque
     requires valid_request_interceptor_response<decltype(i.intercept(req))>;
 };
 
-using interceptor_result = std::optional<response>;
+using req_interceptor_result = std::optional<response>;
+
+template<typename T>
+concept valid_response_interceptor_response = std::same_as<std::remove_cvref_t<T>, void>;
+
+template <typename Interceptor>
+concept response_interceptor = requires(const std::decay_t<Interceptor> &i, response &resp) {
+    requires valid_response_interceptor_response<decltype(i.intercept(resp))>;
+};
 
 } // namespace warp::http
 
 namespace warp::server::detail {
 
-using type_erased_interceptor = std::function<http::interceptor_result(request &)>;
+using type_erased_req_interceptor = std::function<http::req_interceptor_result(request &)>;
+using type_erased_resp_interceptor = std::function<void(response &)>;
+
+template <typename T>
+concept erased_interceptor_type =
+    std::same_as<T, type_erased_req_interceptor> ||
+    std::same_as<T, type_erased_resp_interceptor>;
 
 } // namespace warp::server::detail

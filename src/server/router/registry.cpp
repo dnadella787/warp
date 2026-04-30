@@ -45,7 +45,7 @@ http::compiled_route compile_typed_route(http::method verb, std::string_view pat
 
 } // namespace
 
-registry::registry(const registry &other) : next_registration_order_(other.next_registration_order_) {
+registry::registry(const registry &other) : next_route_id_(other.next_route_id_) {
 	method_roots_.reserve(other.method_roots_.size());
 	for (const auto &[verb, root] : other.method_roots_) {
 		method_roots_.emplace(verb, clone_node(root));
@@ -62,27 +62,28 @@ registry &registry::operator=(const registry &other) {
 	for (const auto &[verb, root] : other.method_roots_) {
 		method_roots_.emplace(verb, clone_node(root));
 	}
-	next_registration_order_ = other.next_registration_order_;
+	next_route_id_ = other.next_route_id_;
 	return *this;
 }
 
-void registry::add(http::method verb, std::string path, http::handler h) {
-	add_route(verb, std::move(path), std::move(h));
+registry::route_id registry::add(http::method verb, std::string path) {
+	return add_route(verb, std::move(path));
 }
 
-void registry::add_route(http::method verb, std::string path, http::handler h) {
-	add_compiled(parse_registered_route(verb, path), std::move(h));
+registry::route_id registry::add_route(http::method verb, std::string path) {
+	return add_compiled(parse_registered_route(verb, path));
 }
 
-void registry::add_typed(http::method verb, std::string path,
-                         const std::vector<http::query_constraint_descriptor> &query_constraints, http::handler h) {
-	add_compiled(compile_typed_route(verb, path, query_constraints), std::move(h));
+registry::route_id registry::add_typed(http::method verb, std::string path,
+                                       const std::vector<http::query_constraint_descriptor> &query_constraints) {
+	return add_compiled(compile_typed_route(verb, path, query_constraints));
 }
 
-void registry::add_compiled(http::compiled_route route, http::handler h) {
+registry::route_id registry::add_compiled(http::compiled_route route) {
 	normalize_compiled_query_constraints(route.query_constraints);
 	auto &root = method_roots_[route.verb];
 	auto *current = &root;
+	const route_id id {next_route_id_++};
 
 	std::vector<route_parameter> parameters;
 	parameters.reserve(route.pattern.segments.size());
@@ -110,33 +111,33 @@ void registry::add_compiled(http::compiled_route route, http::handler h) {
 	}
 
 	current->routes.push_back(route_entry {
-	    .handler = std::move(h),
+	    .id = id,
 	    .parameters = std::move(parameters),
 	    .query_constraints = std::move(route.query_constraints),
-	    .registration_order = next_registration_order_++,
 	});
+	return id;
 }
 
-const http::handler *registry::find(http::request &req) const {
+std::optional<registry::route_match> registry::find(http::request &req) const {
 	req.set_path_params({});
 	const auto it = method_roots_.find(req.method());
 	if (it == method_roots_.end()) {
-		return nullptr;
+		return std::nullopt;
 	}
 
 	std::vector<std::string_view> segments;
 	try {
 		segments = http::split_route_path_views(req.path());
 	} catch (const std::invalid_argument &) {
-		return nullptr;
+		return std::nullopt;
 	}
 
 	if (const auto *route = match_route(it->second, req, segments)) {
 		apply_path_params(req, segments, *route);
-		return &route->handler;
+		return route_match {.id = route->id};
 	}
 
-	return nullptr;
+	return std::nullopt;
 }
 
 std::size_t registry::method_hash::operator()(http::method verb) const noexcept {
@@ -291,7 +292,7 @@ bool registry::is_better_match(const route_entry &candidate,
 	if (candidate_score.matched_exact_constraints != current_best_score.matched_exact_constraints) {
 		return candidate_score.matched_exact_constraints > current_best_score.matched_exact_constraints;
 	}
-	return candidate.registration_order < current_best.registration_order;
+	return candidate.id.index() < current_best.id.index();
 }
 
 void registry::apply_path_params(http::request &req, const std::vector<std::string_view> &segments,

@@ -21,6 +21,7 @@ int main() {
 	auto db_pool = std::make_shared<warp::db::postgres::connection_pool>(boost::asio::system_executor {},
 	                                                                     example::make_db_config(), 4, 2);
 	auto interceptor = example::log_interceptor {};
+	auto resp_interceptor = example::response_log_interceptor {};
 	auto authz_interceptor = example::authz_interceptor {"Bob"};
 	auto server =
 	    warp::server::server_builder()
@@ -31,6 +32,7 @@ int main() {
 	        .logger(app_logger)
 	        .interceptor<1>(interceptor)
 	        .interceptor<2>(authz_interceptor)
+	        .interceptor<1>(resp_interceptor)
 	        .get<"/hello/{name}">([](const warp::request &req) -> warp::http::response {
 		        auto name = req.path_param("name").value_or("world");
 		        warp::log::info("Received a hello world request with name {}", name);

@@ -6,18 +6,18 @@
 #include <boost/asio/use_awaitable.hpp>
 #include <boost/beast/http.hpp>
 
-#include "callback_http_session.hpp"
-#include "common/util/lambda.h"
-
 namespace beast = boost::beast;
 using tcp = boost::asio::ip::tcp;
 
 namespace warp::server {
 
-coroutine_http_session::coroutine_http_session(boost::asio::ip::tcp::socket &&socket, const registry &routes,
-                                               const interceptor_chain &interceptor_chain, log::logger logger)
-    : stream_(std::move(socket)), routes_(routes), interceptor_chain_(interceptor_chain), logger_(std::move(logger)),
-      read_signal_(stream_.get_executor()), write_signal_(stream_.get_executor()) {
+coroutine_http_session::coroutine_http_session(
+    boost::asio::ip::tcp::socket &&socket, const registry &routes,
+    const route_executor_table<http::event_loop_mode::coroutines> &route_executors,
+    const interceptor_chain<request> &req_chain, const interceptor_chain<response> &resp_chain, log::logger logger)
+    : stream_(std::move(socket)), routes_(routes), route_executors_(route_executors), req_interceptor_chain_(req_chain),
+      resp_interceptor_chain_(resp_chain), logger_(std::move(logger)), read_signal_(stream_.get_executor()),
+      write_signal_(stream_.get_executor()) {
 }
 
 void coroutine_http_session::start() {
@@ -95,23 +95,8 @@ boost::asio::awaitable<void> coroutine_http_session::read_loop() {
 		if (!policy_.accepting_requests())
 			stop_reading_ = true;
 
-		if (const auto *handler = routes_.find(req)) {
-			std::visit(
-			    common::overloaded {[&](const http::sync_handler &h) {
-				                        if (auto intercepted = interceptor_chain_.run(req); intercepted.has_value()) {
-					                        return complete_request(sequence, std::move(*intercepted));
-				                        }
-
-				                        execute_sync_handler(sequence, h, std::move(req));
-			                        },
-			                        [&](const http::async_handler &h) {
-				                        boost::asio::co_spawn(
-				                            stream_.get_executor(), // little trick to extend http_session lifetime by
-				                                                    // passing it to async coroutine
-				                            execute_async_handler(shared_from_this(), sequence, h, std::move(req)),
-				                            boost::asio::detached);
-			                        }},
-			    *handler);
+		if (const auto match = routes_.find(req)) {
+			route_executors_.dispatch(match->id, *this, sequence, std::move(req));
 		} else {
 			complete_request(sequence, http::response::not_found());
 		}
@@ -201,27 +186,40 @@ void coroutine_http_session::notify_write_loop() {
 	write_signal_.cancel();
 }
 
-void coroutine_http_session::execute_sync_handler(std::size_t sequence, const http::sync_handler &handler,
-                                                  http::request req) {
+void coroutine_http_session::dispatch_sync_handler(std::size_t sequence, const http::sync_handler &handler,
+                                                   http::request req) {
 	try {
+		if (auto intercepted = req_interceptor_chain_.run(req); intercepted.has_value()) {
+			return complete_request(sequence, std::move(*intercepted));
+		}
+
 		auto resp = handler(std::move(req));
+		resp_interceptor_chain_.run(resp);
 		complete_request(sequence, std::move(resp));
 	} catch (...) {
 		complete_request(sequence, http::response::server_error());
 	}
 }
 
-boost::asio::awaitable<void> coroutine_http_session::execute_async_handler(std::shared_ptr<coroutine_http_session> self,
-                                                                           std::size_t sequence,
-                                                                           const http::async_handler &handler,
-                                                                           http::request req) {
+void coroutine_http_session::dispatch_async_handler(std::size_t sequence, const http::async_handler &handler,
+                                                    http::request req) {
+	boost::asio::co_spawn(stream_.get_executor(),
+	                      run_async_handler(shared_from_this(), sequence, handler, std::move(req)),
+	                      boost::asio::detached);
+}
+
+boost::asio::awaitable<void> coroutine_http_session::run_async_handler(std::shared_ptr<coroutine_http_session> self,
+                                                                       std::size_t sequence,
+                                                                       const http::async_handler &handler,
+                                                                       http::request req) {
 	try {
-		if (auto intercepted = self->interceptor_chain_.run(req); intercepted.has_value()) {
+		if (auto intercepted = self->req_interceptor_chain_.run(req); intercepted.has_value()) {
 			self->complete_request(sequence, std::move(*intercepted));
 			co_return;
 		}
 
 		auto resp = co_await handler(std::move(req));
+		self->resp_interceptor_chain_.run(resp);
 		self->complete_request(sequence, std::move(resp));
 	} catch (...) {
 		self->complete_request(sequence, http::response::server_error());

@@ -125,6 +125,7 @@ set(warp_http_sources
         src/server/server.cpp
         src/server/server_builder.cpp
         src/server/server_impl.hpp
+        src/server/execution/route_executor_table.cpp
         src/server/session/callback_http_session.cpp
         src/server/session/coroutine_http_session.cpp
         src/server/listener/callback_listener.cpp

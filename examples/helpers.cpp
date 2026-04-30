@@ -43,6 +43,14 @@ struct log_interceptor {
 	}
 };
 
+struct response_log_interceptor {
+	response_log_interceptor() = default;
+
+	static void intercept(warp::response &response) {
+		warp::log::info("Returning response body to end client: {}", response.body());
+	}
+};
+
 class authz_interceptor {
 public:
 	authz_interceptor() = delete;

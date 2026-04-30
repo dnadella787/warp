@@ -10,6 +10,7 @@
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
 
+#include "execution/route_executor_table.hpp"
 #include "interceptors/interceptor_chain.h"
 #include "listener/base_listener.hpp"
 #include "listener/traits.hpp"
@@ -23,7 +24,8 @@ template <http::event_loop_mode Mode>
 class server::server_impl : public impl_base {
 public:
 	server_impl(const std::string &address, std::uint16_t port, std::size_t workers, registry routes,
-	            interceptor_chain interceptor_chain, log::logger logger);
+	            route_executor_table<Mode> route_executors, interceptor_chain<request> req_interceptor_chain,
+	            interceptor_chain<response> resp_interceptor_chain, log::logger logger);
 
 	void run(bool blocking) override;
 	void stop() override;
@@ -45,7 +47,9 @@ private:
 	std::size_t pool_size_;
 	boost::asio::io_context io_ctx_;
 	registry routes_;
-	interceptor_chain interceptor_chain_;
+	route_executor_table<Mode> route_executors_;
+	interceptor_chain<request> req_interceptor_chain_;
+	interceptor_chain<response> resp_interceptor_chain_;
 	log::logger logger_;
 	std::shared_ptr<base_listener> listener_;
 	std::optional<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> guard_;

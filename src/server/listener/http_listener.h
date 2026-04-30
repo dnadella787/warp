@@ -4,8 +4,12 @@
 
 #pragma once
 
+#include <concepts>
+#include <utility>
+
 #include <boost/asio/strand.hpp>
 
+#include "server/execution/route_executor_table.hpp"
 #include "base_listener.hpp"
 #include "server/interceptors/interceptor_chain.h"
 #include "server/router/registry.hpp"
@@ -14,26 +18,29 @@
 namespace warp::server {
 
 template <typename T>
-concept Executor = requires(T t) {
+concept listener_executor = requires(T t) {
     { t.execute() } -> std::same_as<void>;
 };
 
 template <typename T, typename... Args>
-concept CanBeBuiltWith = requires(Args&&... args) {
+concept can_be_built_with = requires(Args&&... args) {
         T(std::forward<Args>(args)...);
 };
 
-template <typename T>
-concept WarpListener =
-    Executor<T> &&
-    CanBeBuiltWith<T, boost::asio::io_context&, const registry&, const interceptor_chain&, std::string, unsigned short,
+template <typename T, typename RouteExecutors>
+concept warp_listener =
+    listener_executor<T> &&
+    can_be_built_with<T, boost::asio::io_context&, const registry&, const RouteExecutors&,
+                   const interceptor_chain<request>&, const interceptor_chain<response>&, std::string, unsigned short,
                    log::logger>;
 
-template<typename T>
+template<typename T, typename RouteExecutors>
 class http_listener : public base_listener  {
 public:
-    http_listener(boost::asio::io_context &ioc, const registry &registry, const std::string &address, unsigned short port,
-                  const interceptor_chain &interceptor_chain, log::logger logger) requires WarpListener<T>;
+    http_listener(boost::asio::io_context &ioc, const registry &registry, const RouteExecutors &route_executors,
+                  const interceptor_chain<request> &req_interceptor_chain,
+                  const interceptor_chain<response> &resp_interceptor_chain, const std::string &address,
+                  unsigned short port, log::logger logger) requires warp_listener<T, RouteExecutors>;
 
     void run() override;
 
@@ -41,7 +48,9 @@ protected:
     boost::asio::io_context &ioc_;
     boost::asio::ip::tcp::acceptor acceptor_;
     const registry &registry_;
-    const interceptor_chain &interceptor_chain_;
+    const RouteExecutors &route_executors_;
+    const interceptor_chain<request> &req_interceptor_chain_;
+    const interceptor_chain<response> &resp_interceptor_chain_;
     log::logger logger_;
 };
 
