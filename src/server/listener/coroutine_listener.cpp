@@ -11,7 +11,7 @@
 namespace warp::server {
 
 coroutine_listener::coroutine_listener(boost::asio::io_context &ioc, const registry &registry,
-                                       const route_executor_table<http::event_loop_mode::coroutines> &route_executors,
+                                       const route_executor_table<event_loop_mode::coroutines> &route_executors,
                                        const interceptor_chain<request> &req_interceptor_chain,
                                        const interceptor_chain<response> &resp_interceptor_chain,
                                        const std::string &address, const unsigned short port, log::logger logger)

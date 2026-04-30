@@ -5,12 +5,12 @@
 #pragma once
 
 #include <concepts>
-#include <utility>
 
 #include <boost/asio/strand.hpp>
 
 #include "server/execution/route_executor_table.hpp"
 #include "base_listener.hpp"
+#include "common/util/concepts.h"
 #include "server/interceptors/interceptor_chain.h"
 #include "server/router/registry.hpp"
 #include "warp/logging/logger.hpp"
@@ -22,15 +22,10 @@ concept listener_executor = requires(T t) {
     { t.execute() } -> std::same_as<void>;
 };
 
-template <typename T, typename... Args>
-concept can_be_built_with = requires(Args&&... args) {
-        T(std::forward<Args>(args)...);
-};
-
 template <typename T, typename RouteExecutors>
 concept warp_listener =
     listener_executor<T> &&
-    can_be_built_with<T, boost::asio::io_context&, const registry&, const RouteExecutors&,
+    common::can_be_built_with<T, boost::asio::io_context&, const registry&, const RouteExecutors&,
                    const interceptor_chain<request>&, const interceptor_chain<response>&, std::string, unsigned short,
                    log::logger>;
 
