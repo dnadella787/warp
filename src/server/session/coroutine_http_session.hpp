@@ -52,7 +52,7 @@ private:
 	log::logger logger_;
 	std::map<std::size_t, request_context> request_ctxs_;
 	std::map<std::size_t, pending_write> pending_responses_;
-	connection_close_policy policy_ {};
+	connection_close_policy close_policy_ {};
 	std::optional<boost::beast::http::request_parser<boost::beast::http::string_body>> parser_;
 	boost::asio::steady_timer read_signal_;
 	boost::asio::steady_timer write_signal_;

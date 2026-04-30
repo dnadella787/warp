@@ -33,9 +33,13 @@ namespace warp::server {
                 close_after(sequence);
         }
 
+        [[nodiscard]] bool should_drop_response(const request_context &req_ctx) const noexcept {
+            return close_after_sequence_.has_value() && req_ctx.sequence > close_after_sequence_.value();
+        }
+
         response_commit on_response_ready(const request_context &req_ctx, warp::response &resp) {
             // this request comes after close marker, don't write it out, socket should be already closed
-            if (close_after_sequence_.has_value() && req_ctx.sequence > close_after_sequence_.value())
+            if (should_drop_response(req_ctx))
                 return response_commit{.drop_response = true, .close_after_write = false};
 
             // server wants to kill the connection now, try if the request hasn't already

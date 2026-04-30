@@ -91,6 +91,7 @@ void callback_http_session::on_read(beast::error_code ec, std::size_t) {
 	if (!close_policy_.accepting_requests())
 		stop_reading_ = true;
 
+	// TODO: support pre route match request interceptor run
 	if (const auto match = routes_.find(request)) {
 		route_executors_.dispatch(match->id, *this, sequence, std::move(request));
 	} else {
@@ -127,8 +128,8 @@ callback_http_session::run_async_handler(std::shared_ptr<callback_http_session> 
                                          const http::async_handler &handler, http::request req) {
 	if (auto intercepted = self->req_interceptor_chain_.run(req); intercepted.has_value())
 		co_return std::move(*intercepted);
-	else
-		co_return co_await handler(std::move(req));
+
+	co_return co_await handler(std::move(req));
 }
 
 void callback_http_session::on_handler_complete(std::size_t sequence, std::exception_ptr eptr, response response) {
@@ -148,12 +149,17 @@ void callback_http_session::on_handler_complete(std::size_t sequence, std::excep
 	if (eptr)
 		response = http::response::server_error();
 
-	// we run the resp interceptor chain no matter what (unless request should be dropped),
-	// even if uncaught exception but if the chain itself returns an error, just return 5xx, don't rerun it
-	try {
-		resp_interceptor_chain_.run(response);
-	} catch (...) {
-		response = http::response::server_error();
+	if (!close_policy_.should_drop_response(ctx_it->second)) {
+		// we run the resp interceptor chain as long as the request should not be dropped because a
+		// prior request already set the close market further ahead. We decide the actual policy later on
+		// since its possible the response interceptor to mutate the keep-alive response values
+		//
+		// If the resp chain itself throws an error, just return 5xx, don't rerun it.
+		try {
+			resp_interceptor_chain_.run(response);
+		} catch (...) {
+			response = http::response::server_error();
+		}
 	}
 
 	const auto decision = close_policy_.on_response_ready(ctx_it->second, response);

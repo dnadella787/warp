@@ -91,8 +91,8 @@ boost::asio::awaitable<void> coroutine_http_session::read_loop() {
 		++outstanding_requests_;
 
 		// checks if client wants to keep the connection alive or close it
-		policy_.on_request_accepted(sequence, req.keep_alive());
-		if (!policy_.accepting_requests())
+		close_policy_.on_request_accepted(sequence, req.keep_alive());
+		if (!close_policy_.accepting_requests())
 			stop_reading_ = true;
 
 		if (const auto match = routes_.find(req)) {
@@ -236,17 +236,23 @@ void coroutine_http_session::complete_request(std::size_t sequence, http::respon
 		return logger_.error("Error in coroutine_http_session during on_handler_complete{{req_ctx.find}}: {}",
 		                     "context could not be found in session map on completion");
 
-	// we only run the response interceptors if the request should not be dropped
-	try {
-		resp_interceptor_chain_.run(response);
-	} catch (...) {
-		response = http::response::server_error();
+	if (!close_policy_.should_drop_response(ctx_it->second)) {
+		// we run the resp interceptor chain as long as the request should not be dropped because a
+		// prior request already set the close market further ahead. We decide the actual policy later on
+		// since its possible the response interceptor to mutate the keep-alive response values
+		//
+		// If the resp chain itself throws an error, just return 5xx, don't rerun it.
+		try {
+			resp_interceptor_chain_.run(response);
+		} catch (...) {
+			response = http::response::server_error();
+		}
 	}
 
 	// we checked before executing the handler to see if client wants to keep connection alive or close it,
 	// now we check the server's own decision before setting the decision based on both (client && server)
-	const auto [drop_response, close_after_write] = policy_.on_response_ready(ctx_it->second, response);
-	if (!policy_.accepting_requests())
+	const auto [drop_response, close_after_write] = close_policy_.on_response_ready(ctx_it->second, response);
+	if (!close_policy_.accepting_requests())
 		stop_reading_ = true;
 
 	// of course there is the chance that a request from the server that finished late wanted to close the conenction,
