@@ -43,6 +43,105 @@ Useful CMake options:
 - `warp_FETCH_BOOST=ON|OFF` fetches Boost with `FetchContent` when a suitable local install is unavailable
 - `WARP_BENCHMARK_SYNC_DB=ON|OFF` enables the synchronous DB benchmark variant
 
+### Testing
+
+Configure a test build:
+
+```bash
+cmake -S . -B build \
+  -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+  -Dwarp_BUILD_DB=ON \
+  -Dwarp_BUILD_TESTS=ON \
+  -Dwarp_BUILD_EXAMPLES=OFF \
+  -Dwarp_BUILD_BENCHMARKS=OFF
+```
+
+Build and run the full suite:
+
+```bash
+cmake --build build -j4
+ctest --test-dir build --output-on-failure
+```
+
+Main test executables:
+
+```bash
+./build/tests/warp_http_unit_tests
+./build/tests/warp_http_smoke_tests
+./build/tests/warp_http_integration_tests
+```
+
+Notes:
+
+- unit and smoke tests use GoogleTest
+- smoke tests avoid binding sockets
+- integration tests start a real Warp server on `127.0.0.1`
+- DB integration tests are only built when `warp_BUILD_DB=ON`
+- DB integration tests skip automatically when `WARP_DB_USER`, `WARP_DB_PASSWORD`, or `WARP_DB_NAME` are unset
+
+### Code Generation
+
+Warp can generate typed request/response models and route-registration adapters from a YAML API description. The generator surface lives under `warp::codegen`.
+
+Two supported workflows:
+
+- ahead of time with the `warp_codegen` CLI
+- during the build with the `warp_generate_stubs(...)` CMake function
+
+Related docs and examples:
+
+- [Code generation guide](docs/codegen.md)
+- [Example YAML spec](examples/codegen/users_api.yaml)
+- [Generated-resource example](examples/codegen/users_resource_example.cpp)
+
+Build the CLI:
+
+```bash
+cmake --build build --target warp_codegen_cli -j4
+```
+
+Generate headers:
+
+```bash
+./build/warp_codegen \
+  --spec examples/codegen/users_api.yaml \
+  --output-dir generated
+```
+
+### PostgreSQL Client
+
+- `warp::db::postgres::connection_pool` wraps libpqxx and runs SQL work on a dedicated background thread pool
+- construct the pool with an executor, then `co_await pool.query(...)` inside a route handler
+- Warp spawns coroutine route handlers internally, so you do not need to call `boost::asio::co_spawn` yourself
+- `query(...)` returns `boost::asio::awaitable<result>` and resumes on the configured completion executor
+
+Example:
+
+```cpp
+.get("/db/{id}",
+     [db_pool](warp::request req) -> warp::awaitable<warp::response> {
+         auto id = req.path_param("id").value_or("");
+         if (!is_integer(id)) {
+             co_return warp::response::bad_request("id must be an integer");
+         }
+
+         try {
+             auto result = co_await db_pool->query(
+                 std::string("select ") + std::string(id) +
+                 "::int as requested_id, current_database() as database_name");
+             co_return warp::response::ok(
+                 warp::body_builder()
+                     .set("requested_id",
+                          result.rows() > 0 ? std::string(result.value(0, 0)) : std::string(id))
+                     .set("database_name",
+                          result.rows() > 0 ? std::string(result.value(0, 1)) : std::string {})
+                     .build());
+         } catch (const std::exception &ex) {
+             co_return warp::response::server_error(ex.what());
+         }
+     })
+```
+
 ### Logging
 
 Warp exposes a small `warp::log` wrapper over `spdlog`. In normal use you configure sinks through `warp::log::sink`, create a `warp::log::logger`, and optionally install it in two places:
@@ -96,44 +195,6 @@ auto server = warp::server::server_builder()
 
 `warp::log::sink::basic_file("warp-custom-server.log", true)` truncates the file on startup so each run starts from a clean log. The file sink is otherwise buffered; the example enables `flush_on(info)` so `tail -f warp-custom-server.log` shows new requests before shutdown instead of only after buffered output is flushed later.
 
-On Apple Silicon, prefer adding `-DCMAKE_OSX_ARCHITECTURES=arm64` when configuring a fresh tree. If your shell is running under Rosetta, prefix configure, build, and run commands with `arch -arm64`.
-
-### Testing
-
-Configure a test build:
-
-```bash
-cmake -S . -B build \
-  -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-  -Dwarp_BUILD_DB=ON \
-  -Dwarp_BUILD_TESTS=ON \
-  -Dwarp_BUILD_EXAMPLES=OFF \
-  -Dwarp_BUILD_BENCHMARKS=OFF
-```
-
-Build and run the full suite:
-
-```bash
-cmake --build build -j4
-ctest --test-dir build --output-on-failure
-```
-
-Main test executables:
-
-```bash
-./build/tests/warp_http_unit_tests
-./build/tests/warp_http_smoke_tests
-./build/tests/warp_http_integration_tests
-```
-
-Notes:
-
-- unit and smoke tests use GoogleTest
-- smoke tests avoid binding sockets
-- integration tests start a real Warp server on `127.0.0.1`
-- DB integration tests are only built when `warp_BUILD_DB=ON`
-- DB integration tests skip automatically when `WARP_DB_USER`, `WARP_DB_PASSWORD`, or `WARP_DB_NAME` are unset
-
 ### Run The Example Server
 
 `warp_example_server` is only built when `warp_BUILD_DB=ON`, because it includes the `/db/{id}` route. The `/hello` and `/ping` routes still work even if DB environment variables are not set.
@@ -176,69 +237,6 @@ Expected JSON for the query-string example:
 {
   "name": "Bob"
 }
-```
-
-### PostgreSQL Client
-
-- `warp::db::postgres::connection_pool` wraps libpqxx and runs SQL work on a dedicated background thread pool
-- construct the pool with an executor, then `co_await pool.query(...)` inside a route handler
-- Warp spawns coroutine route handlers internally, so you do not need to call `boost::asio::co_spawn` yourself
-- `query(...)` returns `boost::asio::awaitable<result>` and resumes on the configured completion executor
-
-Example:
-
-```cpp
-.get("/db/{id}",
-     [db_pool](warp::request req) -> warp::awaitable<warp::response> {
-         auto id = req.path_param("id").value_or("");
-         if (!is_integer(id)) {
-             co_return warp::response::bad_request("id must be an integer");
-         }
-
-         try {
-             auto result = co_await db_pool->query(
-                 std::string("select ") + std::string(id) +
-                 "::int as requested_id, current_database() as database_name");
-             co_return warp::response::ok(
-                 warp::body_builder()
-                     .set("requested_id",
-                          result.rows() > 0 ? std::string(result.value(0, 0)) : std::string(id))
-                     .set("database_name",
-                          result.rows() > 0 ? std::string(result.value(0, 1)) : std::string {})
-                     .build());
-         } catch (const std::exception &ex) {
-             co_return warp::response::server_error(ex.what());
-         }
-     })
-```
-
-### Code Generation
-
-Warp can generate typed request/response models and route-registration adapters from a YAML API description. The generator surface lives under `warp::codegen`.
-
-Two supported workflows:
-
-- ahead of time with the `warp_codegen` CLI
-- during the build with the `warp_generate_stubs(...)` CMake function
-
-Related docs and examples:
-
-- [Code generation guide](docs/codegen.md)
-- [Example YAML spec](examples/codegen/users_api.yaml)
-- [Generated-resource example](examples/codegen/users_resource_example.cpp)
-
-Build the CLI:
-
-```bash
-cmake --build build --target warp_codegen_cli -j4
-```
-
-Generate headers:
-
-```bash
-./build/warp_codegen \
-  --spec examples/codegen/users_api.yaml \
-  --output-dir generated
 ```
 
 ### Benchmarking
