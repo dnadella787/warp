@@ -45,6 +45,10 @@ void plain_session_transport::graceful_shutdown(Session &session) {
 	abort(session.stream_);
 }
 
+inline bool plain_session_transport::should_treat_read_error_as_eof(const beast::error_code &) {
+	return false;
+}
+
 template <warp_http_session Session>
 void tls_session_transport::start(Session &session) {
 	boost::asio::dispatch(session.stream_.get_executor(), [self = session.shared_from_this()]() {
@@ -70,6 +74,10 @@ void tls_session_transport::graceful_shutdown(Session &session) {
 			self->logger_.trace("error in session during shutdown: {}", ec.message());
 		}
 	});
+}
+
+inline bool tls_session_transport::should_treat_read_error_as_eof(const beast::error_code &ec) {
+	return ec == ssl::error::stream_truncated;
 }
 
 } // namespace warp::server

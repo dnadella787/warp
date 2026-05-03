@@ -24,6 +24,11 @@ namespace asio = boost::asio;
 namespace beast = boost::beast;
 using tcp = asio::ip::tcp;
 
+enum class benchmark_transport {
+	plain_http,
+	tls,
+};
+
 inline constexpr double benchmark_min_time_seconds = 60.0;
 inline constexpr std::uint64_t rss_sample_interval = 128;
 inline constexpr std::size_t default_benchmark_concurrency = 1024;
@@ -71,6 +76,7 @@ struct load_test_options {
 	std::chrono::milliseconds connect_timeout {default_benchmark_connect_timeout};
 	std::chrono::milliseconds request_timeout {default_benchmark_request_timeout};
 	std::chrono::milliseconds sample_period {std::chrono::milliseconds {100}};
+	benchmark_transport transport {benchmark_transport::plain_http};
 };
 
 struct load_test_metrics {
@@ -122,6 +128,7 @@ const load_test_options &benchmark_load_test_options();
 void set_benchmark_load_test_options(load_test_options options);
 const std::vector<std::size_t> &benchmark_concurrency_levels();
 load_test_options load_test_options_for_concurrency(std::size_t concurrency);
+warp::ssl::ssl_config make_benchmark_tls_server_ssl_config();
 
 std::string format_duration(std::chrono::milliseconds duration);
 std::string format_load_test_configuration(std::size_t effective_client_threads);

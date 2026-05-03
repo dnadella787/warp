@@ -87,6 +87,7 @@ struct plain_session_transport {
 	static void start(Session &session);
 	template <warp_http_session Session>
 	static void graceful_shutdown(Session &session);
+	[[nodiscard]] static bool should_treat_read_error_as_eof(const beast::error_code &ec);
 	static void abort(stream_type &stream);
 };
 
@@ -100,6 +101,7 @@ struct tls_session_transport {
 	static void start(Session &session);
 	template <warp_http_session Session>
 	static void graceful_shutdown(Session &session);
+	[[nodiscard]] static bool should_treat_read_error_as_eof(const beast::error_code &ec);
 	static void abort(stream_type &stream);
 
 private:

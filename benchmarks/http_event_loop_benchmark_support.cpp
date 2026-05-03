@@ -1,11 +1,14 @@
 #include "http_event_loop_benchmark_support.hpp"
 #include "warp/server/server_builder.hpp"
+#include "warp/ssl/file_cert_loader.hpp"
 
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
 #include <boost/asio/executor_work_guard.hpp>
 #include <boost/asio/redirect_error.hpp>
+#include <boost/asio/ssl/context.hpp>
+#include <boost/asio/ssl/stream.hpp>
 #include <boost/asio/steady_timer.hpp>
 #include <boost/asio/use_awaitable.hpp>
 #include <boost/asio/write.hpp>
@@ -22,6 +25,7 @@
 #include <cmath>
 #include <condition_variable>
 #include <fstream>
+#include <iterator>
 #include <limits>
 #include <mutex>
 #include <optional>
@@ -39,6 +43,7 @@
 namespace warp::benchmarks {
 
 namespace http = beast::http;
+namespace ssl = asio::ssl;
 using namespace std::chrono_literals;
 
 namespace {
@@ -230,6 +235,21 @@ std::optional<std::string> getenv_string(const char *name) {
 		return std::string {value};
 	}
 	return std::nullopt;
+}
+
+std::string benchmark_source_path(std::string_view relative_path) {
+	return std::string(WARP_BENCHMARK_SOURCE_DIR) + "/" + std::string(relative_path);
+}
+
+const std::string &benchmark_tls_pem_bundle() {
+	static const std::string pem_bundle = [] {
+		std::ifstream pem_file(benchmark_source_path("tests/fixtures/tls/test_server_identity.pem"));
+		if (!pem_file) {
+			throw std::runtime_error("failed to open benchmark TLS fixture PEM bundle");
+		}
+		return std::string(std::istreambuf_iterator<char>(pem_file), std::istreambuf_iterator<char>());
+	}();
+	return pem_bundle;
 }
 
 load_test_options default_load_test_options() {
@@ -503,11 +523,74 @@ private:
 	std::string last_connect_error_message_;
 };
 
-class benchmark_client_session : public std::enable_shared_from_this<benchmark_client_session> {
+template <benchmark_transport Transport>
+struct benchmark_transport_traits;
+
+template <>
+struct benchmark_transport_traits<benchmark_transport::plain_http> {
+	using stream_type = beast::tcp_stream;
+
+	static stream_type make_stream(asio::io_context &ioc, ssl::context &) {
+		return stream_type(ioc);
+	}
+
+	static void prepare_stream(stream_type &, ssl::context &) {
+	}
+
+	static beast::tcp_stream &lowest_layer(stream_type &stream) {
+		return stream;
+	}
+
+	static asio::awaitable<void> async_handshake(stream_type &, beast::error_code &ec) {
+		ec = {};
+		co_return;
+	}
+
+	static void close(stream_type &stream) {
+		beast::error_code ec;
+		stream.socket().shutdown(tcp::socket::shutdown_both, ec);
+		stream.socket().close(ec);
+	}
+};
+
+template <>
+struct benchmark_transport_traits<benchmark_transport::tls> {
+	using stream_type = ssl::stream<beast::tcp_stream>;
+
+	static stream_type make_stream(asio::io_context &ioc, ssl::context &ssl_ctx) {
+		return stream_type(ioc, ssl_ctx);
+	}
+
+	static void prepare_stream(stream_type &stream, ssl::context &ssl_ctx) {
+		stream.set_verify_mode(ssl::verify_peer);
+		const auto &pem_bundle = benchmark_tls_pem_bundle();
+		ssl_ctx.add_certificate_authority(asio::buffer(pem_bundle.data(), pem_bundle.size()));
+	}
+
+	static beast::tcp_stream &lowest_layer(stream_type &stream) {
+		return beast::get_lowest_layer(stream);
+	}
+
+	static asio::awaitable<void> async_handshake(stream_type &stream, beast::error_code &ec) {
+		co_await stream.async_handshake(ssl::stream_base::client, asio::redirect_error(asio::use_awaitable, ec));
+	}
+
+	static void close(stream_type &stream) {
+		beast::error_code ec;
+		auto &socket = beast::get_lowest_layer(stream);
+		socket.socket().shutdown(tcp::socket::shutdown_both, ec);
+		socket.socket().close(ec);
+	}
+};
+
+template <benchmark_transport Transport>
+class benchmark_client_session : public std::enable_shared_from_this<benchmark_client_session<Transport>> {
 public:
 	benchmark_client_session(asio::io_context &ioc, std::shared_ptr<load_test_controller> controller,
 	                         shard_metrics &metrics)
-	    : controller_(std::move(controller)), metrics_(metrics), stream_(ioc), retry_timer_(ioc) {
+	    : controller_(std::move(controller)), metrics_(metrics), ssl_ctx_(ssl::context::tls_client),
+	      stream_(benchmark_transport_traits<Transport>::make_stream(ioc, ssl_ctx_)), retry_timer_(ioc) {
+		benchmark_transport_traits<Transport>::prepare_stream(stream_, ssl_ctx_);
 	}
 
 	asio::awaitable<void> run() {
@@ -525,7 +608,8 @@ public:
 				}
 
 				const auto request_start_ns = steady_now_ns();
-				stream_.expires_after(controller_->options().request_timeout);
+				benchmark_transport_traits<Transport>::lowest_layer(stream_).expires_after(
+				    controller_->options().request_timeout);
 				controller_->on_connect_attempt();
 
 				beast::error_code ec;
@@ -541,7 +625,8 @@ public:
 				response_ = {};
 				buffer_.consume(buffer_.size());
 
-				stream_.expires_after(controller_->options().request_timeout);
+				benchmark_transport_traits<Transport>::lowest_layer(stream_).expires_after(
+				    controller_->options().request_timeout);
 				co_await http::async_read(stream_, buffer_, response_, asio::redirect_error(asio::use_awaitable, ec));
 				const auto request_end_ns = steady_now_ns();
 				if (ec) {
@@ -573,16 +658,22 @@ private:
 				co_return false;
 			}
 
-			stream_.expires_after(controller_->options().connect_timeout);
+			benchmark_transport_traits<Transport>::lowest_layer(stream_).expires_after(
+			    controller_->options().connect_timeout);
 
 			beast::error_code ec;
-			co_await stream_.async_connect(controller_->endpoint(), asio::redirect_error(asio::use_awaitable, ec));
+			co_await benchmark_transport_traits<Transport>::lowest_layer(stream_).async_connect(
+			    controller_->endpoint(), asio::redirect_error(asio::use_awaitable, ec));
+			if (!ec) {
+				co_await benchmark_transport_traits<Transport>::async_handshake(stream_, ec);
+			}
 			if (!ec) {
 				connected_ = true;
 				controller_->on_connected();
 				co_return true;
 			}
 
+			controller_->on_connect_failure(ec);
 			record_transport_failure(steady_now_ns(), metrics_.connect_errors);
 			close();
 
@@ -625,16 +716,15 @@ private:
 			controller_->on_disconnected();
 		}
 
-		beast::error_code ec;
 		retry_timer_.cancel();
-		stream_.socket().shutdown(tcp::socket::shutdown_both, ec);
-		stream_.socket().close(ec);
+		benchmark_transport_traits<Transport>::close(stream_);
 		buffer_.consume(buffer_.size());
 	}
 
 	std::shared_ptr<load_test_controller> controller_;
 	shard_metrics &metrics_;
-	beast::tcp_stream stream_;
+	ssl::context ssl_ctx_;
+	typename benchmark_transport_traits<Transport>::stream_type stream_;
 	asio::steady_timer retry_timer_;
 	beast::flat_buffer buffer_;
 	http::response<http::string_body> response_;
@@ -712,8 +802,22 @@ load_test_run_result execute_load_test(std::uint16_t port, std::string_view requ
 
 	for (std::size_t index = 0; index < options.concurrency; ++index) {
 		auto &shard = *shards[index % shards.size()];
-		auto session = std::make_shared<benchmark_client_session>(shard.ioc, controller, shard.metrics);
-		asio::co_spawn(shard.ioc, [session]() -> asio::awaitable<void> { co_await session->run(); }, asio::detached);
+		switch (options.transport) {
+		case benchmark_transport::plain_http: {
+			auto session = std::make_shared<benchmark_client_session<benchmark_transport::plain_http>>(
+			    shard.ioc, controller, shard.metrics);
+			asio::co_spawn(
+			    shard.ioc, [session]() -> asio::awaitable<void> { co_await session->run(); }, asio::detached);
+			break;
+		}
+		case benchmark_transport::tls: {
+			auto session = std::make_shared<benchmark_client_session<benchmark_transport::tls>>(shard.ioc, controller,
+			                                                                                    shard.metrics);
+			asio::co_spawn(
+			    shard.ioc, [session]() -> asio::awaitable<void> { co_await session->run(); }, asio::detached);
+			break;
+		}
+		}
 	}
 
 	for (auto &shard : shards) {
@@ -955,6 +1059,11 @@ load_test_options load_test_options_for_concurrency(std::size_t concurrency) {
 	options.concurrency = std::max<std::size_t>(1, concurrency);
 	options.client_threads = std::max<std::size_t>(1, std::min(options.client_threads, options.concurrency));
 	return options;
+}
+
+warp::ssl::ssl_config make_benchmark_tls_server_ssl_config() {
+	return warp::ssl::ssl_config(
+	    true, warp::ssl::file_cert_loader(benchmark_source_path("tests/fixtures/tls/test_server_identity.pem")));
 }
 
 std::string format_duration(std::chrono::milliseconds duration) {

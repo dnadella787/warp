@@ -69,6 +69,7 @@ You can override those before running the script. The compose file and script bo
 - `WARP_DB_DOCKER_CONTAINER`
 
 `WARP_DB_HOST` defaults to `127.0.0.1` and only affects the client-side exports. Docker still binds the container to the selected local port on localhost.
+If you already have `WARP_DB_HOST=localhost` in your shell, the wrapper script normalizes that local-only value back to `127.0.0.1` when printing exports so benchmarks and tests stay on the numeric loopback path.
 
 ## What Gets Seeded
 

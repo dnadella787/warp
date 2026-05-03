@@ -129,4 +129,9 @@ TEST(TlsTransportTest, GracefulShutdownTimesOutAndReleasesSessionWhenPeerWithhol
 	EXPECT_TRUE(weak_session.expired());
 }
 
+TEST(TlsTransportTest, StreamTruncatedIsTreatedAsGracefulTlsReadClosure) {
+	EXPECT_TRUE(server::tls_session_transport::should_treat_read_error_as_eof(ssl::error::stream_truncated));
+	EXPECT_FALSE(server::plain_session_transport::should_treat_read_error_as_eof(ssl::error::stream_truncated));
+}
+
 } // namespace warp::tests

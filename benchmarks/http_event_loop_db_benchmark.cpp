@@ -46,6 +46,8 @@ void register_db_round_trip_case(std::size_t concurrency) {
 		    try {
 			    auto db_pool = std::make_shared<db::postgres::connection_pool>(asio::system_executor {},
 			                                                                   make_db_config(*env), 4, 2);
+			    // Fail fast before starting the socket load test if Postgres is unavailable.
+			    benchmark::DoNotOptimize(db_pool->sync_query("SELECT 1"));
 			    server_fixture server(
 			        server::server_builder().get<"/db/exchanges/nyse">([db_pool](request) -> awaitable<response> {
 				        auto result = co_await db_pool->query("SELECT exchange_code, exchange_name FROM exchanges "

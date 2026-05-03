@@ -265,11 +265,11 @@ cmake -S . -B build \
   -Dwarp_BUILD_EXAMPLES=OFF
 cmake --build build --target warp_http_event_loop_benchmark -j4
 ./build/benchmarks/warp_http_event_loop_benchmark \
-  --warp-benchmark-concurrency=1k,5k,10k \
+  --warp-benchmark-concurrency=500 \
   --warp-benchmark-client-threads=8 \
-  --warp-benchmark-warmup=5s \
+  --warp-benchmark-warmup=15s \
   --warp-benchmark-duration=60s \
-  --benchmark_repetitions=5 \
+  --benchmark_repetitions=3 \
   --benchmark_report_aggregates_only=true \
   --benchmark_counters_tabular=true
 ```

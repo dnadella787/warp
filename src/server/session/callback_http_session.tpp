@@ -70,7 +70,8 @@ template <warp_session_transport Transport>
 void callback_http_session<Transport>::on_read(beast::error_code ec, std::size_t) {
 	read_in_progress_ = false;
 	// client isn't sending data but we can write back
-	if (ec == beast::http::error::end_of_stream) {
+	// note that for 
+	if (ec == beast::http::error::end_of_stream || Transport::should_treat_read_error_as_eof(ec)) {
 		stop_reading_ = true;
 		// already done writing so gracefully shutdown
 		if (outstanding_requests_ == 0 && !write_in_progress_)
@@ -80,7 +81,7 @@ void callback_http_session<Transport>::on_read(beast::error_code ec, std::size_t
 	}
 
 	if (ec) {
-		logger_.error("error in http_session during on_read: {}", ec.message());
+		logger_.error("error in callback_http_session during on_read: {}", ec.message());
 		return abort_transport();
 	}
 

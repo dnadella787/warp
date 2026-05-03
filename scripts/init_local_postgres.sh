@@ -7,11 +7,24 @@ compose_file="${repo_root}/docker/postgres/compose.yaml"
 sql_file="${repo_root}/docker/postgres/init.sql"
 
 container_name="${WARP_DB_DOCKER_CONTAINER:-warp-db}"
-db_host="${WARP_DB_HOST:-127.0.0.1}"
+raw_db_host="${WARP_DB_HOST:-127.0.0.1}"
 db_port="${WARP_DB_PORT:-5432}"
 db_user="${WARP_DB_USER:-localdbusr}"
 db_password="${WARP_DB_PASSWORD:-localdbpwd}"
 db_name="${WARP_DB_NAME:-warp-db}"
+
+normalize_local_host() {
+	case "$1" in
+	localhost)
+		printf '%s\n' "127.0.0.1"
+		;;
+	*)
+		printf '%s\n' "$1"
+		;;
+	esac
+}
+
+db_host="$(normalize_local_host "${raw_db_host}")"
 
 docker_compose() {
 	docker compose -f "${compose_file}" "$@"

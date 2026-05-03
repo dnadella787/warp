@@ -57,6 +57,12 @@ boost::asio::awaitable<void> coroutine_http_session<Transport>::read_loop() {
 				graceful_shutdown();
 			co_return;
 		}
+		if (Transport::should_treat_read_error_as_eof(ec)) {
+			stop_reading_ = true;
+			if (outstanding_requests_ == 0)
+				graceful_shutdown();
+			co_return;
+		}
 
 		if (ec) {
 			logger_.error("error in coroutine_http_session during read_loop: {}", ec.message());
