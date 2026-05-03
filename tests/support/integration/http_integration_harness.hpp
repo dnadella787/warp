@@ -5,6 +5,8 @@
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/ssl/context.hpp>
+#include <boost/asio/ssl/stream.hpp>
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
 #include <boost/json/object.hpp>
@@ -18,12 +20,14 @@
 
 #include "warp/warp.hpp"
 #include "warp/server/server_builder.hpp"
+#include "warp/ssl/ssl_config.hpp"
 
 namespace warp::tests::integration_support {
 
 namespace asio = boost::asio;
 namespace beast = boost::beast;
 namespace http = beast::http;
+namespace ssl = asio::ssl;
 using tcp = asio::ip::tcp;
 using http_response = http::response<http::string_body>;
 
@@ -61,13 +65,33 @@ struct client_connection {
 	client_connection &operator=(client_connection &&) = delete;
 };
 
+struct tls_client_connection {
+	asio::io_context ioc;
+	ssl::context ssl_ctx {ssl::context::tls_client};
+	ssl::stream<beast::tcp_stream> stream {ioc, ssl_ctx};
+	beast::flat_buffer buffer;
+
+	tls_client_connection() = default;
+	tls_client_connection(const tls_client_connection &) = delete;
+	tls_client_connection &operator=(const tls_client_connection &) = delete;
+	tls_client_connection(tls_client_connection &&) = delete;
+	tls_client_connection &operator=(tls_client_connection &&) = delete;
+};
+
 std::string make_get_request(std::string_view path, std::string_view connection = "keep-alive");
 std::unique_ptr<client_connection> connect_client(std::uint16_t port);
+std::unique_ptr<tls_client_connection> connect_tls_client(std::uint16_t port);
+boost::system::error_code connect_tls_client_without_trust(std::uint16_t port);
 void send_requests(client_connection &client, std::string_view payload);
+void send_requests(tls_client_connection &client, std::string_view payload);
 http_response read_response(client_connection &client);
+http_response read_response(tls_client_connection &client);
 bool next_response_is_eof(client_connection &client);
+bool next_response_is_eof(tls_client_connection &client);
 bool read_until_eof(client_connection &client);
+bool read_until_eof(tls_client_connection &client);
 boost::json::object parse_object_body(const http_response &response);
+warp::ssl::ssl_config make_test_server_ssl_config();
 
 asio::awaitable<response> delayed_ok_response(std::chrono::milliseconds delay, std::function<std::string()> body_fn);
 

@@ -4,49 +4,51 @@
 
 #pragma once
 
-#include <concepts>
+#include <functional>
+#include <memory>
+#include <stdexcept>
+#include <type_traits>
+#include <variant>
+#include <vector>
 
-#include <boost/asio/strand.hpp>
+#include <boost/asio/ip/tcp.hpp>
 
 #include "server/execution/route_executor_table.hpp"
 #include "base_listener.hpp"
-#include "common/util/concepts.h"
 #include "server/interceptors/interceptor_chain.h"
 #include "server/router/registry.hpp"
+#include "server/session/policy/transport.h"
+#include "server/session/policy/transport_provider.h"
 #include "warp/logging/logger.hpp"
 
 namespace warp::server {
 
-template <typename T>
-concept listener_executor = requires(T t) {
-    { t.execute() } -> std::same_as<void>;
-};
+template <http::event_loop_mode Mode, warp_session_transport Transport>
+struct event_loop_traits;
 
-template <typename T, typename RouteExecutors>
-concept warp_listener =
-    listener_executor<T> &&
-    common::can_be_built_with<T, boost::asio::io_context&, const registry&, const RouteExecutors&,
-                   const interceptor_chain<request>&, const interceptor_chain<response>&, std::string, unsigned short,
-                   log::logger>;
-
-template<typename T, typename RouteExecutors>
-class http_listener : public base_listener  {
+template <http::event_loop_mode Mode, warp_session_transport Transport>
+class listener_base : public base_listener {
 public:
-    http_listener(boost::asio::io_context &ioc, const registry &registry, const RouteExecutors &route_executors,
-                  const interceptor_chain<request> &req_interceptor_chain,
-                  const interceptor_chain<response> &resp_interceptor_chain, const std::string &address,
-                  unsigned short port, log::logger logger) requires warp_listener<T, RouteExecutors>;
+	using session_type = typename event_loop_traits<Mode, Transport>::session_type;
+	using executor_table_t = typename event_loop_traits<Mode, Transport>::executor_table_type;
 
-    void run() override;
+	listener_base(boost::asio::io_context &ioc, transport_provider<Transport> transport_provider,
+	              const registry &registry, const std::vector<http::handler> &route_handlers,
+	              const interceptor_chain<request> &req_interceptor_chain,
+	              const interceptor_chain<response> &resp_interceptor_chain, const std::string &address,
+	              unsigned short port, log::logger logger);
 
 protected:
-    boost::asio::io_context &ioc_;
-    boost::asio::ip::tcp::acceptor acceptor_;
-    const registry &registry_;
-    const RouteExecutors &route_executors_;
-    const interceptor_chain<request> &req_interceptor_chain_;
-    const interceptor_chain<response> &resp_interceptor_chain_;
-    log::logger logger_;
+	void start_session(boost::asio::ip::tcp::socket socket);
+
+	boost::asio::io_context &ioc_;
+	boost::asio::ip::tcp::acceptor acceptor_;
+	[[no_unique_address]] transport_provider<Transport> transport_provider_;
+	executor_table_t route_executors_;
+	const registry &registry_;
+	const interceptor_chain<request> &req_interceptor_chain_;
+	const interceptor_chain<response> &resp_interceptor_chain_;
+	log::logger logger_;
 };
 
 } // namespace warp::server

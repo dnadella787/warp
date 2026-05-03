@@ -1,64 +1,38 @@
 #pragma once
 
+#include <concepts>
 #include <cstddef>
 #include <utility>
 #include <variant>
 #include <vector>
 
 #include "server/router/registry.hpp"
-#include "warp/http/event_loop_mode.hpp"
 #include "warp/http/http.hpp"
 
 namespace warp::server {
 
-class callback_http_session;
-class coroutine_http_session;
-
-template <http::event_loop_mode Mode>
-class route_executor_table;
-
-namespace detail {
-
-struct callback_route_executor {
-	using dispatch_fn = void (*)(callback_http_session &, std::size_t, http::request, const callback_route_executor &);
-
-	dispatch_fn dispatch {};
-	std::variant<http::sync_handler, http::async_handler> handler;
-
-	void invoke(callback_http_session &session, std::size_t sequence, http::request request) const {
-		dispatch(session, sequence, std::move(request), *this);
-	}
-};
-
-struct coroutine_route_executor {
-	using dispatch_fn = void (*)(coroutine_http_session &, std::size_t, http::request,
-	                             const coroutine_route_executor &);
-
-	dispatch_fn dispatch {};
-	std::variant<http::sync_handler, http::async_handler> handler;
-
-	void invoke(coroutine_http_session &session, std::size_t sequence, http::request request) const {
-		dispatch(session, sequence, std::move(request), *this);
-	}
-};
-
-[[nodiscard]] callback_route_executor make_callback_route_executor(http::handler handler);
-[[nodiscard]] coroutine_route_executor make_coroutine_route_executor(http::handler handler);
-
-} // namespace detail
-
-template <>
-class route_executor_table<http::event_loop_mode::callbacks> {
+template <typename Session>
+class route_executor_table {
 public:
+	using dispatch_fn = void (*)(Session &, std::size_t, http::request, const http::handler &);
+
 	route_executor_table() = default;
 
 	explicit route_executor_table(std::size_t count) : executors_(count) {
 	}
 
-	void set(registry::route_id id, http::handler handler);
+	void set(registry::route_id id, http::handler handler) {
+		if (executors_.size() <= id.index()) {
+			executors_.resize(id.index() + 1);
+		}
 
-	void dispatch(registry::route_id id, callback_http_session &session, std::size_t sequence,
-	              http::request request) const {
+		auto &executor = executors_[id.index()];
+		executor.handler = std::move(handler);
+		executor.dispatch =
+		    std::holds_alternative<http::sync_handler>(executor.handler) ? &dispatch_sync : &dispatch_async;
+	}
+
+	void dispatch(registry::route_id id, Session &session, std::size_t sequence, http::request request) const {
 		executors_[id.index()].invoke(session, sequence, std::move(request));
 	}
 
@@ -67,30 +41,26 @@ public:
 	}
 
 private:
-	std::vector<detail::callback_route_executor> executors_;
-};
+	struct route_executor {
+		dispatch_fn dispatch {};
+		http::handler handler;
 
-template <>
-class route_executor_table<http::event_loop_mode::coroutines> {
-public:
-	route_executor_table() = default;
+		void invoke(Session &session, std::size_t sequence, http::request request) const {
+			dispatch(session, sequence, std::move(request), handler);
+		}
+	};
 
-	explicit route_executor_table(std::size_t count) : executors_(count) {
+	static void dispatch_sync(Session &session, std::size_t sequence, http::request request,
+	                          const http::handler &handler) {
+		session.dispatch_sync_handler(sequence, std::get<http::sync_handler>(handler), std::move(request));
 	}
 
-	void set(registry::route_id id, http::handler handler);
-
-	void dispatch(registry::route_id id, coroutine_http_session &session, std::size_t sequence,
-	              http::request request) const {
-		executors_[id.index()].invoke(session, sequence, std::move(request));
+	static void dispatch_async(Session &session, std::size_t sequence, http::request request,
+	                           const http::handler &handler) {
+		session.dispatch_async_handler(sequence, std::get<http::async_handler>(handler), std::move(request));
 	}
 
-	[[nodiscard]] bool empty() const noexcept {
-		return executors_.empty();
-	}
-
-private:
-	std::vector<detail::coroutine_route_executor> executors_;
+	std::vector<route_executor> executors_;
 };
 
 } // namespace warp::server

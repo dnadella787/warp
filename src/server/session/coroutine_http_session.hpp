@@ -3,6 +3,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <string_view>
 
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/steady_timer.hpp>
@@ -10,20 +11,25 @@
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
 
-#include "connection_close_policy.h"
+#include "policy/connection_close_policy.h"
+#include "policy/transport.h"
 #include "server/execution/route_executor_table.hpp"
 #include "server/interceptors/interceptor_chain.h"
+#include "server/listener/traits.hpp"
 #include "server/router/registry.hpp"
 #include "warp/warp.hpp"
 
 namespace warp::server {
 
-class coroutine_http_session : public std::enable_shared_from_this<coroutine_http_session> {
+template <warp_session_transport Transport>
+class coroutine_http_session : public std::enable_shared_from_this<coroutine_http_session<Transport>> {
 public:
-	coroutine_http_session(boost::asio::ip::tcp::socket &&socket, const registry &routes,
-	                       const route_executor_table<http::event_loop_mode::coroutines> &route_executors,
-	                       const interceptor_chain<request> &req_chain, const interceptor_chain<response> &resp_chain,
-	                       log::logger logger);
+	using stream_t = typename Transport::stream_type;
+	using executor_table_t = typename event_loop_traits<event_loop_mode::coroutines, Transport>::executor_table_type;
+
+	coroutine_http_session(boost::asio::ip::tcp::socket &&socket, Transport transport, const registry &routes,
+	                       const executor_table_t &route_executors, const interceptor_chain<request> &req_chain,
+	                       const interceptor_chain<response> &resp_chain, log::logger logger);
 
 	void start();
 	void dispatch_sync_handler(std::size_t sequence, const http::sync_handler &handler, http::request req);
@@ -34,6 +40,7 @@ private:
 	boost::asio::awaitable<void> write_loop();
 	boost::asio::awaitable<void> wait_for_read_ready();
 	boost::asio::awaitable<void> wait_for_write_ready();
+	void fail_transport_start(std::string_view stage, boost::beast::error_code ec);
 	static boost::asio::awaitable<void> run_async_handler(std::shared_ptr<coroutine_http_session> self,
 	                                                      std::size_t sequence, const http::async_handler &handler,
 	                                                      http::request req);
@@ -41,12 +48,18 @@ private:
 	void notify_read_loop();
 	void notify_write_loop();
 	void finish_request(std::size_t sequence);
-	void shutdown();
+	void graceful_shutdown();
+	void abort_transport();
 
-	boost::beast::tcp_stream stream_;
+	friend struct plain_session_transport;
+	friend struct tls_session_transport;
+	friend struct http_session_io_starter;
+
+	[[no_unique_address]] Transport transport_;
+	stream_t stream_;
 	boost::beast::flat_buffer buffer_;
 	const registry &routes_;
-	const route_executor_table<event_loop_mode::coroutines> &route_executors_;
+	const executor_table_t &route_executors_;
 	const interceptor_chain<request> &req_interceptor_chain_;
 	const interceptor_chain<response> &resp_interceptor_chain_;
 	log::logger logger_;
@@ -66,3 +79,5 @@ private:
 };
 
 } // namespace warp::server
+
+#include "coroutine_http_session.tpp"

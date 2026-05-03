@@ -31,13 +31,9 @@ struct log_interceptor {
 	log_interceptor() = default;
 
 	static void intercept(warp::request &request) {
-		warp::log::info("Entering request log interceptor");
-
 		auto maybe_name = request.query_param("name");
-		if (!maybe_name) {
-			warp::log::info("Name path param not available for this request");
-			return;
-		}
+		if (!maybe_name)
+			return warp::log::info("Name path param not available for this request");
 
 		warp::log::info("Name path param passed: {}", maybe_name.value());
 	}
@@ -58,8 +54,6 @@ public:
 	}
 
 	std::optional<warp::response> intercept(warp::request &request) const {
-		warp::log::info("Entering request authz interceptor");
-
 		auto maybe_name = request.query_param("name");
 		if (!maybe_name) {
 			warp::log::info("Name path param not available for this request, rejecting with 404");
@@ -67,7 +61,7 @@ public:
 		}
 
 		if (maybe_name.value() != allowed_name_) {
-			warp::log::info("Name {} not authorized for API requests, rejecting with 404", maybe_name.value());
+			warp::log::error("Name {} not authorized for API requests, rejecting with 404", maybe_name.value());
 			return warp::response::not_found();
 		}
 

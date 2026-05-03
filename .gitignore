@@ -6,3 +6,6 @@ build**
 AGENTS.md
 .agents/
 warp-custom-server.log
+*.crt
+*.key
+*.pem

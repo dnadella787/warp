@@ -7,6 +7,7 @@ function(add_warp_runtime_gtest_suite target)
         ${PROJECT_SOURCE_DIR}/src
         ${PROJECT_SOURCE_DIR}/tests
     )
+    target_compile_definitions(${target} PRIVATE WARP_TEST_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
     # Runtime-only tests should not pull in codegen implementation or optional DB libs.
     target_link_libraries(${target} PRIVATE warp_http warp_codegen_core GTest::gtest_main GTest::gmock)
     gtest_discover_tests(${target}
@@ -21,6 +22,7 @@ function(add_warp_codegen_gtest_suite target)
         ${PROJECT_SOURCE_DIR}/src
         ${PROJECT_SOURCE_DIR}/tests
     )
+    target_compile_definitions(${target} PRIVATE WARP_TEST_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
     target_link_libraries(${target} PRIVATE warp_http warp_codegen_core GTest::gtest_main)
     gtest_discover_tests(${target}
         WORKING_DIRECTORY ${PROJECT_BINARY_DIR}
@@ -107,6 +109,8 @@ set(warp_http_unit_test_sources
     unit/response_test.cpp
     unit/registry_test.cpp
     unit/interceptor_chain_test.cpp
+    unit/ssl_context_test.cpp
+    unit/tls_transport_test.cpp
     unit/codegen/json_object_contract_test.cpp
     unit/codegen/model_test.cpp
     unit/codegen/spec_parser_test.cpp
@@ -118,6 +122,7 @@ set(warp_http_unit_test_sources
 add_warp_codegen_gtest_suite(warp_http_unit_tests
     ${warp_http_unit_test_sources}
 )
+target_link_libraries(warp_http_unit_tests PRIVATE OpenSSL::SSL OpenSSL::Crypto)
 
 add_warp_runtime_gtest_suite(warp_http_smoke_tests
     smoke/body_and_response_builder_smoke_test.cpp
@@ -128,6 +133,7 @@ set(warp_http_integration_test_sources
     support/integration/http_integration_harness.cpp
     integration/http_pipelining_integration_test.cpp
     integration/http_connection_and_error_integration_test.cpp
+    integration/http_tls_integration_test.cpp
     integration/generated_api_integration_test.cpp
     integration/generated_query_routing_integration_test.cpp
     integration/generated_singleton_required_query_integration_test.cpp
@@ -148,6 +154,7 @@ target_include_directories(warp_http_integration_tests PRIVATE
     "${GENERATED_NESTED_VALIDATION_DIR}"
 )
 target_link_libraries(warp_http_integration_tests PRIVATE warp_codegen_runtime)
+target_link_libraries(warp_http_integration_tests PRIVATE OpenSSL::SSL OpenSSL::Crypto)
 
 add_warp_compile_only_suite(warp_http_route_validation_compile
     compile/query_route_validation_compile.cpp
@@ -188,5 +195,5 @@ if (TARGET warp_db_postgres)
         support/integration/http_db_test_support.cpp
         integration/http_db_integration_test.cpp
     )
-    target_link_libraries(warp_http_db_integration_tests PRIVATE warp_db_postgres)
+    target_link_libraries(warp_http_db_integration_tests PRIVATE warp_db_postgres OpenSSL::SSL OpenSSL::Crypto)
 endif ()

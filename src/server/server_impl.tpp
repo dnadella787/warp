@@ -2,22 +2,48 @@
 #include "server_impl.hpp"
 
 #include <boost/asio/io_context.hpp>
-#include <boost/asio/strand.hpp>
+
+#include "listener/callback_listener.hpp"
+#include "listener/coroutine_listener.hpp"
 
 namespace warp::server {
 
 template <http::event_loop_mode Mode>
 server::server_impl<Mode>::server_impl(const std::string &address, std::uint16_t port, std::size_t workers,
-                                       registry routes, route_executor_table<Mode> route_executors,
+                                       registry routes, std::vector<http::handler> route_handlers,
+                                       warp::ssl::ssl_config ssl_config,
                                        interceptor_chain<request> req_interceptor_chain,
                                        interceptor_chain<response> resp_interceptor_chain, log::logger logger)
-    : pool_size_(workers ? workers : 1), io_ctx_(static_cast<int>(pool_size_)), routes_(std::move(routes)),
-      route_executors_(std::move(route_executors)), req_interceptor_chain_(std::move(req_interceptor_chain)),
-      resp_interceptor_chain_(std::move(resp_interceptor_chain)),
-      logger_(std::move(logger)),
-      listener_(std::make_shared<listener_t>(io_ctx_, routes_, route_executors_, req_interceptor_chain_,
-                                             resp_interceptor_chain_, address, port, logger_)) {
+	: pool_size_(workers ? workers : 1), io_ctx_(static_cast<int>(pool_size_)), address_(address), port_(port),
+	  routes_(std::move(routes)), req_interceptor_chain_(std::move(req_interceptor_chain)),
+	  resp_interceptor_chain_(std::move(resp_interceptor_chain)),
+	  logger_(std::move(logger)),
+	  listener_(make_listener(std::move(route_handlers), std::move(ssl_config))) {
 	threads_.reserve(pool_size_);
+}
+
+template <http::event_loop_mode Mode>
+std::shared_ptr<base_listener>
+server::server_impl<Mode>::make_listener(std::vector<http::handler> route_handlers, warp::ssl::ssl_config ssl_config) {
+	if (ssl_config.enabled()) {
+		return make_typed_listener<tls_session_transport>(std::move(route_handlers), std::move(ssl_config));
+	}
+	return make_typed_listener<plain_session_transport>(std::move(route_handlers));
+}
+
+template <http::event_loop_mode Mode>
+template <warp_session_transport Transport>
+std::shared_ptr<base_listener> server::server_impl<Mode>::make_typed_listener(
+    std::vector<http::handler> route_handlers, warp::ssl::ssl_config ssl_config) {
+	if constexpr (std::is_same_v<Transport, tls_session_transport>) {
+		return std::make_shared<listener_t<Transport>>(
+		    io_ctx_, transport_provider<tls_session_transport>(std::move(ssl_config)), routes_, route_handlers, req_interceptor_chain_,
+		    resp_interceptor_chain_, address_, port_, logger_);
+	} else {
+		return std::make_shared<listener_t<Transport>>(
+		    io_ctx_, transport_provider<plain_session_transport> {}, routes_, route_handlers, req_interceptor_chain_,
+		    resp_interceptor_chain_, address_, port_, logger_);
+	}
 }
 
 template <http::event_loop_mode _>
@@ -76,7 +102,7 @@ void server::server_impl<_>::run(bool blocking) {
 	try {
 		io_ctx_.run();
 	} catch (...) {
-		logger_.error("Error in io_context::run() on main blocking thread for server_impl::run(), stopping server");
+		logger_.error("error in io_context::run() on main blocking thread for server_impl::run(), stopping server");
 		stop();
 		throw;
 	}

@@ -1,30 +1,39 @@
-#include "callback_http_session.hpp"
-
 #include <boost/asio/co_spawn.hpp>
 #include <boost/beast/http.hpp>
 
+#include "callback_http_session.hpp"
+
 namespace beast = boost::beast;   // from <boost/beast.hpp>
-using tcp = boost::asio::ip::tcp; // from <boost/asio/ip/tcp.hpp>
 
 namespace warp::server {
 
 // The socket executor is already a strand from the listener::do_accept method
-callback_http_session::callback_http_session(boost::asio::ip::tcp::socket &&socket, const registry &routes,
-                                             const route_executor_table<event_loop_mode::callbacks> &route_executors,
-                                             const interceptor_chain<request> &req_chain,
-                                             const interceptor_chain<response> &resp_chain, log::logger logger)
-    : stream_(std::move(socket)), routes_(routes), route_executors_(route_executors), req_interceptor_chain_(req_chain),
+template <warp_session_transport Transport>
+callback_http_session<Transport>::callback_http_session(boost::asio::ip::tcp::socket &&socket, Transport transport,
+                                                        const registry &routes,
+                                                        const executor_table_t &route_executors,
+                                                        const interceptor_chain<request> &req_chain,
+                                                        const interceptor_chain<response> &resp_chain,
+                                                        log::logger logger)
+    : transport_(std::move(transport)),
+      stream_(transport_.make_stream(std::move(socket))), routes_(routes),
+      route_executors_(route_executors), req_interceptor_chain_(req_chain),
       resp_interceptor_chain_(resp_chain), logger_(std::move(logger)) {
 }
 
-void callback_http_session::start() {
-	// We need to be executing within a strand to perform async operations
-	// on the I/O objects in this session
-	boost::asio::dispatch(stream_.get_executor(),
-	                      beast::bind_front_handler(&callback_http_session::maybe_read, this->shared_from_this()));
+template <warp_session_transport Transport>
+void callback_http_session<Transport>::start() {
+	Transport::start(*this);
 }
 
-void callback_http_session::maybe_read() {
+template <warp_session_transport Transport>
+void callback_http_session<Transport>::fail_transport_start(std::string_view stage, beast::error_code ec) {
+	logger_.error("error in callback_http_session during {}: {}", stage, ec.message());
+	abort_transport();
+}
+
+template <warp_session_transport Transport>
+void callback_http_session<Transport>::maybe_read() {
 	// 1. shutting down, stop the read loop
 	// 2. stop reading (if connection: close for ex)
 	// 3. read_in_progress another read already executing which will queue another, don't need to queue another here
@@ -38,7 +47,8 @@ void callback_http_session::maybe_read() {
 	do_read();
 }
 
-void callback_http_session::do_read() {
+template <warp_session_transport Transport>
+void callback_http_session<Transport>::do_read() {
 	// Construct a new parser for each message
 	parser_.emplace();
 
@@ -46,30 +56,32 @@ void callback_http_session::do_read() {
 	// of the body in bytes to prevent abuse.
 	parser_->body_limit(10000);
 
-	// Set the timeout.
-	stream_.expires_after(std::chrono::seconds(30));
+	// Set the timeout (asio::ssl::stream does not have expires_after, so we search for the underlying socket)
+	beast::get_lowest_layer(stream_).expires_after(std::chrono::seconds(30));
 	read_in_progress_ = true;
 
 	// Read a request using the parser-oriented interface
 	beast::http::async_read(stream_, buffer_, *parser_,
-	                        beast::bind_front_handler(&callback_http_session::on_read, shared_from_this()));
+	                        beast::bind_front_handler(&callback_http_session::on_read,
+	                                                  this->shared_from_this()));
 }
 
-void callback_http_session::on_read(beast::error_code ec, std::size_t) {
+template <warp_session_transport Transport>
+void callback_http_session<Transport>::on_read(beast::error_code ec, std::size_t) {
 	read_in_progress_ = false;
 	// client isn't sending data but we can write back
 	if (ec == beast::http::error::end_of_stream) {
 		stop_reading_ = true;
 		// already done writing so gracefully shutdown
 		if (outstanding_requests_ == 0 && !write_in_progress_)
-			shutdown();
+			graceful_shutdown();
 		// exit the read loop, if done writing then this ends the session
 		return;
 	}
 
 	if (ec) {
-		logger_.error("Error in http_session during on_read: {}", ec.message());
-		return shutdown(true);
+		logger_.error("error in http_session during on_read: {}", ec.message());
+		return abort_transport();
 	}
 
 	// async_read was canceled after it was started so just exit the read loop instead of letting the now invalid
@@ -101,8 +113,9 @@ void callback_http_session::on_read(beast::error_code ec, std::size_t) {
 	maybe_read();
 }
 
-void callback_http_session::dispatch_sync_handler(std::size_t sequence, const http::sync_handler &handler,
-                                                  http::request request) {
+template <warp_session_transport Transport>
+void callback_http_session<Transport>::dispatch_sync_handler(std::size_t sequence, const http::sync_handler &handler,
+                                                             http::request request) {
 	try {
 		response response;
 		if (auto intercepted = req_interceptor_chain_.run(request); intercepted.has_value())
@@ -116,23 +129,28 @@ void callback_http_session::dispatch_sync_handler(std::size_t sequence, const ht
 	}
 }
 
-void callback_http_session::dispatch_async_handler(std::size_t sequence, const http::async_handler &handler,
-                                                   http::request request) {
+template <warp_session_transport Transport>
+void callback_http_session<Transport>::dispatch_async_handler(std::size_t sequence, const http::async_handler &handler,
+                                                              http::request request) {
 	boost::asio::co_spawn(
-	    stream_.get_executor(), run_async_handler(shared_from_this(), handler, std::move(request)),
-	    beast::bind_front_handler(&callback_http_session::on_handler_complete, shared_from_this(), sequence));
+	    stream_.get_executor(), run_async_handler(this->shared_from_this(), handler, std::move(request)),
+	    beast::bind_front_handler(&callback_http_session::on_handler_complete,
+	                              this->shared_from_this(), sequence));
 }
 
+template <warp_session_transport Transport>
 boost::asio::awaitable<http::response>
-callback_http_session::run_async_handler(std::shared_ptr<callback_http_session> self,
-                                         const http::async_handler &handler, http::request req) {
+callback_http_session<Transport>::run_async_handler(std::shared_ptr<callback_http_session> self,
+                                                    const http::async_handler &handler, http::request req) {
 	if (auto intercepted = self->req_interceptor_chain_.run(req); intercepted.has_value())
 		co_return std::move(*intercepted);
 
 	co_return co_await handler(std::move(req));
 }
 
-void callback_http_session::on_handler_complete(std::size_t sequence, std::exception_ptr eptr, response response) {
+template <warp_session_transport Transport>
+void callback_http_session<Transport>::on_handler_complete(std::size_t sequence, std::exception_ptr eptr,
+                                                           response response) {
 	// shutdown could be initiated during the async request handler execution in
 	// which case we should dump this response because we already told the client we are not
 	// writing out anymore responses
@@ -141,7 +159,7 @@ void callback_http_session::on_handler_complete(std::size_t sequence, std::excep
 
 	auto ctx_it = request_ctxs_.find(sequence);
 	if (ctx_it == request_ctxs_.end())
-		return logger_.error("Error in http_session during on_handler_complete{{req_ctx.find}}: {}",
+		return logger_.trace("error in callback_http_session during on_handler_complete{{req_ctx.find}}: {}",
 		                     "context could not be found in session map on completion");
 
 	// Unhandled exception is returned to end user as 500
@@ -171,7 +189,7 @@ void callback_http_session::on_handler_complete(std::size_t sequence, std::excep
 		// erase it from request ctx pool, if we are done just shutdown
 		finish_request(ctx_it->second.sequence);
 		if (outstanding_requests_ == 0 and stop_reading_)
-			return shutdown();
+			return graceful_shutdown();
 
 		// otherwise keep writing out any remaining responses
 		maybe_write();
@@ -184,7 +202,8 @@ void callback_http_session::on_handler_complete(std::size_t sequence, std::excep
 	maybe_write(); // starts the initial write loop on the first handler completion
 }
 
-void callback_http_session::maybe_write() {
+template <warp_session_transport Transport>
+void callback_http_session<Transport>::maybe_write() {
 	// if the writes are stopped (either due to error or bc of close semantic + all writes finished)
 	// then we exit the write loop.
 	if (shutdown_started_ || write_in_progress_)
@@ -195,27 +214,30 @@ void callback_http_session::maybe_write() {
 
 // Called to start/continue the write-loop. Should not be called when
 // write_loop is already active.
-void callback_http_session::do_write() {
+template <warp_session_transport Transport>
+void callback_http_session<Transport>::do_write() {
 	const auto it = pending_responses_.find(next_write_sequence_);
 	if (it != pending_responses_.end()) {
 		write_in_progress_ = true;
-		stream_.expires_after(std::chrono::seconds(30));
+		beast::get_lowest_layer(stream_).expires_after(std::chrono::seconds(30));
 		beast::http::async_write(
 		    stream_, it->second.response,
-		    beast::bind_front_handler(&callback_http_session::on_write, shared_from_this(), next_write_sequence_));
+		    beast::bind_front_handler(&callback_http_session::on_write, this->shared_from_this(),
+		                              next_write_sequence_));
 	}
 	// else the next write sequence is not available to write out so we stop the write loop.
 	// the completion handler will start the write loop back up later
 }
 
-void callback_http_session::on_write(std::size_t sequence, beast::error_code ec, std::size_t _) {
+template <warp_session_transport Transport>
+void callback_http_session<Transport>::on_write(std::size_t sequence, beast::error_code ec, std::size_t _) {
 	write_in_progress_ = false;
 
 	if (ec) {
-		logger_.error("Error in http_session during on_write: {}", ec.message());
+		logger_.trace("error in callback_http_session during on_write: {}", ec.message());
 		// we error out b/c HTTP 1.1 requires resp to come in same order, so if this
 		// write fails, we either have to retry this or cancel the rest too
-		return shutdown(true);
+		return abort_transport();
 	}
 
 	auto it = pending_responses_.find(sequence);
@@ -224,7 +246,7 @@ void callback_http_session::on_write(std::size_t sequence, beast::error_code ec,
 		close_after_write = it->second.close_after_write;
 		pending_responses_.erase(sequence);
 	} else {
-		logger_.error("Error in http_session during on_write{{pending_responses.find}}: {}",
+		logger_.trace("error in callback_http_session during on_write{{pending_responses.find}}: {}",
 		              "could not find response in pending response map to erase");
 	}
 
@@ -235,7 +257,7 @@ void callback_http_session::on_write(std::size_t sequence, beast::error_code ec,
 	// close after this write (b/c client/server said connection close)
 	// we already finished the write so shutdown
 	if (close_after_write)
-		return shutdown();
+		return graceful_shutdown();
 
 	// We just freed up capacity so start the read loop up again.
 	if (outstanding_requests_ == pipeline_limit_ - 1)
@@ -243,34 +265,34 @@ void callback_http_session::on_write(std::size_t sequence, beast::error_code ec,
 
 	// not reading in anymore and nothing else to process/write out so just shutdown
 	if (outstanding_requests_ == 0 && stop_reading_)
-		return shutdown();
+		return graceful_shutdown();
 
 	// keep the loop going
 	maybe_write();
 }
 
-void callback_http_session::finish_request(std::size_t sequence) {
+template <warp_session_transport Transport>
+void callback_http_session<Transport>::finish_request(std::size_t sequence) {
 	request_ctxs_.erase(sequence);
 	--outstanding_requests_;
 }
 
-void callback_http_session::shutdown(bool force) {
+template <warp_session_transport Transport>
+void callback_http_session<Transport>::graceful_shutdown() {
 	if (shutdown_started_) {
 		return;
 	}
 	shutdown_started_ = true;
+	Transport::graceful_shutdown(*this);
+}
 
-	boost::system::error_code ec;
-	stream_.socket().shutdown(tcp::socket::shutdown_send, ec);
-	if (ec)
-		logger_.error("Error in http_session during shutdown: {}", ec.message());
-
-	if (force) {
-		ec.clear();
-		stream_.socket().close(ec);
-		if (ec)
-			logger_.error("Error in http_session during shutdown: {}", ec.message());
+template <warp_session_transport Transport>
+void callback_http_session<Transport>::abort_transport() {
+	if (shutdown_started_) {
+		return;
 	}
+	shutdown_started_ = true;
+	Transport::abort(stream_);
 }
 
 } // namespace warp::server

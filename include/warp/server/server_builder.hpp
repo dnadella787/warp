@@ -20,6 +20,7 @@
 #include "warp/logging/logger.hpp"
 #include "warp/server/router/route_spec.hpp"
 #include "warp/server/server.hpp"
+#include "warp/ssl/ssl_config.hpp"
 
 namespace warp::server {
 
@@ -72,6 +73,7 @@ public:
 	server_builder &port(std::uint16_t port);
 	server_builder &worker_threads(std::size_t count);
 	server_builder &logger(log::logger logger);
+	server_builder &ssl_config(warp::ssl::ssl_config config);
 
 	/*
 	 * `register_resource` accepts lvalue
@@ -242,10 +244,15 @@ private:
 		TypeErasedInterceptorFunc callback;
 	};
 
+	template <detail::erased_interceptor_type Interceptor>
+	[[nodiscard]] static std::vector<Interceptor>
+	build_interceptor_chain_entries(std::vector<interceptor_definition<Interceptor>> interceptors);
+
 	std::string address_ {"0.0.0.0"};
 	std::uint16_t port_ {8080};
 	std::size_t workers_ {1};
 	std::optional<log::logger> logger_;
+	warp::ssl::ssl_config ssl_config_ {};
 	std::vector<route_definition> routes_;
 	std::vector<interceptor_definition<detail::type_erased_req_interceptor>> req_interceptors_;
 	std::vector<interceptor_definition<detail::type_erased_resp_interceptor>> resp_interceptors_;

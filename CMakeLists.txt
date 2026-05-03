@@ -105,6 +105,7 @@ if (NOT spdlog_FOUND)
 endif ()
 
 find_package(Boost 1.90 REQUIRED COMPONENTS json)
+find_package(OpenSSL REQUIRED)
 find_package(Threads REQUIRED)
 if (warp_BUILD_DB)
     find_package(PostgreSQL REQUIRED)
@@ -125,9 +126,11 @@ set(warp_http_sources
         src/server/server.cpp
         src/server/server_builder.cpp
         src/server/server_impl.hpp
+        src/ssl/ssl_context_provider.cpp
         src/server/execution/route_executor_table.cpp
-        src/server/session/callback_http_session.cpp
-        src/server/session/coroutine_http_session.cpp
+        src/server/session/policy/transport.cpp
+        src/server/session/callback_http_session.hpp
+        src/server/session/coroutine_http_session.hpp
         src/server/listener/callback_listener.cpp
         src/server/listener/coroutine_listener.cpp
         src/server/router/registry.cpp)
@@ -182,6 +185,8 @@ target_link_libraries(
         Boost::headers
         spdlog::spdlog_header_only
     PRIVATE
+        OpenSSL::SSL
+        OpenSSL::Crypto
         Threads::Threads)
 
 add_library(warp_codegen_runtime INTERFACE)

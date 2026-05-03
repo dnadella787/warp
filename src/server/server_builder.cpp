@@ -32,6 +32,11 @@ server_builder &server_builder::logger(log::logger logger) {
 	return *this;
 }
 
+server_builder &server_builder::ssl_config(warp::ssl::ssl_config config) {
+	ssl_config_ = std::move(config);
+	return *this;
+}
+
 template <http::event_loop_mode Mode>
 server server_builder::build() const {
 	return make_server<Mode>();
@@ -48,34 +53,33 @@ template server server_builder::build<event_loop_mode::coroutines>() const;
 template <http::event_loop_mode Mode>
 [[nodiscard]] std::shared_ptr<server::impl_base> server_builder::make_impl() const {
 	registry registry;
-	route_executor_table<Mode> route_executors(routes_.size());
+	std::vector<http::handler> route_handlers(routes_.size());
 	for (const auto &[verb, path, constraints, handler] : routes_) {
 		const auto route_id = registry.add_typed(verb, path, constraints);
-		route_executors.set(route_id, handler);
+		route_handlers[route_id.index()] = handler;
 	}
 
-	auto req_interceptors = req_interceptors_;
-	std::stable_sort(req_interceptors.begin(), req_interceptors.end(),
-	                 [](const auto &lhs, const auto &rhs) { return lhs.priority < rhs.priority; });
-
-	std::vector<detail::type_erased_req_interceptor> req_chain_entries;
-	req_chain_entries.reserve(req_interceptors.size());
-	for (auto &entry : req_interceptors)
-		req_chain_entries.push_back(std::move(entry.callback));
-
-	auto resp_interceptors = resp_interceptors_;
-	std::stable_sort(resp_interceptors.begin(), resp_interceptors.end(),
-	                 [](const auto &lhs, const auto &rhs) { return lhs.priority < rhs.priority; });
-
-	std::vector<detail::type_erased_resp_interceptor> resp_chain_entries;
-	resp_chain_entries.reserve(resp_interceptors.size());
-	for (auto &entry : resp_interceptors)
-		resp_chain_entries.push_back(std::move(entry.callback));
+	auto req_chain_entries = build_interceptor_chain_entries(req_interceptors_);
+	auto resp_chain_entries = build_interceptor_chain_entries(resp_interceptors_);
 
 	return std::make_shared<server::server_impl<Mode>>(
-	    address_, port_, workers_, std::move(registry), std::move(route_executors),
+	    address_, port_, workers_, std::move(registry), std::move(route_handlers), ssl_config_,
 	    interceptor_chain<request> {std::move(req_chain_entries)},
 	    interceptor_chain<response> {std::move(resp_chain_entries)}, logger_.value_or(log::default_logger()));
+}
+
+template <detail::erased_interceptor_type Interceptor>
+std::vector<Interceptor>
+server_builder::build_interceptor_chain_entries(std::vector<interceptor_definition<Interceptor>> interceptors) {
+	std::stable_sort(interceptors.begin(), interceptors.end(),
+	                 [](const auto &lhs, const auto &rhs) { return lhs.priority < rhs.priority; });
+
+	std::vector<Interceptor> chain_entries;
+	chain_entries.reserve(interceptors.size());
+	for (auto &entry : interceptors)
+		chain_entries.push_back(std::move(entry.callback));
+
+	return chain_entries;
 }
 
 } // namespace warp::server
