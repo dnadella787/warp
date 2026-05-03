@@ -14,17 +14,6 @@ The current tree includes:
 - a YAML-to-C++ code generator for typed request/response models and resource stubs
 - unit, smoke, integration, and benchmark targets
 
-### Recent Updates
-
-Highlights from the latest changes in this checkout:
-
-- `2026-04-21`: query-route semantics were unified across runtime routing, typed routes, and generated resources.
-- `2026-04-21`: singleton generated endpoints with required query parameters now preserve binder-driven `400` responses instead of failing routing early.
-- `2026-04-21`: route registration now uses compiled route metadata directly, and request parameter lookup supports heterogeneous `std::string_view` keys.
-- `2026-04-20`: generated models now expose builders plus setter/getter accessors, and generated handlers may return either typed responses or raw `warp::response` values.
-- `2026-04-20`: `server_impl` shutdown handling picked up fixes for run/stop races and self-join issues.
-- `2026-04-18`: coroutine session shutdown was tightened to handle server-side close scenarios more reliably.
-
 ### Build
 
 Requirements:
