@@ -49,6 +49,8 @@ OpenSSL handshake inspection:
 openssl s_client -connect localhost:8080 -servername localhost -CAfile examples/tls/localhost-ca.pem
 ```
 
+If you are testing live certificate refresh with a file-backed loader, do not rotate the active PEM file multiple times inside the same filesystem timestamp tick. Many filesystems only update `last_write_time` at coarse granularity. The helper script in [scripts/rotate_tls_pems.sh](../scripts/rotate_tls_pems.sh) defaults to a 5 second interval for that reason.
+
 ## Expected errors
 
 If TLS is disabled and you send `https://` traffic to the plain HTTP listener, the client handshake fails. On the server side, Beast may log `bad method` because the HTTP parser is trying to interpret TLS handshake bytes as an HTTP request line. That is expected for a protocol mismatch.

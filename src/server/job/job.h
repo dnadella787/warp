@@ -36,6 +36,7 @@ namespace warp::server {
                 job_(std::move(job)),
                 config_(job_.config()) {}
 
+        // return bool because we will emit metrics from these in the future
         bool operator()() {
             unsigned short attempts = 0;
             while (attempts <= config_.max_retries) {

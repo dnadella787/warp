@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include <chrono>
+#include <filesystem>
 #include <memory>
 #include <fstream>
 #include <iterator>
@@ -15,6 +17,7 @@
 namespace warp::tests {
 
 namespace {
+namespace fs = std::filesystem;
 
 std::string test_source_path(std::string_view relative_path) {
 	return std::string(WARP_TEST_SOURCE_DIR) + "/" + std::string(relative_path);
@@ -114,6 +117,15 @@ private:
 	mutable bool has_loaded_ {false};
 };
 
+struct temp_dir_guard {
+	fs::path path;
+
+	~temp_dir_guard() {
+		std::error_code ec;
+		fs::remove_all(path, ec);
+	}
+};
+
 } // namespace
 
 TEST(SslContextTest, FileCertLoaderReturnsExactPemBundleBytes) {
@@ -158,6 +170,38 @@ TEST(SslContextTest, ProviderLoadsLatestContextOnlyWhenPemBundleChanges) {
 	ASSERT_NE(refreshed_context, nullptr);
 	EXPECT_NE(refreshed_context, initial_context);
 	EXPECT_EQ(provider.current(), refreshed_context);
+}
+
+TEST(SslContextTest, FileCertLoaderDetectsPemBundleChangesByLastWriteTime) {
+	const auto fixture_pem = read_file_exact(test_source_path("tests/fixtures/tls/test_server_identity.pem"));
+	const auto temp_dir = fs::temp_directory_path() /
+	                      ("warp-file-cert-loader-" +
+	                       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + "-mtime");
+	fs::create_directories(temp_dir);
+	temp_dir_guard cleanup {.path = temp_dir};
+
+	const auto pem_path = temp_dir / "bundle.pem";
+	{
+		std::ofstream output(pem_path, std::ios::binary);
+		ASSERT_TRUE(output);
+		output << fixture_pem;
+	}
+
+	warp::ssl::file_cert_loader loader(pem_path.string());
+
+	EXPECT_EQ(loader.load_pem_bundle(), fixture_pem);
+	EXPECT_FALSE(loader.have_certs_changed());
+
+	const auto original_write_time = fs::last_write_time(pem_path);
+	{
+		std::ofstream output(pem_path, std::ios::binary | std::ios::trunc);
+		ASSERT_TRUE(output);
+		output << fixture_pem;
+	}
+	fs::last_write_time(pem_path, original_write_time + std::chrono::seconds(2));
+
+	EXPECT_TRUE(loader.have_certs_changed());
+	EXPECT_FALSE(loader.have_certs_changed());
 }
 
 TEST(SslContextTest, DisabledConfigDoesNotConstructProvider) {
