@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "interceptor/interceptor.h"
+#include "job.hpp"
 #include "router/route_types.h"
 #include "warp/http/event_loop_mode.hpp"
 #include "warp/http/http.hpp"
@@ -74,6 +75,12 @@ public:
 	server_builder &worker_threads(std::size_t count);
 	server_builder &logger(log::logger logger);
 	server_builder &ssl_config(warp::ssl::ssl_config config);
+	server_builder &add_job(job::background_job job);
+
+	template <job::job Job>
+	server_builder &add_job(Job job) {
+		return add_job(job::make_background_job(std::move(job)));
+	}
 
 	/*
 	 * `register_resource` accepts lvalue
@@ -254,6 +261,7 @@ private:
 	std::optional<log::logger> logger_;
 	warp::ssl::ssl_config ssl_config_ {};
 	std::vector<route_definition> routes_;
+	std::vector<job::background_job> jobs_;
 	std::vector<interceptor_definition<detail::type_erased_req_interceptor>> req_interceptors_;
 	std::vector<interceptor_definition<detail::type_erased_resp_interceptor>> resp_interceptors_;
 	std::size_t next_interceptor_registration_order_ {};

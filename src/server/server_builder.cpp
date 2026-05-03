@@ -37,6 +37,11 @@ server_builder &server_builder::ssl_config(warp::ssl::ssl_config config) {
 	return *this;
 }
 
+server_builder &server_builder::add_job(job::background_job job) {
+	jobs_.push_back(std::move(job));
+	return *this;
+}
+
 template <http::event_loop_mode Mode>
 server server_builder::build() const {
 	return make_server<Mode>();
@@ -63,7 +68,7 @@ template <http::event_loop_mode Mode>
 	auto resp_chain_entries = build_interceptor_chain_entries(resp_interceptors_);
 
 	return std::make_shared<server::server_impl<Mode>>(
-	    address_, port_, workers_, std::move(registry), std::move(route_handlers), ssl_config_,
+	    address_, port_, workers_, std::move(registry), std::move(route_handlers), ssl_config_, jobs_,
 	    interceptor_chain<request> {std::move(req_chain_entries)},
 	    interceptor_chain<response> {std::move(resp_chain_entries)}, logger_.value_or(log::default_logger()));
 }

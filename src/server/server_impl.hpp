@@ -12,6 +12,7 @@
 #include <boost/asio/ip/tcp.hpp>
 
 #include "interceptors/interceptor_chain.h"
+#include "job/job_manager.h"
 #include "listener/base_listener.hpp"
 #include "listener/traits.hpp"
 #include "router/registry.hpp"
@@ -27,8 +28,8 @@ class server::server_impl : public impl_base {
 public:
 	server_impl(const std::string &address, std::uint16_t port, std::size_t workers, registry routes,
 	            std::vector<http::handler> route_handlers, warp::ssl::ssl_config ssl_config,
-	            interceptor_chain<request> req_interceptor_chain, interceptor_chain<response> resp_interceptor_chain,
-	            log::logger logger);
+	            std::vector<warp::job::background_job> jobs, interceptor_chain<request> req_interceptor_chain,
+	            interceptor_chain<response> resp_interceptor_chain, log::logger logger);
 
 	void run(bool blocking) override;
 	void stop() override;
@@ -57,6 +58,7 @@ private:
 	std::string address_;
 	std::uint16_t port_;
 	registry routes_;
+	job_manager jobs_;
 	interceptor_chain<request> req_interceptor_chain_;
 	interceptor_chain<response> resp_interceptor_chain_;
 	log::logger logger_;

@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <memory>
 #include <fstream>
 #include <iterator>
 #include <stdexcept>
@@ -47,6 +48,10 @@ public:
 	explicit mismatched_key_loader(std::string fixture_path) : fixture_path_(std::move(fixture_path)) {
 	}
 
+	[[nodiscard]] bool have_certs_changed() const override {
+		return true;
+	}
+
 	[[nodiscard]] std::string load_pem_bundle() const override {
 		return certificate_only_pem_bundle(fixture_path_) + std::string(kMismatchedPrivateKeyPem);
 	}
@@ -85,6 +90,30 @@ Fwvrj8ZFxyTXADuVG542mA==
 	std::string fixture_path_;
 };
 
+class mutable_pem_loader final : public warp::ssl::cert_loader {
+public:
+	explicit mutable_pem_loader(std::shared_ptr<std::string> pem_bundle) : pem_bundle_(std::move(pem_bundle)) {
+	}
+
+	[[nodiscard]] bool have_certs_changed() const override {
+		if (!has_loaded_) {
+			return true;
+		}
+		return *pem_bundle_ != last_loaded_pem_bundle_;
+	}
+
+	[[nodiscard]] std::string load_pem_bundle() const override {
+		last_loaded_pem_bundle_ = *pem_bundle_;
+		has_loaded_ = true;
+		return last_loaded_pem_bundle_;
+	}
+
+private:
+	std::shared_ptr<std::string> pem_bundle_;
+	mutable std::string last_loaded_pem_bundle_;
+	mutable bool has_loaded_ {false};
+};
+
 } // namespace
 
 TEST(SslContextTest, FileCertLoaderReturnsExactPemBundleBytes) {
@@ -110,6 +139,25 @@ TEST(SslContextTest, ProviderRejectsMismatchedPrivateKeyAndCertificateChain) {
 
 	EXPECT_THROW(warp::server::ssl_context_provider(warp::ssl::ssl_config(true, mismatched_key_loader(fixture_path))),
 	             std::runtime_error);
+}
+
+TEST(SslContextTest, ProviderLoadsLatestContextOnlyWhenPemBundleChanges) {
+	auto pem_bundle =
+	    std::make_shared<std::string>(read_file_exact(test_source_path("tests/fixtures/tls/test_server_identity.pem")));
+	warp::server::ssl_context_provider provider(warp::ssl::ssl_config(true, mutable_pem_loader(pem_bundle)));
+
+	const auto initial_context = provider.current();
+	ASSERT_NE(initial_context, nullptr);
+
+	EXPECT_EQ(provider.load_latest_ssl_context(), initial_context);
+	EXPECT_EQ(provider.current(), initial_context);
+
+	pem_bundle->append("\n");
+	const auto refreshed_context = provider.load_latest_ssl_context();
+
+	ASSERT_NE(refreshed_context, nullptr);
+	EXPECT_NE(refreshed_context, initial_context);
+	EXPECT_EQ(provider.current(), refreshed_context);
 }
 
 TEST(SslContextTest, DisabledConfigDoesNotConstructProvider) {

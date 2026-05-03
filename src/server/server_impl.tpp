@@ -11,15 +11,18 @@ namespace warp::server {
 template <http::event_loop_mode Mode>
 server::server_impl<Mode>::server_impl(const std::string &address, std::uint16_t port, std::size_t workers,
                                        registry routes, std::vector<http::handler> route_handlers,
-                                       warp::ssl::ssl_config ssl_config,
+                                       warp::ssl::ssl_config ssl_config, std::vector<warp::job::background_job> jobs,
                                        interceptor_chain<request> req_interceptor_chain,
                                        interceptor_chain<response> resp_interceptor_chain, log::logger logger)
 	: pool_size_(workers ? workers : 1), io_ctx_(static_cast<int>(pool_size_)), address_(address), port_(port),
-	  routes_(std::move(routes)), req_interceptor_chain_(std::move(req_interceptor_chain)),
+	  routes_(std::move(routes)), jobs_(io_ctx_), req_interceptor_chain_(std::move(req_interceptor_chain)),
 	  resp_interceptor_chain_(std::move(resp_interceptor_chain)),
 	  logger_(std::move(logger)),
 	  listener_(make_listener(std::move(route_handlers), std::move(ssl_config))) {
 	threads_.reserve(pool_size_);
+	for (auto &job : jobs) {
+		jobs_.add_job(std::move(job));
+	}
 }
 
 template <http::event_loop_mode Mode>
@@ -36,8 +39,10 @@ template <warp_session_transport Transport>
 std::shared_ptr<base_listener> server::server_impl<Mode>::make_typed_listener(
     std::vector<http::handler> route_handlers, warp::ssl::ssl_config ssl_config) {
 	if constexpr (std::is_same_v<Transport, tls_session_transport>) {
+		auto provider = transport_provider<tls_session_transport>(std::move(ssl_config));
+		jobs_.add_job(provider.make_refresh_job());
 		return std::make_shared<listener_t<Transport>>(
-		    io_ctx_, transport_provider<tls_session_transport>(std::move(ssl_config)), routes_, route_handlers, req_interceptor_chain_,
+		    io_ctx_, std::move(provider), routes_, route_handlers, req_interceptor_chain_,
 		    resp_interceptor_chain_, address_, port_, logger_);
 	} else {
 		return std::make_shared<listener_t<Transport>>(
@@ -63,6 +68,7 @@ void server::server_impl<_>::run(bool blocking) {
 		try {
 			start_runner_threads();
 			listener_->run();
+			jobs_.start_jobs();
 			state_ = lifecycle_state::running;
 		} catch (...) {
 			state_ = lifecycle_state::stopping;

@@ -6,6 +6,7 @@
 
 #include <atomic>
 #include <stdexcept>
+#include <utility>
 
 #include <boost/asio/buffer.hpp>
 #include <openssl/err.h>
@@ -35,19 +36,30 @@ ssl_context_provider::ssl_context_provider(ssl::ssl_config ssl_config) : ssl_con
 	if (!ssl_config_.enabled()) {
 		throw std::invalid_argument("ssl_context_provider requires enabled TLS configuration");
 	}
-	std::atomic_store_explicit(&current_context_, build_ctx(ssl_config_), std::memory_order_release);
+
+	std::atomic_store_explicit(&current_context_, build_ctx(ssl_config_.load_pem_bundle()), std::memory_order_release);
 }
 
 std::shared_ptr<boost::asio::ssl::context> ssl_context_provider::current() const {
 	return std::atomic_load_explicit(&current_context_, std::memory_order_acquire);
 }
 
-std::shared_ptr<boost::asio::ssl::context> ssl_context_provider::build_ctx(const warp::ssl::ssl_config &ssl_config) {
+std::shared_ptr<boost::asio::ssl::context> ssl_context_provider::load_latest_ssl_context() {
+	std::lock_guard lock(refresh_mutex_);
+	if (!ssl_config_.have_certs_changed()) {
+		return current();
+	}
+
+	auto next_context = build_ctx(ssl_config_.load_pem_bundle());
+	std::atomic_store_explicit(&current_context_, std::move(next_context), std::memory_order_release);
+	return current();
+}
+
+std::shared_ptr<boost::asio::ssl::context> ssl_context_provider::build_ctx(std::string_view pem_bundle) {
 	auto native_context = std::make_shared<boost::asio::ssl::context>(boost::asio::ssl::context::tls_server);
 	native_context->set_options(boost::asio::ssl::context::default_workarounds | boost::asio::ssl::context::no_sslv2 |
 	                            boost::asio::ssl::context::single_dh_use);
 
-	const auto pem_bundle = ssl_config.load_pem_bundle();
 	const auto pem_buffer = boost::asio::buffer(pem_bundle.data(), pem_bundle.size());
 	native_context->use_certificate_chain(pem_buffer);
 	native_context->use_private_key(pem_buffer, boost::asio::ssl::context::pem);

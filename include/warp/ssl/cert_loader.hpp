@@ -10,6 +10,7 @@ class cert_loader {
 public:
 	virtual ~cert_loader() = default;
 
+	[[nodiscard]] virtual bool have_certs_changed() const = 0;
 	[[nodiscard]] virtual std::string load_pem_bundle() const = 0;
 
 protected:
@@ -19,6 +20,7 @@ protected:
 template <typename Loader>
 concept pem_bundle_cert_loader =
     std::derived_from<std::remove_cvref_t<Loader>, cert_loader> && requires(const std::remove_cvref_t<Loader> &loader) {
+	    { loader.have_certs_changed() } -> std::same_as<bool>;
 	    { loader.load_pem_bundle() } -> std::same_as<std::string>;
     };
 
