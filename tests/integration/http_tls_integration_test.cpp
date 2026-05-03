@@ -85,8 +85,8 @@ std::string certificate_fingerprint_from_pem_file(const fs::path &pem_path) {
 		throw std::runtime_error("failed to open PEM bundle fixture");
 	}
 
-	auto certificate = std::unique_ptr<X509, decltype(&X509_free)>(PEM_read_X509(file.get(), nullptr, nullptr, nullptr),
-	                                                               &X509_free);
+	auto certificate =
+	    std::unique_ptr<X509, decltype(&X509_free)>(PEM_read_X509(file.get(), nullptr, nullptr, nullptr), &X509_free);
 	if (!certificate) {
 		throw std::runtime_error("failed to parse certificate from PEM bundle fixture");
 	}
@@ -94,7 +94,8 @@ std::string certificate_fingerprint_from_pem_file(const fs::path &pem_path) {
 	return sha256_fingerprint(certificate.get());
 }
 
-std::unique_ptr<support::tls_client_connection> connect_tls_client_with_ca(std::uint16_t port, std::string_view ca_pem) {
+std::unique_ptr<support::tls_client_connection> connect_tls_client_with_ca(std::uint16_t port,
+                                                                           std::string_view ca_pem) {
 	auto client = std::make_unique<support::tls_client_connection>();
 	client->stream.set_verify_mode(support::ssl::verify_peer);
 	client->ssl_ctx.add_certificate_authority(support::asio::buffer(ca_pem.data(), ca_pem.size()));
@@ -123,8 +124,8 @@ std::unique_ptr<support::tls_client_connection> connect_tls_client_with_ca(std::
 }
 
 std::string peer_certificate_fingerprint(support::tls_client_connection &client) {
-	auto certificate =
-	    std::unique_ptr<X509, decltype(&X509_free)>(SSL_get1_peer_certificate(client.stream.native_handle()), &X509_free);
+	auto certificate = std::unique_ptr<X509, decltype(&X509_free)>(
+	    SSL_get1_peer_certificate(client.stream.native_handle()), &X509_free);
 	if (!certificate) {
 		throw std::runtime_error("TLS peer certificate missing");
 	}
@@ -226,8 +227,9 @@ TYPED_TEST(HttpTlsIntegrationTest, TlsRefreshJobPublishesRotatedCertificateForNe
 	const auto ca_path = fs::path(test_source_path("tests/fixtures/tls/rotation_ca.pem"));
 	const auto source_a_path = fs::path(test_source_path("tests/fixtures/tls/rotation_source_a.bundle.pem"));
 	const auto source_b_path = fs::path(test_source_path("tests/fixtures/tls/rotation_source_b.bundle.pem"));
-	const auto temp_dir = fs::temp_directory_path() /
-	                      ("warp-tls-refresh-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+	const auto temp_dir =
+	    fs::temp_directory_path() /
+	    ("warp-tls-refresh-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
 	fs::create_directories(temp_dir);
 	temp_dir_guard cleanup {.path = temp_dir};
 
@@ -236,9 +238,12 @@ TYPED_TEST(HttpTlsIntegrationTest, TlsRefreshJobPublishesRotatedCertificateForNe
 
 	support::server_fixture fixture(
 	    warp::server::server_builder()
-	        .ssl_config(warp::ssl::ssl_config(true, warp::ssl::file_cert_loader(active_bundle_path.string()),
-	                                          warp::job::job_config {.initial_delay_seconds = 0s, .interval = 1s, .max_retries = 1, .max_ttl = 30}))
-	        .get<"/secure">([](const request &) -> response { return response::ok(body_builder().set("route", "secure").build()); }),
+	        .ssl_config(warp::ssl::ssl_config(
+	            true, warp::ssl::file_cert_loader(active_bundle_path.string()),
+	            warp::job::job_config {.initial_delay_seconds = 0s, .interval = 1s, .max_retries = 1, .max_ttl = 30}))
+	        .get<"/secure">([](const request &) -> response {
+		        return response::ok(body_builder().set("route", "secure").build());
+	        }),
 	    TypeParam {});
 
 	const auto ca_pem = read_file_exact(ca_path.string());
