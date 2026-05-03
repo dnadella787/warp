@@ -23,6 +23,10 @@ std::string test_source_path(std::string_view relative_path) {
 	return std::string(WARP_TEST_SOURCE_DIR) + "/" + std::string(relative_path);
 }
 
+std::string tls_fixture_path(std::string_view filename) {
+	return std::string(WARP_TEST_TLS_FIXTURE_DIR) + "/" + std::string(filename);
+}
+
 std::string read_file_exact(std::string_view path) {
 	std::ifstream input(std::string(path), std::ios::binary);
 	if (!input) {
@@ -129,7 +133,7 @@ struct temp_dir_guard {
 } // namespace
 
 TEST(SslContextTest, FileCertLoaderReturnsExactPemBundleBytes) {
-	const auto fixture_path = test_source_path("tests/fixtures/tls/test_server_identity.pem");
+	const auto fixture_path = tls_fixture_path("test_server_identity.pem");
 
 	warp::ssl::file_cert_loader loader(fixture_path);
 
@@ -137,8 +141,8 @@ TEST(SslContextTest, FileCertLoaderReturnsExactPemBundleBytes) {
 }
 
 TEST(SslContextTest, ProviderBuildsNativeTlsContextFromPemBundle) {
-	warp::server::ssl_context_provider provider(warp::ssl::ssl_config(
-	    true, warp::ssl::file_cert_loader(test_source_path("tests/fixtures/tls/test_server_identity.pem"))));
+	warp::server::ssl_context_provider provider(
+	    warp::ssl::ssl_config(true, warp::ssl::file_cert_loader(tls_fixture_path("test_server_identity.pem"))));
 
 	const auto native_context = provider.current();
 
@@ -147,15 +151,14 @@ TEST(SslContextTest, ProviderBuildsNativeTlsContextFromPemBundle) {
 }
 
 TEST(SslContextTest, ProviderRejectsMismatchedPrivateKeyAndCertificateChain) {
-	const auto fixture_path = test_source_path("tests/fixtures/tls/test_server_identity.pem");
+	const auto fixture_path = tls_fixture_path("test_server_identity.pem");
 
 	EXPECT_THROW(warp::server::ssl_context_provider(warp::ssl::ssl_config(true, mismatched_key_loader(fixture_path))),
 	             std::runtime_error);
 }
 
 TEST(SslContextTest, ProviderLoadsLatestContextOnlyWhenPemBundleChanges) {
-	auto pem_bundle =
-	    std::make_shared<std::string>(read_file_exact(test_source_path("tests/fixtures/tls/test_server_identity.pem")));
+	auto pem_bundle = std::make_shared<std::string>(read_file_exact(tls_fixture_path("test_server_identity.pem")));
 	warp::server::ssl_context_provider provider(warp::ssl::ssl_config(true, mutable_pem_loader(pem_bundle)));
 
 	const auto initial_context = provider.current();
@@ -173,7 +176,7 @@ TEST(SslContextTest, ProviderLoadsLatestContextOnlyWhenPemBundleChanges) {
 }
 
 TEST(SslContextTest, FileCertLoaderDetectsPemBundleChangesByLastWriteTime) {
-	const auto fixture_pem = read_file_exact(test_source_path("tests/fixtures/tls/test_server_identity.pem"));
+	const auto fixture_pem = read_file_exact(tls_fixture_path("test_server_identity.pem"));
 	const auto temp_dir = fs::temp_directory_path() /
 	                      ("warp-file-cert-loader-" +
 	                       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + "-mtime");

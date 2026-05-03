@@ -8,8 +8,10 @@ function(add_warp_runtime_gtest_suite target)
         ${PROJECT_SOURCE_DIR}/tests
     )
     target_compile_definitions(${target} PRIVATE WARP_TEST_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
+    target_compile_definitions(${target} PRIVATE WARP_TEST_TLS_FIXTURE_DIR="${WARP_TLS_FIXTURE_DIR}")
     # Runtime-only tests should not pull in codegen implementation or optional DB libs.
     target_link_libraries(${target} PRIVATE warp_http warp_codegen_core GTest::gtest_main GTest::gmock)
+    add_dependencies(${target} warp_tls_fixtures)
     gtest_discover_tests(${target}
         WORKING_DIRECTORY ${PROJECT_BINARY_DIR}
     )
@@ -23,7 +25,9 @@ function(add_warp_codegen_gtest_suite target)
         ${PROJECT_SOURCE_DIR}/tests
     )
     target_compile_definitions(${target} PRIVATE WARP_TEST_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
+    target_compile_definitions(${target} PRIVATE WARP_TEST_TLS_FIXTURE_DIR="${WARP_TLS_FIXTURE_DIR}")
     target_link_libraries(${target} PRIVATE warp_http warp_codegen_core GTest::gtest_main)
+    add_dependencies(${target} warp_tls_fixtures)
     gtest_discover_tests(${target}
         WORKING_DIRECTORY ${PROJECT_BINARY_DIR}
     )

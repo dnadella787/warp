@@ -13,6 +13,7 @@ include(CMakeDependentOption)
 include(CMakePackageConfigHelpers)
 include(FetchContent)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/WarpCodegen.cmake)
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/WarpTlsFixtures.cmake)
 
 option(warp_BUILD_EXAMPLES "Build warp HTTP framework examples" ON)
 option(warp_BUILD_TESTS "Build warp test suite" ON)

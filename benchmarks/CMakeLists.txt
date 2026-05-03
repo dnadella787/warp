@@ -13,7 +13,9 @@ target_link_libraries(warp_http_event_loop_benchmark PRIVATE
 )
 target_compile_definitions(warp_http_event_loop_benchmark PRIVATE
     WARP_BENCHMARK_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
+    WARP_BENCHMARK_TLS_FIXTURE_DIR="${WARP_TLS_FIXTURE_DIR}"
 )
+add_dependencies(warp_http_event_loop_benchmark warp_tls_fixtures)
 
 if (TARGET warp_db_postgres)
     target_sources(warp_http_event_loop_benchmark PRIVATE

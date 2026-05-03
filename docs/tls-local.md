@@ -2,6 +2,8 @@
 
 Use [scripts/generate_local_tls_certs.sh](../scripts/generate_local_tls_certs.sh) to create a local CA, a `localhost` server certificate, and the single PEM bundle that Warp's current `file_cert_loader` expects.
 
+The repo does not need checked-in TLS artifacts. Test and benchmark fixtures are generated into `build/generated/tls/` by the `warp_tls_fixtures` build target, and example certs can be regenerated on demand.
+
 ## Generate certs
 
 ```bash
@@ -58,3 +60,27 @@ If TLS is disabled and you send `https://` traffic to the plain HTTP listener, t
 If TLS is enabled and the client does not trust the local CA, the client usually reports a self-signed or unknown-issuer failure and the server logs a TLS handshake error such as `tlsv1 alert unknown ca`. That is also expected: the client aborts the handshake and sends the alert back to the server.
 
 Prefer `curl --cacert examples/tls/localhost-ca.pem`. Some curl/OpenSSL builds will also accept `examples/tls/localhost.crt` as an explicit trust anchor, but the CA file is the stable trust path to document and reuse.
+
+## Automated fixture generation for tests and benchmarks
+
+The TLS-enabled test and benchmark targets depend on `warp_tls_fixtures`, which materializes these files under `build/generated/tls/`:
+
+- `test_ca.pem`
+- `test_server_identity.pem`
+- `rotation_ca.pem`
+- `rotation_source_a.bundle.pem`
+- `rotation_source_b.bundle.pem`
+
+You can generate them directly with:
+
+```bash
+cmake --build build --target warp_tls_fixtures
+```
+
+After that, the relevant targets work without any TLS files checked into the source tree:
+
+```bash
+./build/tests/warp_http_unit_tests --gtest_filter='*SslContextTest*:*TlsTransportTest*'
+./build/tests/warp_http_integration_tests --gtest_filter='*Tls*'
+./build/benchmarks/warp_http_event_loop_benchmark --benchmark_filter='.*tls.*'
+```

@@ -38,6 +38,10 @@ std::string test_source_path(std::string_view relative_path) {
 	return std::string(WARP_TEST_SOURCE_DIR) + "/" + std::string(relative_path);
 }
 
+std::string tls_fixture_path(std::string_view filename) {
+	return std::string(WARP_TEST_TLS_FIXTURE_DIR) + "/" + std::string(filename);
+}
+
 std::string read_file_exact(std::string_view path) {
 	std::ifstream input(std::string(path), std::ios::binary);
 	if (!input) {
@@ -224,9 +228,9 @@ TYPED_TEST(HttpTlsIntegrationTest, UntrustedTlsClientIsRejectedWithoutBreakingLa
 }
 
 TYPED_TEST(HttpTlsIntegrationTest, TlsRefreshJobPublishesRotatedCertificateForNewConnections) {
-	const auto ca_path = fs::path(test_source_path("tests/fixtures/tls/rotation_ca.pem"));
-	const auto source_a_path = fs::path(test_source_path("tests/fixtures/tls/rotation_source_a.bundle.pem"));
-	const auto source_b_path = fs::path(test_source_path("tests/fixtures/tls/rotation_source_b.bundle.pem"));
+	const auto ca_path = fs::path(tls_fixture_path("rotation_ca.pem"));
+	const auto source_a_path = fs::path(tls_fixture_path("rotation_source_a.bundle.pem"));
+	const auto source_b_path = fs::path(tls_fixture_path("rotation_source_b.bundle.pem"));
 	const auto temp_dir =
 	    fs::temp_directory_path() /
 	    ("warp-tls-refresh-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));

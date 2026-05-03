@@ -241,11 +241,15 @@ std::string benchmark_source_path(std::string_view relative_path) {
 	return std::string(WARP_BENCHMARK_SOURCE_DIR) + "/" + std::string(relative_path);
 }
 
+std::string benchmark_tls_fixture_path(std::string_view filename) {
+	return std::string(WARP_BENCHMARK_TLS_FIXTURE_DIR) + "/" + std::string(filename);
+}
+
 const std::string &benchmark_tls_pem_bundle() {
 	static const std::string pem_bundle = [] {
-		std::ifstream pem_file(benchmark_source_path("tests/fixtures/tls/test_server_identity.pem"));
+		std::ifstream pem_file(benchmark_tls_fixture_path("test_ca.pem"));
 		if (!pem_file) {
-			throw std::runtime_error("failed to open benchmark TLS fixture PEM bundle");
+			throw std::runtime_error("failed to open benchmark TLS fixture CA bundle");
 		}
 		return std::string(std::istreambuf_iterator<char>(pem_file), std::istreambuf_iterator<char>());
 	}();
@@ -1062,8 +1066,8 @@ load_test_options load_test_options_for_concurrency(std::size_t concurrency) {
 }
 
 warp::ssl::ssl_config make_benchmark_tls_server_ssl_config() {
-	return warp::ssl::ssl_config(
-	    true, warp::ssl::file_cert_loader(benchmark_source_path("tests/fixtures/tls/test_server_identity.pem")));
+	return warp::ssl::ssl_config(true,
+	                             warp::ssl::file_cert_loader(benchmark_tls_fixture_path("test_server_identity.pem")));
 }
 
 std::string format_duration(std::chrono::milliseconds duration) {

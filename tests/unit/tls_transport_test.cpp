@@ -39,6 +39,10 @@ std::string test_source_path(std::string_view relative_path) {
 	return std::string(WARP_TEST_SOURCE_DIR) + "/" + std::string(relative_path);
 }
 
+std::string tls_fixture_path(std::string_view filename) {
+	return std::string(WARP_TEST_TLS_FIXTURE_DIR) + "/" + std::string(filename);
+}
+
 void run_io_for(asio::io_context &ioc, std::chrono::milliseconds duration) {
 	ioc.restart();
 	asio::steady_timer stop_timer(ioc);
@@ -86,8 +90,8 @@ TEST(TlsTransportTest, GracefulShutdownTimesOutAndReleasesSessionWhenPeerWithhol
 	asio::io_context server_ioc;
 	asio::io_context client_ioc;
 
-	server::ssl_context_provider context_provider(warp::ssl::ssl_config(
-	    true, warp::ssl::file_cert_loader(test_source_path("tests/fixtures/tls/test_server_identity.pem"))));
+	server::ssl_context_provider context_provider(
+	    warp::ssl::ssl_config(true, warp::ssl::file_cert_loader(tls_fixture_path("test_server_identity.pem"))));
 	const auto server_context = context_provider.current();
 
 	ssl::context client_context(ssl::context::tls_client);

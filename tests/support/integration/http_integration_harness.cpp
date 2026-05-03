@@ -9,6 +9,8 @@
 #include <array>
 #include <chrono>
 #include <cstring>
+#include <fstream>
+#include <iterator>
 #include <stdexcept>
 #include <thread>
 
@@ -21,29 +23,20 @@ using namespace std::chrono_literals;
 
 namespace {
 
-constexpr char kTestCertificatePem[] = R"(-----BEGIN CERTIFICATE-----
-MIIDJTCCAg2gAwIBAgIUQiYFNSL4cmtZPBerXT/HBqxVTh0wDQYJKoZIhvcNAQEL
-BQAwFDESMBAGA1UEAwwJbG9jYWxob3N0MB4XDTI2MDUwMTA0NTU0M1oXDTI3MDUw
-MTA0NTU0M1owFDESMBAGA1UEAwwJbG9jYWxob3N0MIIBIjANBgkqhkiG9w0BAQEF
-AAOCAQ8AMIIBCgKCAQEAxttQULEB/58Ac3bP871CTnS24QDQbpU8dcEE1crF0fUZ
-cmo8mXWHMwOZaCifC7rb+yEHNhRfNzIxPeEaXGelPevWYwxs36Cmc/EAF4as1kiC
-zpKTbHCBFcenIdFri+pq0JiNER6N5Ps3Xiy2Xdm7huvV2gm1gmv87xb6nOXZyX70
-PJQyJx7A90V8aO7GLgQ62rpVABsWANNH9rqWmUhIf+Xzc7fId7xNgR9cSS6rxdGS
-E4IsMYjRko4ohd8TvT4EFTIriXcNY0UpBc7xWZLUnP9K2Ubuabwk0Sv0Wv93MN05
-YcIZy6vkWNyYlBn5H/bkfq4hWCd9gwvL4l9NCzCkRwIDAQABo28wbTAdBgNVHQ4E
-FgQUqDSzR7gj+NCle2K97LFVchJ5RrwwHwYDVR0jBBgwFoAUqDSzR7gj+NCle2K9
-7LFVchJ5RrwwDwYDVR0TAQH/BAUwAwEB/zAaBgNVHREEEzARgglsb2NhbGhvc3SH
-BH8AAAEwDQYJKoZIhvcNAQELBQADggEBALM5isM1EhmdiIM1lvg25CCawQNkLwdd
-QJETb3AanQGM0dNEqux3gJBgf8sh2GR4ySd/4/A9UY3Oegxtnepa6w1v3EoaWf9N
-5TWh/tam5jLJ/+U3zxSygbbL8Ybn14w1zZj4bD5cQJtrGYKDWnP2ovv2H5thNMZe
-BRJ1G4zB1uT6rR0m1fIFadz+o0hRQbnWs4K5aZ6KwcYs8k3M9uvktpp6zgpGAnsc
-dC/6x4DkATJEC6zgvdK3grWlw/6ArkWw9AfgmF6rMEuCHZHSODjlnaGc56mM0epo
-avXC0pf+8Es9Duxxf5kFYHBHJftnhZzXMEyTXODffW/bnDkeKDnlw+U=
------END CERTIFICATE-----
-)";
-
 std::string test_source_path(std::string_view relative_path) {
 	return std::string(WARP_TEST_SOURCE_DIR) + "/" + std::string(relative_path);
+}
+
+std::string tls_fixture_path(std::string_view filename) {
+	return std::string(WARP_TEST_TLS_FIXTURE_DIR) + "/" + std::string(filename);
+}
+
+std::string read_file_exact(std::string_view path) {
+	std::ifstream input(std::string(path), std::ios::binary);
+	if (!input) {
+		throw std::runtime_error("failed to open TLS test fixture");
+	}
+	return std::string(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
 }
 
 template <typename Stream>
@@ -132,14 +125,14 @@ std::unique_ptr<client_connection> connect_client(std::uint16_t port) {
 }
 
 warp::ssl::ssl_config make_test_server_ssl_config() {
-	return warp::ssl::ssl_config(
-	    true, warp::ssl::file_cert_loader(test_source_path("tests/fixtures/tls/test_server_identity.pem")));
+	return warp::ssl::ssl_config(true, warp::ssl::file_cert_loader(tls_fixture_path("test_server_identity.pem")));
 }
 
 std::unique_ptr<tls_client_connection> connect_tls_client(std::uint16_t port) {
 	auto client = std::make_unique<tls_client_connection>();
 	client->stream.set_verify_mode(ssl::verify_peer);
-	client->ssl_ctx.add_certificate_authority(asio::buffer(kTestCertificatePem, std::strlen(kTestCertificatePem)));
+	static const std::string ca_pem = read_file_exact(tls_fixture_path("test_ca.pem"));
+	client->ssl_ctx.add_certificate_authority(asio::buffer(ca_pem.data(), ca_pem.size()));
 	beast::get_lowest_layer(client->stream).expires_after(5s);
 
 	const auto endpoint = tcp::endpoint {asio::ip::make_address("127.0.0.1"), port};
