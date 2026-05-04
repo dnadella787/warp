@@ -26,6 +26,8 @@ listener_base<Mode, Transport>::listener_base(boost::asio::io_context &ioc,
 	  req_interceptor_chain_(req_interceptor_chain),
 	  resp_interceptor_chain_(resp_interceptor_chain), logger_(std::move(logger)) {
 	for (std::size_t i = 0; i < route_handlers.size(); ++i) {
+		// try to std::move the handler and un const the route handler param
+		// or synthesize exec table entirely into the registry
 		route_executors_.set(registry::route_id {.value = i}, route_handlers[i]);
 	}
 

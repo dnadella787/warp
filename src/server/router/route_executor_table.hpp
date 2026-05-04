@@ -22,11 +22,10 @@ public:
 	}
 
 	void set(registry::route_id id, http::handler handler) {
-		if (executors_.size() <= id.index()) {
+		if (executors_.size() <= id.index())
 			executors_.resize(id.index() + 1);
-		}
 
-		executors_[id.index()] = std::move(make_route_executor(handler));
+		executors_[id.index()] = std::move(make_route_executor(std::move(handler)));
 	}
 
 	void dispatch(registry::route_id id, Session &session, std::size_t sequence, http::request request) const {
