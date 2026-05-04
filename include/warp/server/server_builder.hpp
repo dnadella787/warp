@@ -84,7 +84,8 @@ public:
 	// to not make this public in general
 	template <http::route_registration_spec Spec, route_handler H>
 	server_builder &route(H &&handler) {
-		return route_typed(Spec::verb, std::string(Spec::path_view()),
+		return route_typed(Spec::verb,
+		                   std::string(Spec::path_view()), // our concept guarantees query_constraints is a std::array
 		                   std::vector<http::query_constraint_descriptor>(Spec::query_constraints.begin(),
 		                                                                  Spec::query_constraints.end()),
 		                   make_route_handler(std::forward<H>(handler)));

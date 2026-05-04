@@ -296,14 +296,13 @@ struct route_spec {
 private:
 	static constexpr bool validated_ = []() consteval {
 		static_cast<void>(route_path<Path>::segment_count);
+		static_assert(!detail::has_duplicate_query_constraints<QueryConstraints...>(),
+		              "route query constraint names must be unique");
 		return true;
 	}();
-	static_assert(!detail::has_duplicate_query_constraints<QueryConstraints...>(),
-	              "route query constraint names must be unique");
 
 public:
 	static constexpr method verb = Verb;
-	using route_path_type = route_path<Path>;
 	static constexpr std::size_t query_constraint_count = sizeof...(QueryConstraints);
 	static constexpr std::array<query_constraint_descriptor, sizeof...(QueryConstraints)> query_constraints {
 	    QueryConstraints::descriptor()...};
@@ -312,8 +311,8 @@ public:
 	static constexpr std::size_t exact_constraint_count =
 	    ((QueryConstraints::descriptor().exact_value.has_value() ? 1U : 0U) + ... + 0U);
 	static constexpr std::size_t required_exact_constraints =
-	    (((QueryConstraints::descriptor().presence == query_constraint_presence::optional ||
-	       !QueryConstraints::descriptor().exact_value.has_value())
+	    ((QueryConstraints::descriptor().presence == query_constraint_presence::optional ||
+	              !QueryConstraints::descriptor().exact_value.has_value()
 	          ? 0U
 	          : 1U) +
 	     ... + 0U);
