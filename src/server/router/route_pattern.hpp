@@ -154,6 +154,7 @@ inline std::vector<std::string> split_route_path(std::string_view path) {
 	return segments;
 }
 
+// runtime route pattern parser
 inline route_pattern parse_route_pattern(std::string_view pattern) {
 	const auto validation = validate_route_pattern(pattern);
 	if (!validation.ok()) {
@@ -173,7 +174,7 @@ inline route_pattern parse_route_pattern(std::string_view pattern) {
 	std::string shape_key;
 	for (const auto &segment_text : raw_segments) {
 		shape_key.push_back('/');
-		if (detail::is_parameter_segment(segment_text)) {
+		if (detail::is_possible_parameter_segment(segment_text)) {
 			const auto name = detail::route_parameter_name(segment_text);
 			if (name.empty()) {
 				throw std::invalid_argument("route parameter name cannot be empty");

@@ -1,7 +1,6 @@
 #pragma once
 
 #include <array>
-#include <algorithm>
 #include <concepts>
 #include <cstddef>
 #include <optional>
@@ -140,8 +139,8 @@ query_constraint_score(const std::optional<query_constraint_descriptor> &constra
 			return lhs_segment.empty() && rhs_segment.empty();
 		}
 
-		const auto lhs_parameter = is_parameter_segment(lhs_segment);
-		const auto rhs_parameter = is_parameter_segment(rhs_segment);
+		const auto lhs_parameter = is_possible_parameter_segment(lhs_segment);
+		const auto rhs_parameter = is_possible_parameter_segment(rhs_segment);
 		if (lhs_parameter != rhs_parameter) {
 			return false;
 		}
@@ -244,10 +243,10 @@ template <typename Lhs, typename Rhs, std::size_t Capacity>
  * - std::tuple_size_v<T> (after stripping T down) must be well defined for T
  */
 template <typename T>
-concept query_constraint_descriptor_array =
-    requires { typename std::remove_cvref_t<T>::value_type; } &&
-    std::same_as<typename std::remove_cvref_t<T>::value_type, query_constraint_descriptor> &&
-    requires { std::tuple_size_v<std::remove_cvref_t<T>>; };
+concept query_constraint_descriptor_array = requires {
+	typename std::remove_cvref_t<T>::value_type;
+	std::tuple_size_v<std::remove_cvref_t<T>>;
+} && std::same_as<typename std::remove_cvref_t<T>::value_type, query_constraint_descriptor>;
 
 template <typename Spec>
 concept route_registration_spec_impl = requires {

@@ -11,6 +11,7 @@ enum class route_pattern_validation_error {
 	none,
 	empty_path,
 	missing_leading_slash,
+	trailing_slash,
 	contains_fragment,
 	contains_query_string,
 	empty_segment,
@@ -39,6 +40,8 @@ route_pattern_validation_message(route_pattern_validation_error error) noexcept 
 		return "route path must not be empty";
 	case route_pattern_validation_error::missing_leading_slash:
 		return "route path must start with '/'";
+	case route_pattern_validation_error::trailing_slash:
+		return "route parameter cannot end with '/'";
 	case route_pattern_validation_error::contains_fragment:
 		return "route path must not contain a fragment";
 	case route_pattern_validation_error::contains_query_string:
@@ -58,7 +61,11 @@ route_pattern_validation_message(route_pattern_validation_error error) noexcept 
 }
 
 namespace detail {
-
+/**
+ * find route segment in path starting at start
+ * i.e. if path = /users/{userId}/friends, start = 7
+ * then it will return {userId}
+ */
 [[nodiscard]] constexpr std::string_view route_segment_at(std::string_view path, std::size_t start) noexcept {
 	if (start >= path.size()) {
 		return {};
@@ -67,7 +74,7 @@ namespace detail {
 	return end == std::string_view::npos ? path.substr(start) : path.substr(start, end - start);
 }
 
-[[nodiscard]] constexpr bool is_parameter_segment(std::string_view segment) noexcept {
+[[nodiscard]] constexpr bool is_possible_parameter_segment(std::string_view segment) noexcept {
 	return !segment.empty() && (segment.front() == '{' || segment.back() == '}');
 }
 
@@ -75,7 +82,26 @@ namespace detail {
 	return segment.substr(1, segment.size() - 2);
 }
 
+constexpr bool is_duplicate_path_param(std::string_view path, std::string_view curr_name,
+                                       std::size_t curr_start) noexcept {
+	for (std::size_t previous = 1; previous < curr_start;) {
+		const auto prior_segment = route_segment_at(path, previous);
+		if (is_possible_parameter_segment(prior_segment) && route_parameter_name(prior_segment) == curr_name)
+			return true;
+
+		const auto previous_end = previous + prior_segment.size();
+		if (previous_end == path.size())
+			break;
+		previous = previous_end + 1;
+	}
+	return false;
+}
+
 [[nodiscard]] constexpr route_pattern_validation_result validate_route_pattern(std::string_view pattern) noexcept {
+	// no error, but zero segments and zero params too
+	if (pattern == "/") {
+		return {};
+	}
 	if (pattern.find('?') != std::string_view::npos) {
 		return {.error = route_pattern_validation_error::contains_query_string};
 	}
@@ -85,23 +111,28 @@ namespace detail {
 	if (pattern.front() != '/') {
 		return {.error = route_pattern_validation_error::missing_leading_slash};
 	}
+	if (pattern.size() > 1 && pattern.back() == '/') {
+		return {.error = route_pattern_validation_error::trailing_slash};
+	}
 	if (pattern.find('#') != std::string_view::npos) {
 		return {.error = route_pattern_validation_error::contains_fragment};
-	}
-	if (pattern == "/") {
-		return {};
 	}
 
 	route_pattern_validation_result result;
 	for (std::size_t start = 1; start <= pattern.size();) {
 		const auto segment = route_segment_at(pattern, start);
+		// in case its like /users//tests
 		if (segment.empty()) {
 			return {.error = route_pattern_validation_error::empty_segment};
 		}
 
 		++result.segment_count;
-		if (is_parameter_segment(segment)) {
-			if (segment.size() < 3 || segment.front() != '{' || segment.back() != '}') {
+
+		// if it's a potential param segment like {userId} then we validate it
+		// its possible it's /users/{user or /users/user}
+		if (is_possible_parameter_segment(segment)) {
+			// front and back must be '{' & '}' respectively
+			if (segment.front() != '{' || segment.back() != '}') {
 				return {
 				    .error = route_pattern_validation_error::malformed_parameter_segment,
 				    .segment_count = result.segment_count,
@@ -109,6 +140,7 @@ namespace detail {
 				};
 			}
 
+			// strip the '{' and '}' to extract the param name i.e. {name} -> name
 			const auto name = route_parameter_name(segment);
 			if (name.empty()) {
 				return {
@@ -117,6 +149,7 @@ namespace detail {
 				    .parameter_count = result.parameter_count,
 				};
 			}
+			// strip off {{users}} could give us {users}, we need to check it as wel
 			if (name.find('{') != std::string_view::npos || name.find('}') != std::string_view::npos) {
 				return {
 				    .error = route_pattern_validation_error::parameter_name_contains_braces,
@@ -125,29 +158,22 @@ namespace detail {
 				};
 			}
 
-			for (std::size_t previous = 1; previous < start;) {
-				const auto prior_segment = route_segment_at(pattern, previous);
-				if (is_parameter_segment(prior_segment) && route_parameter_name(prior_segment) == name) {
-					return {
-					    .error = route_pattern_validation_error::duplicate_parameter_name,
-					    .segment_count = result.segment_count,
-					    .parameter_count = result.parameter_count,
-					};
-				}
-				const auto previous_end = pattern.find('/', previous);
-				if (previous_end == std::string_view::npos) {
-					break;
-				}
-				previous = previous_end + 1;
+			// scan the parsed portion of the pattern for prior path params and extract their name
+			// if any of the prior params match, then its a duplicate and error out
+			if (is_duplicate_path_param(pattern, name, start)) {
+				return {
+				    .error = route_pattern_validation_error::duplicate_parameter_name,
+				    .segment_count = result.segment_count,
+				    .parameter_count = result.parameter_count,
+				};
 			}
 
 			++result.parameter_count;
 		}
 
-		const auto end = pattern.find('/', start);
-		if (end == std::string_view::npos) {
+		const auto end = start + segment.size();
+		if (end == pattern.size())
 			break;
-		}
 		start = end + 1;
 	}
 
@@ -158,6 +184,7 @@ template <route_pattern_validation_error Error>
 consteval void fail_route_pattern_validation() {
 	static_assert(Error != route_pattern_validation_error::empty_path, "route path must not be empty");
 	static_assert(Error != route_pattern_validation_error::missing_leading_slash, "route path must start with '/'");
+	static_assert(Error != route_pattern_validation_error::trailing_slash, "route parameter cannot end with '/'");
 	static_assert(Error != route_pattern_validation_error::contains_fragment, "route path must not contain a fragment");
 	static_assert(Error != route_pattern_validation_error::contains_query_string,
 	              "route pattern must not contain a query string");
@@ -175,8 +202,7 @@ consteval void fail_route_pattern_validation() {
 template <fixed_string Path>
 consteval route_pattern_validation_result checked_route_path() {
 	constexpr auto validation = detail::validate_route_pattern(Path.view());
-	if constexpr (validation.error != route_pattern_validation_error::none)
-		fail_route_pattern_validation<validation.error>();
+	fail_route_pattern_validation<validation.error>();
 	return validation;
 }
 

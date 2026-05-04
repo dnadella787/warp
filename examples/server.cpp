@@ -2,7 +2,6 @@
 #include "warp/db/postgres/connection_config.hpp"
 #include "warp/db/postgres/connection_pool.hpp"
 
-#include <cstdlib>
 #include <memory>
 #include <string>
 #include <string_view>

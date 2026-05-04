@@ -47,25 +47,4 @@ private:
 	diagnostic item_;
 };
 
-class diagnostic_sink {
-public:
-	void error(std::string code, source_span span, std::string message) {
-		items_.push_back(diagnostic {.severity = diagnostic_severity::error,
-		                             .code = std::move(code),
-		                             .message = std::move(message),
-		                             .span = span});
-	}
-
-	[[nodiscard]] bool has_errors() const noexcept {
-		return !items_.empty();
-	}
-
-	[[nodiscard]] const std::vector<diagnostic> &items() const noexcept {
-		return items_;
-	}
-
-private:
-	std::vector<diagnostic> items_;
-};
-
 } // namespace warp::codegen
