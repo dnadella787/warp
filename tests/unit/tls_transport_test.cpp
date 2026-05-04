@@ -77,7 +77,7 @@ public:
 namespace warp::server {
 
 template <>
-struct http_session_traits<warp::tests::tls_shutdown_test_session> {
+struct http_session_traits<tests::tls_shutdown_test_session> {
 	using transport_type = tls_session_transport;
 	static constexpr auto event_loop_mode = http::event_loop_mode::callbacks;
 };

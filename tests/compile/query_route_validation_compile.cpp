@@ -9,6 +9,43 @@
 namespace generated = generated_query_routing_api;
 
 namespace {
+[[nodiscard]] constexpr bool is_unreserved_query_component_char(unsigned char ch) noexcept {
+	return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '-' || ch == '.' ||
+	       ch == '_' || ch == '~';
+}
+
+[[nodiscard]] constexpr std::string percent_encode_query_component(std::string_view input) {
+	constexpr std::string_view hex_digits = "0123456789ABCDEF";
+	std::string output;
+	output.reserve(input.size());
+	for (const auto ch : input) {
+		const auto byte = static_cast<unsigned char>(ch);
+		if (is_unreserved_query_component_char(byte)) {
+			output.push_back(static_cast<char>(byte));
+			continue;
+		}
+		output.push_back('%');
+		output.push_back(hex_digits[(byte >> 4U) & 0x0FU]);
+		output.push_back(hex_digits[byte & 0x0FU]);
+	}
+	return output;
+}
+
+[[nodiscard]] constexpr std::string
+registered_query_constraint_fragment(warp::http::query_constraint_descriptor constraint) {
+	std::string fragment;
+	if (constraint.presence == warp::http::query_constraint_presence::forbidden) {
+		fragment.push_back('!');
+	} else if (constraint.presence == warp::http::query_constraint_presence::optional) {
+		fragment.push_back('~');
+	}
+	fragment += percent_encode_query_component(constraint.name);
+	if (constraint.has_exact_value) {
+		fragment.push_back('=');
+		fragment += percent_encode_query_component(constraint.exact_value);
+	}
+	return fragment;
+}
 
 using summary_route =
     warp::http::route_spec<warp::method::get, "/reports/{report_id}", warp::http::required_query<"summary">,
@@ -113,8 +150,8 @@ static_assert(warp::http::deterministic_route_definitions<fallback_route, summar
                                                           summary_projection_route>());
 static_assert(warp::http::deterministic_route_definitions<exact_mode_route, broad_mode_route>());
 static_assert(!warp::http::deterministic_route_definitions<optional_exact_mode_route, optional_broad_mode_route>());
-static_assert(warp::server::detail::percent_encode_query_component("plus+space %") == "plus%2Bspace%20%25");
-static_assert(warp::server::detail::registered_query_constraint_fragment(warp::http::query_constraint_descriptor {
+static_assert(percent_encode_query_component("plus+space %") == "plus%2Bspace%20%25");
+static_assert(registered_query_constraint_fragment(warp::http::query_constraint_descriptor {
                   .name = "plus+space %",
                   .presence = warp::http::query_constraint_presence::optional,
                   .has_exact_value = true,
