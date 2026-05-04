@@ -128,7 +128,6 @@ set(warp_http_sources
         src/server/server_builder.cpp
         src/server/server_impl.hpp
         src/ssl/ssl_context_provider.cpp
-        src/server/execution/route_executor_table.cpp
         src/server/session/policy/transport.cpp
         src/server/session/callback_http_session.hpp
         src/server/session/coroutine_http_session.hpp

@@ -120,6 +120,8 @@ registry::route_id registry::add_compiled(http::compiled_route route) {
 
 std::optional<registry::route_match> registry::find(http::request &req) const {
 	req.set_path_params({});
+
+	// search by http method first (i.e. GET, PUT, etc.)
 	const auto it = method_roots_.find(req.method());
 	if (it == method_roots_.end()) {
 		return std::nullopt;
@@ -127,11 +129,14 @@ std::optional<registry::route_match> registry::find(http::request &req) const {
 
 	std::vector<std::string_view> segments;
 	try {
+		// split the path by '/' i.e. /users/bob into ['users', 'bob']
 		segments = http::split_route_path_views(req.path());
 	} catch (const std::invalid_argument &) {
 		return std::nullopt;
 	}
 
+	// now try to match the path list using the method root trie node
+	// if we find a match, return the ID that is expected in the executor table
 	if (const auto *route = match_route(it->second, req, segments)) {
 		apply_path_params(req, segments, *route);
 		return route_match {.id = route->id};

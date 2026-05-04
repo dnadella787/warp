@@ -11,7 +11,6 @@
 
 #include "policy/connection_close_policy.h"
 #include "policy/transport.h"
-#include "server/execution/route_executor_table.hpp"
 #include "server/interceptors/interceptor_chain.h"
 #include "server/listener/traits.hpp"
 #include "server/router/registry.hpp"

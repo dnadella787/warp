@@ -129,16 +129,13 @@ inline std::vector<std::string_view> split_route_path_views(std::string_view pat
 	segments.reserve(6);
 	for (std::size_t start = 1; start <= clean.size();) {
 		const auto segment = detail::route_segment_at(clean, start);
-		if (segment.empty()) {
+		if (segment.empty())
 			throw std::invalid_argument("route path contains an empty segment");
-		}
 
 		segments.push_back(segment);
-
-		const auto end = clean.find('/', start);
-		if (end == std::string_view::npos) {
+		const std::size_t end = start + segment.size();
+		if (end == clean.size())
 			break;
-		}
 		start = end + 1;
 	}
 	return segments;

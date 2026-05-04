@@ -58,7 +58,7 @@ private:
 	boost::asio::io_context io_ctx_;
 	std::string address_;
 	std::uint16_t port_;
-	registry routes_;
+	registry registry_;
 	job_manager jobs_;
 	interceptor_chain<request> req_interceptor_chain_;
 	interceptor_chain<response> resp_interceptor_chain_;

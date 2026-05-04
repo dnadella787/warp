@@ -16,7 +16,7 @@ server::server_impl<Mode>::server_impl(const std::string &address, std::uint16_t
 									   std::vector<detail::type_erased_resp_interceptor> resp_interceptors,
 									   log::logger logger)
 	: pool_size_(workers ? workers : 1), io_ctx_(static_cast<int>(pool_size_)), address_(address), port_(port),
-	  routes_(std::move(routes)), jobs_(io_ctx_),
+	  registry_(std::move(routes)), jobs_(io_ctx_),
 	  req_interceptor_chain_(interceptor_chain<request>{ std::move(req_interceptors) }),
 	  resp_interceptor_chain_(interceptor_chain<response>{ std::move(resp_interceptors) }),
 	  logger_(std::move(logger)),
@@ -44,11 +44,11 @@ std::shared_ptr<base_listener> server::server_impl<Mode>::make_typed_listener(
 		auto provider = transport_provider<tls_session_transport>(std::move(ssl_config));
 		jobs_.add_job(provider.make_refresh_job());
 		return std::make_shared<listener_t<Transport>>(
-		    io_ctx_, std::move(provider), routes_, route_handlers, req_interceptor_chain_,
+		    io_ctx_, std::move(provider), registry_, route_handlers, req_interceptor_chain_,
 		    resp_interceptor_chain_, address_, port_, logger_);
 	} else {
 		return std::make_shared<listener_t<Transport>>(
-		    io_ctx_, transport_provider<plain_session_transport> {}, routes_, route_handlers, req_interceptor_chain_,
+		    io_ctx_, transport_provider<plain_session_transport> {}, registry_, route_handlers, req_interceptor_chain_,
 		    resp_interceptor_chain_, address_, port_, logger_);
 	}
 }
