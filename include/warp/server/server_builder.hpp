@@ -221,7 +221,7 @@ private:
 
 	template <detail::erased_interceptor_type Interceptor>
 	[[nodiscard]] static std::vector<Interceptor>
-	build_interceptor_chain_entries(std::vector<interceptor_definition<Interceptor>> interceptors);
+	make_sorted_interceptor_entries(std::vector<interceptor_definition<Interceptor>> interceptors);
 
 	std::string address_ {"0.0.0.0"};
 	std::uint16_t port_ {8080};

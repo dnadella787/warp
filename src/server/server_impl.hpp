@@ -28,7 +28,7 @@ class server::server_impl : public impl_base {
 public:
 	server_impl(const std::string &address, std::uint16_t port, std::size_t workers, registry routes,
 	            std::vector<http::handler> route_handlers, warp::ssl::ssl_config ssl_config,
-	            std::vector<warp::job::background_job> jobs, interceptor_chain<request> req_interceptor_chain,
+	            std::vector<job::background_job> jobs, interceptor_chain<request> req_interceptor_chain,
 	            interceptor_chain<response> resp_interceptor_chain, log::logger logger);
 
 	void run(bool blocking) override;
