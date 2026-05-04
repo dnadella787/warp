@@ -34,8 +34,8 @@ http::compiled_route compile_typed_route(http::method verb, std::string_view pat
 		    .name = std::string(descriptor.name),
 		    .presence = descriptor.presence,
 		};
-		if (descriptor.has_exact_value) {
-			constraint.value = std::string(descriptor.exact_value);
+		if (descriptor.exact_value.has_value()) {
+			constraint.value = std::string(*descriptor.exact_value);
 		}
 		route.query_constraints.push_back(std::move(constraint));
 	}

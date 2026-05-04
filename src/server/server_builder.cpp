@@ -52,9 +52,6 @@ template <http::event_loop_mode Mode>
 	return server {make_impl<Mode>()};
 }
 
-template server server_builder::build<event_loop_mode::callbacks>() const;
-template server server_builder::build<event_loop_mode::coroutines>() const;
-
 template <http::event_loop_mode Mode>
 [[nodiscard]] std::shared_ptr<server::impl_base> server_builder::make_impl() const {
 	registry registry;
@@ -76,15 +73,22 @@ template <http::event_loop_mode Mode>
 template <detail::erased_interceptor_type Interceptor>
 std::vector<Interceptor>
 server_builder::build_interceptor_chain_entries(std::vector<interceptor_definition<Interceptor>> interceptors) {
+	// we use stable sort for sorting the request/response interceptors so that we can preserve
+	// the order in which they were registered for interceptors with the same priority
 	std::stable_sort(interceptors.begin(), interceptors.end(),
 	                 [](const auto &lhs, const auto &rhs) { return lhs.priority < rhs.priority; });
 
 	std::vector<Interceptor> chain_entries;
 	chain_entries.reserve(interceptors.size());
-	for (auto &entry : interceptors)
-		chain_entries.push_back(std::move(entry.callback));
+
+	// convert from interceptor_def to Interceptor object itself for the chain
+	std::ranges::transform(interceptors, std::back_inserter(chain_entries),
+	                       [](auto &entry) { return std::move(entry.callback); });
 
 	return chain_entries;
 }
+
+template server server_builder::build<http::event_loop_mode::callbacks>() const;
+template server server_builder::build<http::event_loop_mode::coroutines>() const;
 
 } // namespace warp::server

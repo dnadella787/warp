@@ -40,9 +40,9 @@ registered_query_constraint_fragment(warp::http::query_constraint_descriptor con
 		fragment.push_back('~');
 	}
 	fragment += percent_encode_query_component(constraint.name);
-	if (constraint.has_exact_value) {
+	if (constraint.exact_value.has_value()) {
 		fragment.push_back('=');
-		fragment += percent_encode_query_component(constraint.exact_value);
+		fragment += percent_encode_query_component(*constraint.exact_value);
 	}
 	return fragment;
 }
@@ -154,7 +154,6 @@ static_assert(percent_encode_query_component("plus+space %") == "plus%2Bspace%20
 static_assert(registered_query_constraint_fragment(warp::http::query_constraint_descriptor {
                   .name = "plus+space %",
                   .presence = warp::http::query_constraint_presence::optional,
-                  .has_exact_value = true,
                   .exact_value = "a+b&c=d%",
               }) == "~plus%2Bspace%20%25=a%2Bb%26c%3Dd%25");
 static_assert(generated_routes_registrable<compile_time_reports_service>);

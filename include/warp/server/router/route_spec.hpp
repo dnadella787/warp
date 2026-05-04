@@ -32,11 +32,11 @@ enum class query_value_state {
 }
 
 [[nodiscard]] constexpr bool constraint_has_exact_value(query_constraint_descriptor constraint) noexcept {
-	return constraint.has_exact_value;
+	return constraint.exact_value.has_value();
 }
 
 [[nodiscard]] constexpr std::string_view constraint_exact_value(query_constraint_descriptor constraint) noexcept {
-	return constraint.exact_value;
+	return constraint.exact_value.value_or(std::string_view {});
 }
 
 [[nodiscard]] constexpr bool query_constraints_can_overlap(query_constraint_descriptor lhs,
@@ -213,12 +213,10 @@ template <typename Lhs, typename Rhs, std::size_t Capacity>
 
 	const auto lhs_descriptor = find_query_constraint_descriptor<Lhs>(names.names[index]);
 	const auto rhs_descriptor = find_query_constraint_descriptor<Rhs>(names.names[index]);
-	const auto lhs_exact_value = lhs_descriptor.has_value() && lhs_descriptor->has_exact_value
-	                                 ? lhs_descriptor->exact_value
-	                                 : std::string_view {};
-	const auto rhs_exact_value = rhs_descriptor.has_value() && rhs_descriptor->has_exact_value
-	                                 ? rhs_descriptor->exact_value
-	                                 : std::string_view {};
+	const auto lhs_exact_value =
+	    lhs_descriptor.has_value() ? lhs_descriptor->exact_value.value_or(std::string_view {}) : std::string_view {};
+	const auto rhs_exact_value =
+	    rhs_descriptor.has_value() ? rhs_descriptor->exact_value.value_or(std::string_view {}) : std::string_view {};
 
 	constexpr std::array<query_value_state, 4> states {
 	    query_value_state::absent,
@@ -301,10 +299,10 @@ public:
 	static constexpr std::size_t base_specificity =
 	    ((QueryConstraints::descriptor().presence == query_constraint_presence::optional ? 0U : 1U) + ... + 0U);
 	static constexpr std::size_t exact_constraint_count =
-	    ((QueryConstraints::descriptor().has_exact_value ? 1U : 0U) + ... + 0U);
+	    ((QueryConstraints::descriptor().exact_value.has_value() ? 1U : 0U) + ... + 0U);
 	static constexpr std::size_t required_exact_constraints =
 	    (((QueryConstraints::descriptor().presence == query_constraint_presence::optional ||
-	       !QueryConstraints::descriptor().has_exact_value)
+	       !QueryConstraints::descriptor().exact_value.has_value())
 	          ? 0U
 	          : 1U) +
 	     ... + 0U);
@@ -315,6 +313,7 @@ public:
 	}
 };
 
+// external wrapper
 template <typename T>
 concept route_registration_spec = detail::route_registration_spec_impl<T>;
 

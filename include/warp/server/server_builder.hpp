@@ -90,6 +90,13 @@ public:
 		                   make_route_handler(std::forward<H>(handler)));
 	}
 
+	/**
+	 * we normalize the interceptor using make_interceptor and make_response_interceptor
+	 * and wrap the interceptor into a function that calls the ::intercept(...) method
+	 * depending on which kind of interceptor it is. This works because they are pushed
+	 * into separate vectors so we can normalize into the appropriate type using the
+	 * concept as input filter and then output to the correct vector using the method
+	 */
 	template <int Priority, http::request_interceptor Interceptor>
 	server_builder &interceptor(Interceptor &&interceptor_obj) {
 		req_interceptors_.push_back(interceptor_definition<detail::type_erased_req_interceptor> {
@@ -170,11 +177,12 @@ private:
 	template <http::request_interceptor Interceptor>
 	static detail::type_erased_req_interceptor make_interceptor(Interceptor &&interceptor) {
 		/**
-		 * lambda caputres will deduce lvalue ref, rvalue by value (meaning copy)
-		 * TODO: maybe use std::move or std::ref instead in the future to reduce alloc
-		 * but also lifetime issues between server and interceptor obj
+		 * Lambda captures are normally by value so we forward it to maintain its
+		 * user semantics via template forwarding. Note that we do not "consume" the
+		 * interceptor via std::move, we just reference it.
 		 */
-		return [interceptor = std::forward<Interceptor>(interceptor)](request &req) -> http::req_interceptor_result {
+		return [interceptor =
+		            std::forward<Interceptor>(interceptor)](request &req) mutable -> http::req_interceptor_result {
 			using result_t = decltype(interceptor.intercept(req));
 			if constexpr (std::is_void_v<result_t>) {
 				interceptor.intercept(req);
@@ -187,7 +195,7 @@ private:
 
 	template <http::response_interceptor Interceptor>
 	static detail::type_erased_resp_interceptor make_response_interceptor(Interceptor &&interceptor) {
-		return [interceptor = std::forward<Interceptor>(interceptor)](response &resp) -> void {
+		return [interceptor = std::forward<Interceptor>(interceptor)](response &resp) mutable -> void {
 			interceptor.intercept(resp);
 		};
 	}
@@ -201,6 +209,7 @@ private:
 
 	/**
 	 * @tparam TypeErasedInterceptorFunc can be of type type_erased_req_interceptor or type_erased_resp_interceptor
+	 * which correspond to the wrappers for the interceptor::intercept method for each type
 	 */
 	template <detail::erased_interceptor_type TypeErasedInterceptorFunc>
 	struct interceptor_definition {

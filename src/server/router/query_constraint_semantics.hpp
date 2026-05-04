@@ -39,7 +39,7 @@ constraint_presence(const compiled_query_constraint &constraint) noexcept {
 }
 
 [[nodiscard]] constexpr bool constraint_has_exact_value(query_constraint_descriptor constraint) noexcept {
-	return constraint.has_exact_value;
+	return constraint.exact_value.has_value();
 }
 
 [[nodiscard]] inline bool constraint_has_exact_value(const compiled_query_constraint &constraint) noexcept {
@@ -47,7 +47,7 @@ constraint_presence(const compiled_query_constraint &constraint) noexcept {
 }
 
 [[nodiscard]] constexpr std::string_view constraint_exact_value(query_constraint_descriptor constraint) noexcept {
-	return constraint.exact_value;
+	return constraint.exact_value.value_or(std::string_view {});
 }
 
 [[nodiscard]] inline std::string_view constraint_exact_value(const compiled_query_constraint &constraint) noexcept {

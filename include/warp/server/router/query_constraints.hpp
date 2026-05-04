@@ -18,8 +18,8 @@ enum class query_constraint_presence {
 struct query_constraint_descriptor {
 	std::string_view name;
 	query_constraint_presence presence {query_constraint_presence::required};
-	bool has_exact_value {};
-	std::string_view exact_value;
+	std::optional<std::string_view>
+	    exact_value; // TODO: try optional but not sure if compile time support exists for optional
 };
 
 template <typename T>
@@ -47,11 +47,6 @@ enum class query_constraint_name_error {
 	return query_constraint_name_error::none;
 }
 
-/**
- * we use always_false_v here because Error is a value of type query_constraint_name_error, not a type itself
- * we call this function as fail_query_constraint_name_validation<query_constraint_name_error::empty_name>() not
- * fail_query_constraint_name_validation<query_constraint_name_error>()
- */
 template <query_constraint_name_error Error>
 consteval void fail_query_constraint_name_validation() {
 	static_assert(Error != query_constraint_name_error::empty_name, "query constraint name must not be empty");
@@ -109,8 +104,10 @@ public:
 
 	[[nodiscard]] static constexpr query_constraint_descriptor descriptor() noexcept {
 		static_cast<void>(validated_);
-		return {
-		    .name = Name.view(), .presence = Presence, .has_exact_value = has_exact_value, .exact_value = Value.view()};
+		return {.name = Name.view(),
+		        .presence = Presence,
+		        .exact_value = has_exact_value ? std::optional<std::string_view> {Value.view()}
+		                                       : std::optional<std::string_view> {}};
 	}
 };
 
