@@ -54,6 +54,7 @@ template <http::event_loop_mode Mode>
 
 template <http::event_loop_mode Mode>
 [[nodiscard]] std::shared_ptr<server::impl_base> server_builder::make_impl() const {
+	// TODO: this needs to be revisited pretty soon bc we send raw params for everything but the registry
 	registry registry;
 	std::vector<http::handler> route_handlers(routes_.size());
 	for (const auto &[verb, path, constraints, handler] : routes_) {
@@ -70,8 +71,7 @@ template <http::event_loop_mode Mode>
 
 	return std::make_shared<server::server_impl<Mode>>(
 	    address_, port_, workers_, std::move(registry), std::move(route_handlers), ssl_config_, jobs_,
-	    interceptor_chain<request> {std::move(req_chain_entries)},
-	    interceptor_chain<response> {std::move(resp_chain_entries)}, logger_.value_or(log::default_logger()));
+	    std::move(req_chain_entries), std::move(resp_chain_entries), logger_.value_or(log::default_logger()));
 }
 
 template <detail::erased_interceptor_type Interceptor>

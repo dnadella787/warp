@@ -11,12 +11,14 @@ namespace warp::server {
 template <http::event_loop_mode Mode>
 server::server_impl<Mode>::server_impl(const std::string &address, std::uint16_t port, std::size_t workers,
                                        registry routes, std::vector<http::handler> route_handlers,
-                                       warp::ssl::ssl_config ssl_config, std::vector<warp::job::background_job> jobs,
-                                       interceptor_chain<request> req_interceptor_chain,
-                                       interceptor_chain<response> resp_interceptor_chain, log::logger logger)
+                                       warp::ssl::ssl_config ssl_config, std::vector<job::background_job> jobs,
+                                       std::vector<detail::type_erased_req_interceptor> req_interceptors,
+									   std::vector<detail::type_erased_resp_interceptor> resp_interceptors,
+									   log::logger logger)
 	: pool_size_(workers ? workers : 1), io_ctx_(static_cast<int>(pool_size_)), address_(address), port_(port),
-	  routes_(std::move(routes)), jobs_(io_ctx_), req_interceptor_chain_(std::move(req_interceptor_chain)),
-	  resp_interceptor_chain_(std::move(resp_interceptor_chain)),
+	  routes_(std::move(routes)), jobs_(io_ctx_),
+	  req_interceptor_chain_(interceptor_chain<request>{ std::move(req_interceptors) }),
+	  resp_interceptor_chain_(interceptor_chain<response>{ std::move(resp_interceptors) }),
 	  logger_(std::move(logger)),
 	  listener_(make_listener(std::move(route_handlers), std::move(ssl_config))) {
 	threads_.reserve(pool_size_);
