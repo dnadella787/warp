@@ -104,7 +104,26 @@ void callback_http_session<Transport>::on_read(beast::error_code ec, std::size_t
 	if (!close_policy_.accepting_requests())
 		stop_reading_ = true;
 
-	// TODO: support pre route match request interceptor run
+	/**
+	 * TODO: Issue#36
+	 * The proper way to do this is to permanently get rid of the sync handler and just always execute using
+	 * async handlers (i.e. always kick off a coroutine). The order of execution on the coroutine should go:
+	 *
+	 * req_ctx = req_ctx { .request = request }
+	 * auto match = registry_.find(request)
+	 * req_ctx.match_found = match.found()
+	 *
+	 * universal_request_interceptor_chain_.run_interceptors(req_ctx)
+	 * if (match.found()) {
+	 *		matched_request_interceptor_chain_.run_interceptors(req_ctx)
+	 *  	route_executors_.dispatch(match->id, *this, sequence, std::move(request));
+	 * }
+	 *
+	 * and then in the completion handler:
+	 * universal_resp_interceptor_chain_.run(req_ctx, response)
+	 * if (match.found()) {
+	 *		matched_response_interceptor_chain_.run_interceptors(req_ctx)
+	 */
 	if (const auto match = routes_.find(request)) {
 		route_executors_.dispatch(match->id, *this, sequence, std::move(request));
 	} else {
