@@ -18,8 +18,7 @@ enum class query_constraint_presence {
 struct query_constraint_descriptor {
 	std::string_view name;
 	query_constraint_presence presence {query_constraint_presence::required};
-	std::optional<std::string_view>
-	    exact_value; // TODO: try optional but not sure if compile time support exists for optional
+	std::optional<std::string_view> exact_value;
 };
 
 template <typename T>

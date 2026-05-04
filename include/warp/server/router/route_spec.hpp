@@ -238,11 +238,23 @@ template <typename Lhs, typename Rhs, std::size_t Capacity>
 	return false;
 }
 
+/**
+ * how to read:
+ * - let U := typename std::remove_cvref_t<T>::value_type and U == query_constraint_descriptor
+ * - std::tuple_size_v<T> (after stripping T down) must be well defined for T
+ */
+template <typename T>
+concept query_constraint_descriptor_array =
+    requires { typename std::remove_cvref_t<T>::value_type; } &&
+    std::same_as<typename std::remove_cvref_t<T>::value_type, query_constraint_descriptor> &&
+    requires { std::tuple_size_v<std::remove_cvref_t<T>>; };
+
 template <typename Spec>
 concept route_registration_spec_impl = requires {
 	{ Spec::verb } -> std::convertible_to<method>;
 	{ Spec::path_view() } -> std::same_as<std::string_view>;
-	{ Spec::query_constraints };
+	requires query_constraint_descriptor_array<decltype(Spec::query_constraints)>;
+	requires std::tuple_size_v<std::remove_cvref_t<decltype(Spec::query_constraints)>> == Spec::query_constraint_count;
 	{ Spec::base_specificity } -> std::convertible_to<std::size_t>;
 	{ Spec::query_constraint_count } -> std::convertible_to<std::size_t>;
 	{ Spec::required_exact_constraints } -> std::convertible_to<std::size_t>;

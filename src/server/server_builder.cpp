@@ -88,6 +88,8 @@ server_builder::build_interceptor_chain_entries(std::vector<interceptor_definiti
 	return chain_entries;
 }
 
+// tell the compiler to instantiate these concrete specializations, otherwise we would need the entire
+// templated impl in .hpp file in include dir which we want to hide from user
 template server server_builder::build<http::event_loop_mode::callbacks>() const;
 template server server_builder::build<http::event_loop_mode::coroutines>() const;
 
