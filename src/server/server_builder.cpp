@@ -58,7 +58,7 @@ template <http::event_loop_mode Mode>
 	registry registry;
 	std::vector<http::handler> route_handlers(routes_.size());
 	for (const auto &[verb, path, constraints, handler] : routes_) {
-		const auto route_id = registry.add_typed(verb, path, constraints);
+		const auto route_id = registry.add(verb, path, constraints);
 		// we just store the route_handler as std::variant here and then we push it down into the listener which
 		// converts it into the actual route executor table that normalizes the variant into a single handler so runtime
 		// dispatch doesn't have the overhead of std::get or std::visit over overloaded{...}, only at startup

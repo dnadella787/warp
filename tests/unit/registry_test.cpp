@@ -1,4 +1,5 @@
 #include "server/router/registry.hpp"
+#include "server/router/route_pattern.hpp"
 #include "warp/codegen/http_adapter.hpp"
 #include "warp/server/router/route_spec.hpp"
 
@@ -43,15 +44,86 @@ using typed_broad_mode_route = warp::http::route_spec<warp::method::get, "/items
 using typed_encoded_query_route =
     warp::http::route_spec<warp::method::get, "/filters", warp::http::optional_query_value<"plus+space %", "a+b %">>;
 
+struct parsed_query_constraint {
+	std::string name;
+	warp::http::query_constraint_presence presence {warp::http::query_constraint_presence::required};
+	std::optional<std::string> exact_value;
+};
+
+std::vector<parsed_query_constraint> parse_query_constraints(std::string_view route) {
+	std::vector<parsed_query_constraint> constraints;
+	const auto query_pos = route.find('?');
+	if (query_pos == std::string_view::npos) {
+		return constraints;
+	}
+
+	const auto raw_query = route.substr(query_pos + 1);
+	std::size_t start = 0;
+	while (start < raw_query.size()) {
+		const auto end = raw_query.find('&', start);
+		const auto token =
+		    raw_query.substr(start, end == std::string_view::npos ? std::string_view::npos : end - start);
+		if (!token.empty()) {
+			const auto eq = token.find('=');
+			auto key = warp::http::try_decode_query_component(token.substr(0, eq));
+			if (!key.has_value() || key->empty()) {
+				throw std::invalid_argument("route query constraint names must be non-empty and valid");
+			}
+
+			auto presence = warp::http::query_constraint_presence::required;
+			if (key->front() == '!') {
+				presence = warp::http::query_constraint_presence::forbidden;
+				key->erase(key->begin());
+			} else if (key->front() == '~') {
+				presence = warp::http::query_constraint_presence::optional;
+				key->erase(key->begin());
+			}
+			if (key->empty()) {
+				throw std::invalid_argument("route query constraint names must be non-empty and valid");
+			}
+
+			const auto raw_value = eq == std::string_view::npos
+			                           ? std::optional<std::string> {}
+			                           : warp::http::try_decode_query_component(token.substr(eq + 1));
+			if (eq != std::string_view::npos && !raw_value.has_value()) {
+				throw std::invalid_argument("route query constraint values must use valid percent-encoding");
+			}
+
+			constraints.push_back(parsed_query_constraint {
+			    .name = std::move(*key),
+			    .presence = presence,
+			    .exact_value = std::move(raw_value),
+			});
+		}
+
+		if (end == std::string_view::npos) {
+			break;
+		}
+		start = end + 1;
+	}
+
+	return constraints;
+}
+
 registry::route_id add_route(registry &routes, warp::method verb, std::string_view path) {
-	return routes.add(verb, std::string(path));
+	auto owned_constraints = parse_query_constraints(path);
+	std::vector<warp::http::query_constraint_descriptor> descriptors;
+	descriptors.reserve(owned_constraints.size());
+	for (const auto &constraint : owned_constraints) {
+		descriptors.push_back(warp::http::query_constraint_descriptor {
+		    .name = constraint.name,
+		    .presence = constraint.presence,
+		    .exact_value = constraint.exact_value,
+		});
+	}
+	return routes.add(verb, std::string(warp::http::strip_query_string(path)), descriptors);
 }
 
 template <typename Spec>
 registry::route_id add_typed_route(registry &routes) {
-	return routes.add_typed(Spec::verb, std::string(Spec::path_view()),
-	                        std::vector<warp::http::query_constraint_descriptor>(Spec::query_constraints.begin(),
-	                                                                             Spec::query_constraints.end()));
+	return routes.add(Spec::verb, std::string(Spec::path_view()),
+	                  std::vector<warp::http::query_constraint_descriptor>(Spec::query_constraints.begin(),
+	                                                                       Spec::query_constraints.end()));
 }
 
 void record_route_name(std::vector<std::string> &route_names, registry::route_id id, std::string name) {
@@ -347,10 +419,10 @@ TEST(RegistryTest, FindClearsStalePathParamsOnMiss) {
 TEST(RegistryTest, AddRejectsInvalidRoutePatterns) {
 	registry routes;
 
-	EXPECT_THROW(static_cast<void>(routes.add(warp::method::get, "users/{id}")), std::invalid_argument);
-	EXPECT_THROW(static_cast<void>(routes.add(warp::method::get, "/users//id")), std::invalid_argument);
-	EXPECT_THROW(static_cast<void>(routes.add(warp::method::get, "/users/{}")), std::invalid_argument);
-	EXPECT_THROW(static_cast<void>(routes.add(warp::method::get, "/reports/{id}?summary&summary")),
+	EXPECT_THROW(static_cast<void>(add_route(routes, warp::method::get, "users/{id}")), std::invalid_argument);
+	EXPECT_THROW(static_cast<void>(add_route(routes, warp::method::get, "/users//id")), std::invalid_argument);
+	EXPECT_THROW(static_cast<void>(add_route(routes, warp::method::get, "/users/{}")), std::invalid_argument);
+	EXPECT_THROW(static_cast<void>(add_route(routes, warp::method::get, "/reports/{id}?summary&summary")),
 	             std::invalid_argument);
 }
 
@@ -358,11 +430,11 @@ TEST(RegistryTest, AddRejectsDuplicateNormalizedRouteShapesPerMethod) {
 	registry routes;
 
 	add_route(routes, warp::method::get, "/users/{id}");
-	EXPECT_THROW(static_cast<void>(routes.add(warp::method::get, "/users/{name}")), std::invalid_argument);
+	EXPECT_THROW(static_cast<void>(add_route(routes, warp::method::get, "/users/{name}")), std::invalid_argument);
 	add_route(routes, warp::method::post, "/users/{name}");
 
 	add_route(routes, warp::method::get, "/reports/{id}?summary");
-	EXPECT_THROW(static_cast<void>(routes.add(warp::method::get, "/reports/{report_id}?summary")),
+	EXPECT_THROW(static_cast<void>(add_route(routes, warp::method::get, "/reports/{report_id}?summary")),
 	             std::invalid_argument);
 	add_route(routes, warp::method::get, "/reports/{report_id}?fields");
 }

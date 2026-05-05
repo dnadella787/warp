@@ -35,12 +35,9 @@ public:
 	registry &operator=(const registry &other);
 	registry(registry &&) noexcept = default;
 	registry &operator=(registry &&) noexcept = default;
-	[[nodiscard]] route_id add(http::method verb, std::string path);
-	[[nodiscard]] route_id add_route(http::method verb, std::string path);
-	[[nodiscard]] route_id add_typed(http::method verb, std::string path,
-	                                 const std::vector<http::query_constraint_descriptor> &query_constraints);
-	[[nodiscard]] route_id add_compiled(http::compiled_route route);
 	[[nodiscard]] std::optional<route_match> find(http::request &req) const;
+	[[nodiscard]] route_id add(http::method verb, std::string_view path,
+	                           const std::vector<http::query_constraint_descriptor> &query_constraints);
 
 private:
 	struct route_parameter {
@@ -64,6 +61,7 @@ private:
 		[[nodiscard]] std::size_t operator()(http::method verb) const noexcept;
 	};
 
+	[[nodiscard]] route_id add_compiled(http::compiled_route route);
 	static node clone_node(const node &source);
 	[[nodiscard]] static http::compiled_route parse_registered_route(http::method verb, std::string_view route);
 	[[nodiscard]] static const route_entry *match_route(const node &root, const http::request &req,

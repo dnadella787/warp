@@ -35,7 +35,7 @@ http::compiled_route compile_typed_route(http::method verb, std::string_view pat
 		    .presence = descriptor.presence,
 		};
 		if (descriptor.exact_value.has_value()) {
-			constraint.value = std::string(*descriptor.exact_value);
+			constraint.value = std::string(descriptor.exact_value.value());
 		}
 		route.query_constraints.push_back(std::move(constraint));
 	}
@@ -66,22 +66,13 @@ registry &registry::operator=(const registry &other) {
 	return *this;
 }
 
-registry::route_id registry::add(http::method verb, std::string path) {
-	return add_route(verb, std::move(path));
-}
-
-registry::route_id registry::add_route(http::method verb, std::string path) {
-	return add_compiled(parse_registered_route(verb, path));
-}
-
-registry::route_id registry::add_typed(http::method verb, std::string path,
-                                       const std::vector<http::query_constraint_descriptor> &query_constraints) {
+registry::route_id registry::add(http::method verb, std::string_view path,
+                                 const std::vector<http::query_constraint_descriptor> &query_constraints) {
 	return add_compiled(compile_typed_route(verb, path, query_constraints));
 }
 
 registry::route_id registry::add_compiled(http::compiled_route route) {
-	normalize_compiled_query_constraints(route.query_constraints);
-	auto &root = method_roots_[route.verb];
+	auto &root = method_roots_[route.verb]; // method separated bucket
 	auto *current = &root;
 	const route_id id {next_route_id_++};
 
@@ -90,26 +81,35 @@ registry::route_id registry::add_compiled(http::compiled_route route) {
 
 	for (std::size_t i = 0; i < route.pattern.segments.size(); ++i) {
 		const auto &segment = route.pattern.segments[i];
+		// if it's a literal (like /users) just try adding it to the map, either way
+		// get an iterator to the corresponding node for the literal and move
+		// current to it before going to the next
 		if (segment.kind == http::route_segment_kind::literal) {
-			auto [it, inserted] = current->literal_children.try_emplace(segment.text, std::make_unique<node>());
-			boost::ignore_unused(inserted);
+			auto [it, _] = current->literal_children.try_emplace(segment.text, std::make_unique<node>());
 			current = it->second.get();
 			continue;
 		}
 
-		if (!current->parameter_child) {
+		// if this current node does not have a child parameter node (i.e. /users/{userId})
+		// then we create a new parameter node for the one that needs to be created (since
+		// we know it's not a literal, it's a param)
+		if (!current->parameter_child)
 			current->parameter_child = std::make_unique<node>();
-		}
+		// move to the parameter child node of the previous node (each node can have both a param and literal child)
 		current = current->parameter_child.get();
+		// append the path param to the list since you can have /users/{userId} or /users/{friendId}/remove
 		parameters.push_back(route_parameter {.index = i, .name = segment.text});
 	}
 
+	// if any two requests have the same method verb, path, and query parameters (including required
+	// or optional ones) then we have a duplicate, throw err
 	for (const auto &existing : current->routes) {
-		if (existing.query_constraints == route.query_constraints) {
+		if (existing.query_constraints == route.query_constraints)
 			throw std::invalid_argument("duplicate route pattern for method, normalized path shape, and query shape");
-		}
 	}
 
+	// if there is no preexisting route with the same constraints,
+	// add it as one of the entries on this node
 	current->routes.push_back(route_entry {
 	    .id = id,
 	    .parameters = std::move(parameters),
