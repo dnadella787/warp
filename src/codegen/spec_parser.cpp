@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <charconv>
-#include <cstdint>
 #include <fstream>
 #include <initializer_list>
 #include <limits>
@@ -34,15 +33,16 @@ struct yaml_node {
 };
 
 struct source_line {
-	std::size_t line {0};
-	std::size_t indent {0};
-	std::string text;
+	std::size_t line {0};   // raw line num in file
+	std::size_t indent {0}; // indentation amount (num of ' ')
+	std::string text;       // stripped down line (no \n, \r, trailing or leading white spaces)
 };
 
 source_span span_of(const yaml_node &node) {
 	return source_span {.line = node.line, .column = node.column};
 }
 
+// all_of is vacuously true if std::string_view text is "" here
 bool is_blank(std::string_view text) {
 	return std::all_of(text.begin(), text.end(),
 	                   [](char c) { return std::isspace(static_cast<unsigned char>(c)) != 0; });
@@ -60,19 +60,26 @@ std::string trim(std::string_view text) {
 	return std::string(text.substr(begin, end - begin));
 }
 
+// remove comment from a line as long as it's not wrapped within single or double quotes{
 std::string strip_comment(std::string_view text) {
 	bool single_quoted = false;
 	bool double_quoted = false;
 	for (std::size_t index = 0; index < text.size(); ++index) {
 		const char c = text[index];
+		// if its ' and not within a double quote, we flip the single
+		// quote or not i.e. 'hello -> true hello' -> false, double quote check
+		// bc of "it's alright"
 		if (c == '\'' && !double_quoted) {
 			single_quoted = !single_quoted;
 			continue;
 		}
+		// same using double quotes here
 		if (c == '"' && !single_quoted) {
 			double_quoted = !double_quoted;
 			continue;
 		}
+		// the curr char is # (indicating comment) and we are not
+		// in any quotes, in which case we strip off the comment and part in front
 		if (c == '#' && !single_quoted && !double_quoted) {
 			return std::string(text.substr(0, index));
 		}
@@ -85,18 +92,22 @@ std::vector<source_line> tokenize_lines(std::string_view yaml_text) {
 	std::size_t line_number = 1;
 	std::size_t start = 0;
 	while (start <= yaml_text.size()) {
+		// find the line discriminator (i.e. newline char)
 		const auto end = yaml_text.find('\n', start);
+		// get a view of the line using the start and end markers
 		auto raw = yaml_text.substr(start, end == std::string_view::npos ? std::string_view::npos : end - start);
-		if (!raw.empty() && raw.back() == '\r') {
+		// if this line is not empty and it's a CR character at the end, we strip the CR off
+		// don't have to worry about \n because we grab the segment right up till \n
+		if (!raw.empty() && raw.back() == '\r')
 			raw.remove_suffix(1);
-		}
 
+		// remove comment from line
 		const auto uncommented = strip_comment(raw);
 		if (!is_blank(uncommented)) {
 			std::size_t indent = 0;
-			while (indent < uncommented.size() && uncommented[indent] == ' ') {
+			while (indent < uncommented.size() && uncommented[indent] == ' ')
 				++indent;
-			}
+
 			if (indent < uncommented.size() && uncommented[indent] == '\t') {
 				throw spec_error(line_number, indent + 1, "tabs are not supported in YAML indentation");
 			}
@@ -178,9 +189,15 @@ private:
 		if (lines_[index].indent < indent) {
 			throw spec_error(lines_[index].line, lines_[index].indent + 1, "invalid indentation");
 		}
-		if (lines_[index].text.rfind("- ", 0) == 0 || lines_[index].text == "-") {
+		// if the line is either of:
+		// -
+		// - hi
+		// then we parse as a list
+		// but we check '- ' otherwise we would parse --bob or -- bob as lists too
+		if (lines_[index].text == "-" || lines_[index].text.starts_with("- ")) {
 			return parse_list(index, indent);
 		}
+		// otherwise we parse it as a map
 		return parse_map(index, indent);
 	}
 
@@ -239,7 +256,7 @@ private:
 			if (line.indent > indent) {
 				throw spec_error(line.line, line.indent + 1, "unexpected indentation inside list");
 			}
-			if (!(line.text.rfind("- ", 0) == 0 || line.text == "-")) {
+			if (!(line.text == "-" || line.text.starts_with("- "))) {
 				break;
 			}
 
