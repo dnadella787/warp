@@ -5,7 +5,6 @@
 #include <boost/beast/core.hpp>
 
 #include "http_listener.h"
-#include "server/router/registry.hpp"
 
 namespace warp::server {
 
@@ -16,7 +15,7 @@ public:
 	using base_type = listener_base<event_loop_mode::coroutines, Transport>;
 
 	coroutine_listener(boost::asio::io_context &ioc, transport_provider<Transport> transport_provider,
-	                   const registry &registry, const std::vector<http::handler> &route_handlers,
+	                   const typename base_type::route_runtime_t &routes,
 	                   const interceptor_chain<request> &req_interceptor_chain,
 	                   const interceptor_chain<response> &resp_interceptor_chain, const std::string &address,
 	                   unsigned short port, log::logger logger);

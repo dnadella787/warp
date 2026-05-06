@@ -12,9 +12,10 @@
 #include <utility>
 #include <vector>
 
-#include "interceptor/interceptor.h"
-#include "job.hpp"
-#include "router/route_types.h"
+#include "warp/server/detail/interceptor_definition.hpp"
+#include "warp/server/detail/route_definition.hpp"
+#include "warp/server/job.hpp"
+#include "warp/server/router/route_types.h"
 #include "warp/http/event_loop_mode.hpp"
 #include "warp/http/http.hpp"
 #include "warp/logging/logger.hpp"
@@ -100,19 +101,15 @@ public:
 	 */
 	template <int Priority, http::request_interceptor Interceptor>
 	server_builder &interceptor(Interceptor &&interceptor_obj) {
-		req_interceptors_.push_back(interceptor_definition<detail::type_erased_req_interceptor> {
-		    .priority = Priority,
-		    .registration_order = next_interceptor_registration_order_++,
-		    .callback = make_interceptor(std::forward<Interceptor>(interceptor_obj))});
+		req_interceptors_.push_back(detail::interceptor_definition<detail::type_erased_req_interceptor> {
+		    .priority = Priority, .callback = make_interceptor(std::forward<Interceptor>(interceptor_obj))});
 		return *this;
 	}
 
 	template <int Priority, http::response_interceptor Interceptor>
 	server_builder &interceptor(Interceptor &&interceptor_obj) {
-		resp_interceptors_.push_back(interceptor_definition<detail::type_erased_resp_interceptor> {
-		    .priority = Priority,
-		    .registration_order = next_interceptor_registration_order_++,
-		    .callback = make_response_interceptor(std::forward<Interceptor>(interceptor_obj))});
+		resp_interceptors_.push_back(detail::interceptor_definition<detail::type_erased_resp_interceptor> {
+		    .priority = Priority, .callback = make_response_interceptor(std::forward<Interceptor>(interceptor_obj))});
 		return *this;
 	}
 
@@ -131,10 +128,10 @@ private:
 	server_builder &route_typed(http::method verb, std::string path,
 	                            std::vector<http::query_constraint_descriptor> query_constraints,
 	                            http::handler handler) {
-		routes_.push_back(route_definition {.verb = verb,
-		                                    .path = std::move(path),
-		                                    .typed_query_constraints = std::move(query_constraints),
-		                                    .callback = std::move(handler)});
+		routes_.push_back(detail::route_definition {.verb = verb,
+		                                            .path = std::move(path),
+		                                            .typed_query_constraints = std::move(query_constraints),
+		                                            .callback = std::move(handler)});
 		return *this;
 	}
 
@@ -201,38 +198,15 @@ private:
 		};
 	}
 
-	struct route_definition {
-		http::method verb;
-		std::string path;
-		std::vector<http::query_constraint_descriptor> typed_query_constraints;
-		http::handler callback;
-	};
-
-	/**
-	 * @tparam TypeErasedInterceptorFunc can be of type type_erased_req_interceptor or type_erased_resp_interceptor
-	 * which correspond to the wrappers for the interceptor::intercept method for each type
-	 */
-	template <detail::erased_interceptor_type TypeErasedInterceptorFunc>
-	struct interceptor_definition {
-		int priority;
-		std::size_t registration_order;
-		TypeErasedInterceptorFunc callback;
-	};
-
-	template <detail::erased_interceptor_type Interceptor>
-	[[nodiscard]] static std::vector<Interceptor>
-	make_sorted_interceptor_entries(std::vector<interceptor_definition<Interceptor>> interceptors);
-
 	std::string address_ {"0.0.0.0"};
 	std::uint16_t port_ {8080};
 	std::size_t workers_ {1};
 	std::optional<log::logger> logger_;
 	warp::ssl::ssl_config ssl_config_ {};
-	std::vector<route_definition> routes_;
+	std::vector<detail::route_definition> routes_;
 	std::vector<job::background_job> jobs_;
-	std::vector<interceptor_definition<detail::type_erased_req_interceptor>> req_interceptors_;
-	std::vector<interceptor_definition<detail::type_erased_resp_interceptor>> resp_interceptors_;
-	std::size_t next_interceptor_registration_order_ {};
+	std::vector<detail::interceptor_definition<detail::type_erased_req_interceptor>> req_interceptors_;
+	std::vector<detail::interceptor_definition<detail::type_erased_resp_interceptor>> resp_interceptors_;
 };
 
 } // namespace warp::server

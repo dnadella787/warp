@@ -112,6 +112,7 @@ set(warp_http_unit_test_sources
     unit/request_test.cpp
     unit/response_test.cpp
     unit/registry_test.cpp
+    unit/route_runtime_test.cpp
     unit/interceptor_chain_test.cpp
     unit/ssl_context_test.cpp
     unit/tls_transport_test.cpp

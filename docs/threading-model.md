@@ -25,6 +25,8 @@ At runtime, `server::impl` constructs either:
 - [callback_listener.cpp](../src/server/listener/callback_listener.cpp) plus [callback_http_session.cpp](../src/server/session/callback_http_session.cpp)
 - [coroutine_listener.cpp](../src/server/listener/coroutine_listener.cpp) plus [coroutine_http_session.cpp](../src/server/session/coroutine_http_session.cpp)
 
+Before constructing either listener, `server::impl` also materializes a transport-specific [route_runtime.hpp](../src/server/router/route_runtime.hpp) object. That runtime owns the immutable route lookup registry plus the prebound executor table for the chosen session type. Listeners and sessions only borrow a `const` reference to it.
+
 The public route API is the same in both modes.
 
 ## Accept Loop
@@ -112,7 +114,7 @@ The current `warp::request` type:
 - stores route-specific path params injected later by the registry
 - exposes `json_body()` and `try_json_body()` helpers
 
-The registry matches only against the request path and fills `path_param(...)` values on a successful route match.
+The registry matches only against the request path and fills `path_param(...)` values on a successful route match. The surrounding `route_runtime` then dispatches the already-bound sync or async executor for that `route_id`.
 
 Public route handlers may return either:
 
@@ -127,7 +129,7 @@ The registry is not internally synchronized.
 
 Current code assumes:
 
-- routes are added during setup
+- route runtimes are materialized during setup
 - request processing performs reads only
 - `add(...)` does not race with `find(...)`
 

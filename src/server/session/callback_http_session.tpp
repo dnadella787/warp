@@ -10,14 +10,12 @@ namespace warp::server {
 // The socket executor is already a strand from the listener::do_accept method
 template <warp_session_transport Transport>
 callback_http_session<Transport>::callback_http_session(boost::asio::ip::tcp::socket &&socket, Transport transport,
-                                                        const registry &routes,
-                                                        const executor_table_t &route_executors,
+                                                        const route_runtime_t &routes,
                                                         const interceptor_chain<request> &req_chain,
                                                         const interceptor_chain<response> &resp_chain,
                                                         log::logger logger)
     : transport_(std::move(transport)),
-      stream_(transport_.make_stream(std::move(socket))), routes_(routes),
-      route_executors_(route_executors), req_interceptor_chain_(req_chain),
+      stream_(transport_.make_stream(std::move(socket))), routes_(routes), req_interceptor_chain_(req_chain),
       resp_interceptor_chain_(resp_chain), logger_(std::move(logger)) {
 }
 
@@ -110,13 +108,13 @@ void callback_http_session<Transport>::on_read(beast::error_code ec, std::size_t
 	 * async handlers (i.e. always kick off a coroutine). The order of execution on the coroutine should go:
 	 *
 	 * req_ctx = req_ctx { .request = request }
-	 * auto match = registry_.find(request)
+	 * auto match = routes_.find(request)
 	 * req_ctx.match_found = match.found()
 	 *
 	 * universal_request_interceptor_chain_.run_interceptors(req_ctx)
 	 * if (match.found()) {
 	 *		matched_request_interceptor_chain_.run_interceptors(req_ctx)
-	 *  	route_executors_.dispatch(match->id, *this, sequence, std::move(request));
+	 *  	routes_.dispatch(match->id, *this, sequence, std::move(request));
 	 * }
 	 *
 	 * and then in the completion handler:
@@ -125,7 +123,7 @@ void callback_http_session<Transport>::on_read(beast::error_code ec, std::size_t
 	 *		matched_response_interceptor_chain_.run_interceptors(req_ctx)
 	 */
 	if (const auto match = routes_.find(request)) {
-		route_executors_.dispatch(match->id, *this, sequence, std::move(request));
+		routes_.dispatch(match->id, *this, sequence, std::move(request));
 	} else {
 		on_handler_complete(sequence, nullptr, http::response::not_found());
 	}

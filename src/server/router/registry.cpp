@@ -221,10 +221,14 @@ http::compiled_route registry::parse_registered_route(http::method verb, std::st
 const registry::route_entry *registry::match_route(const node &root, const http::request &req,
                                                    const std::vector<std::string_view> &segments,
                                                    std::size_t segment_index) {
+	// if we traversed the trie till the last segment of the match string, then
+	// we treat the current node as a leaf and try to match the request to a route there
 	if (segment_index == segments.size()) {
 		return match_leaf_routes(root, req);
 	}
 
+	// check if the current segment is a literal segment at the current node
+	// if it is, then recursively check that next node using the next segment so on and so forth
 	const auto &token = segments[segment_index];
 	if (auto it = root.literal_children.find(token); it != root.literal_children.end()) {
 		if (const auto *literal_match = match_route(*it->second, req, segments, segment_index + 1)) {
@@ -232,57 +236,82 @@ const registry::route_entry *registry::match_route(const node &root, const http:
 		}
 	}
 
+	// otherwise, check if this node has parameter children, i.e. /users/{userId}
+	// if it does, then try to match the next segment against that param child's
+	// literal children (or again across the param child's param children).
 	if (root.parameter_child) {
 		return match_route(*root.parameter_child, req, segments, segment_index + 1);
 	}
 
+	// no corresponding param or literal child for the current segment, meaning
+	// 404 error
 	return nullptr;
 }
 
+/**
+ * This is the final matching logic, once you reach the end of the split segment
+ * you search based on here to see if there is a match
+ */
 const registry::route_entry *registry::match_leaf_routes(const node &current, const http::request &req) {
 	const route_entry *best = nullptr;
 	http::routing_detail::query_constraint_match_score best_score {};
+	// iterate through all the routes at this node and try to match the query constraints to the
+	// request path. The one with the most matches 'wins'
 	for (const auto &route : current.routes) {
 		const auto score = match_query_constraints(route, req);
-		if (!score.has_value()) {
+		// no score returned indicates not a match to the route at all, we use no score instead of 0 score
+		// otherwise, the best will get set on the first run even for a 0 score
+		if (!score.has_value())
 			continue;
-		}
+		// if its the first possible match or the current match is a better match from the previous one,
+		// we update the best match thus far
 		if (best == nullptr || is_better_match(route, *score, *best, best_score)) {
 			best = &route;
 			best_score = *score;
 		}
 	}
+	// return the best match
 	return best;
 }
 
+// assign a matching score for the specific route based on the client request and query params
+// the route has; no response indicates no match at all for this route
 std::optional<http::routing_detail::query_constraint_match_score>
 registry::match_query_constraints(const route_entry &route, const http::request &req) {
 	http::routing_detail::query_constraint_match_score score;
+	// iterate through each query constraint and try to match it
 	for (const auto &constraint : route.query_constraints) {
+		// get the actual query param
 		const auto actual = req.query_param(constraint.name);
 		if (constraint.presence == http::query_constraint_presence::forbidden) {
-			if (actual.has_value()) {
+			// if this query param is forbidden but is passed by client, then we return no score
+			if (actual.has_value())
 				return std::nullopt;
-			}
+			// otherwise its considered a match because it was not sent, as required
 			++score.matched_constraints;
 			continue;
 		}
 
 		if (!actual.has_value()) {
-			if (constraint.presence == http::query_constraint_presence::required) {
+			// if the param was not passed but its required, then we return no score
+			if (constraint.presence == http::query_constraint_presence::required)
 				return std::nullopt;
-			}
+			// otherwise this param was not passed but its not required so it does not
+			// affect the 'matchness' of the request
 			continue;
 		}
 
-		if (constraint.value.has_value() && *actual != *constraint.value) {
-			return std::nullopt;
-		}
-
-		++score.matched_constraints;
+		// if the constraint requires a value
 		if (constraint.value.has_value()) {
+			// we check that the client passed exact value otherwise it's not a match
+			if (*actual != *constraint.value)
+				return std::nullopt;
+			// otherwise it's an exact constraint match
 			++score.matched_exact_constraints;
 		}
+
+		// standard match otherwise
+		++score.matched_constraints;
 	}
 	return score;
 }
@@ -291,12 +320,18 @@ bool registry::is_better_match(const route_entry &candidate,
                                http::routing_detail::query_constraint_match_score candidate_score,
                                const route_entry &current_best,
                                http::routing_detail::query_constraint_match_score current_best_score) {
-	if (candidate_score.matched_constraints != current_best_score.matched_constraints) {
+	// if the matched constraints are not the same, return the one with the higher one
+	if (candidate_score.matched_constraints != current_best_score.matched_constraints)
 		return candidate_score.matched_constraints > current_best_score.matched_constraints;
-	}
-	if (candidate_score.matched_exact_constraints != current_best_score.matched_exact_constraints) {
+
+	// otherwise, we use the number of matched exact constraints as a tiebreaker
+	// think if two paths have required_query name but one has name=Bob, then we can distinguish
+	// between the two. Of course exact matched can be outmatched if there are simply more
+	// raw query param matches
+	if (candidate_score.matched_exact_constraints != current_best_score.matched_exact_constraints)
 		return candidate_score.matched_exact_constraints > current_best_score.matched_exact_constraints;
-	}
+
+	// if both are an exact same match in, just return the one that was registered first server side
 	return candidate.id.index() < current_best.id.index();
 }
 
@@ -310,7 +345,7 @@ void registry::apply_path_params(http::request &req, const std::vector<std::stri
 			if (parameter.index >= segments.size()) {
 				break;
 			}
-			const auto decoded = warp::http::try_decode_url_component(segments[parameter.index]);
+			auto decoded = warp::http::try_decode_url_component(segments[parameter.index]);
 			if (!decoded.has_value()) {
 				req.set_target_error(warp::http::target_parse_error {
 				    .code = "malformed_path_parameter",

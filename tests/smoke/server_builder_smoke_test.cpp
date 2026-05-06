@@ -71,6 +71,11 @@ void expect_server_builds_for_mode() {
 	        .template post<"/jobs">([](warp::request) -> warp::awaitable<warp::response> {
 		        co_return warp::response::accepted(warp::body_builder().set("queued", true).build());
 	        })
+	        .template get<"/reports/{report_id}", warp::http::required_query<"summary">>(
+	            [](const warp::request &req) -> warp::response {
+		            return warp::response::ok(
+		                warp::body_builder().set("report_id", req.path_param("report_id").value_or("")).build());
+	            })
 	        .template delete_<"/jobs/{id}">([](const warp::request &req) -> warp::response {
 		        return warp::response::ok(
 		            warp::body_builder().set("deleted", true).set("id", req.path_param("id").value_or("")).build());
@@ -174,6 +179,23 @@ TEST(ServerBuilderSmokeTest, BuildsServerFromTypedRouteSpecs) {
 	                  .build();
 
 	server.stop();
+}
+
+template <warp::event_loop_mode Mode>
+void expect_duplicate_routes_fail_at_build_time() {
+	const auto build_server = []() {
+		return warp::server::server_builder()
+		    .get<"/health">([](const warp::request &) -> warp::response { return warp::response::ok("ok"); })
+		    .template get<"/health">([](const warp::request &) -> warp::response { return warp::response::ok("ok"); })
+		    .template build<Mode>();
+	};
+
+	EXPECT_THROW(static_cast<void>(build_server()), std::invalid_argument);
+}
+
+TEST(ServerBuilderSmokeTest, DuplicateRoutesStillFailWhenServerBuildOwnsRuntimeConstruction) {
+	expect_duplicate_routes_fail_at_build_time<warp::event_loop_mode::callbacks>();
+	expect_duplicate_routes_fail_at_build_time<warp::event_loop_mode::coroutines>();
 }
 
 TEST(ServerBuilderSmokeTest, ConcurrentRunAndStopDoNotRaceServerLifecycle) {

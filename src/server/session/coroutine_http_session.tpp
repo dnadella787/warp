@@ -12,10 +12,9 @@ namespace warp::server {
 
 template <warp_session_transport Transport>
 coroutine_http_session<Transport>::coroutine_http_session(
-    boost::asio::ip::tcp::socket &&socket, Transport transport, const registry &routes,
-    const executor_table_t &route_executors,
+    boost::asio::ip::tcp::socket &&socket, Transport transport, const route_runtime_t &routes,
     const interceptor_chain<request> &req_chain, const interceptor_chain<response> &resp_chain, log::logger logger)
-    : transport_(std::move(transport)), stream_(transport_.make_stream(std::move(socket))), routes_(routes), route_executors_(route_executors),
+    : transport_(std::move(transport)), stream_(transport_.make_stream(std::move(socket))), routes_(routes),
       req_interceptor_chain_(req_chain), resp_interceptor_chain_(resp_chain), logger_(std::move(logger)),
       read_signal_(stream_.get_executor()), write_signal_(stream_.get_executor()) {
 }
@@ -87,7 +86,7 @@ boost::asio::awaitable<void> coroutine_http_session<Transport>::read_loop() {
 			stop_reading_ = true;
 
 		if (const auto match = routes_.find(req)) {
-			route_executors_.dispatch(match->id, *this, sequence, std::move(req));
+			routes_.dispatch(match->id, *this, sequence, std::move(req));
 		} else {
 			complete_request(sequence, http::response::not_found());
 		}

@@ -15,22 +15,15 @@ namespace beast = boost::beast;
 template <http::event_loop_mode Mode, warp_session_transport Transport>
 listener_base<Mode, Transport>::listener_base(boost::asio::io_context &ioc,
                                               transport_provider<Transport> transport_provider,
-                                              const registry &registry,
-                                              const std::vector<http::handler> &route_handlers,
+                                              const route_runtime_t &routes,
                                               const interceptor_chain<request> &req_interceptor_chain,
                                               const interceptor_chain<response> &resp_interceptor_chain,
                                               const std::string &address, const unsigned short port,
                                               log::logger logger)
 	: ioc_(ioc), acceptor_(boost::asio::make_strand(ioc)),
-	  transport_provider_(std::move(transport_provider)), route_executors_(route_handlers.size()), registry_(registry),
+	  transport_provider_(std::move(transport_provider)), routes_(routes),
 	  req_interceptor_chain_(req_interceptor_chain),
 	  resp_interceptor_chain_(resp_interceptor_chain), logger_(std::move(logger)) {
-	for (std::size_t i = 0; i < route_handlers.size(); ++i) {
-		// try to std::move the handler and un const the route handler param
-		// or synthesize exec table entirely into the registry
-		route_executors_.set(registry::route_id {.value = i}, route_handlers[i]);
-	}
-
 	auto const addr = boost::asio::ip::make_address(address);
 	auto const endpoint = boost::asio::ip::tcp::endpoint {addr, port};
 	beast::error_code ec;
@@ -62,8 +55,7 @@ listener_base<Mode, Transport>::listener_base(boost::asio::io_context &ioc,
 
 template <http::event_loop_mode Mode, warp_session_transport Transport>
 void listener_base<Mode, Transport>::start_session(boost::asio::ip::tcp::socket socket) {
-	std::make_shared<session_type>(std::move(socket), transport_provider_.make_transport(), registry_,
-	                               route_executors_,
+	std::make_shared<session_type>(std::move(socket), transport_provider_.make_transport(), routes_,
 	                               req_interceptor_chain_, resp_interceptor_chain_, logger_)
 	    ->start();
 }

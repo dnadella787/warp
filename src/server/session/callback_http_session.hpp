@@ -13,7 +13,6 @@
 #include "policy/transport.h"
 #include "server/interceptors/interceptor_chain.h"
 #include "server/listener/traits.hpp"
-#include "server/router/registry.hpp"
 #include "warp/warp.hpp"
 
 namespace warp::server {
@@ -24,11 +23,11 @@ template <warp_session_transport Transport>
 class callback_http_session : public std::enable_shared_from_this<callback_http_session<Transport>> {
 public:
 	using stream_t = typename Transport::stream_type;
-	using executor_table_t = typename event_loop_traits<event_loop_mode::callbacks, Transport>::executor_table_type;
+	using route_runtime_t = typename event_loop_traits<event_loop_mode::callbacks, Transport>::route_runtime_type;
 
-	callback_http_session(boost::asio::ip::tcp::socket &&socket, Transport transport, const registry &routes,
-	                      const executor_table_t &route_executors, const interceptor_chain<request> &req_chain,
-	                      const interceptor_chain<response> &resp_chain, log::logger logger);
+	callback_http_session(boost::asio::ip::tcp::socket &&socket, Transport transport, const route_runtime_t &routes,
+	                      const interceptor_chain<request> &req_chain, const interceptor_chain<response> &resp_chain,
+	                      log::logger logger);
 
 	void start();
 	void dispatch_sync_handler(std::size_t sequence, const http::sync_handler &handler, http::request request);
@@ -59,8 +58,7 @@ private:
 	[[no_unique_address]] Transport transport_;
 	stream_t stream_;
 	beast::flat_buffer buffer_;
-	const registry &routes_;
-	const executor_table_t &route_executors_;
+	const route_runtime_t &routes_;
 	const interceptor_chain<request> &req_interceptor_chain_;
 	const interceptor_chain<response> &resp_interceptor_chain_;
 	log::logger logger_;

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "server/router/route_executor_table.hpp"
+#include "server/router/route_runtime.hpp"
 #include "server/session/policy/transport.h"
 #include "warp/http/event_loop_mode.hpp"
 
@@ -25,14 +25,14 @@ template <warp_session_transport Transport>
 struct event_loop_traits<event_loop_mode::callbacks, Transport> {
 	using listener_type = callback_listener<Transport>;
 	using session_type = callback_http_session<Transport>;
-	using executor_table_type = route_executor_table<session_type>;
+	using route_runtime_type = route_runtime<session_type>;
 };
 
 template <warp_session_transport Transport>
 struct event_loop_traits<event_loop_mode::coroutines, Transport> {
 	using listener_type = coroutine_listener<Transport>;
 	using session_type = coroutine_http_session<Transport>;
-	using executor_table_type = route_executor_table<session_type>;
+	using route_runtime_type = route_runtime<session_type>;
 };
 
 } // namespace warp::server

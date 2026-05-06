@@ -8,8 +8,6 @@
 
 #include "server_impl.hpp"
 
-#include "router/registry.hpp"
-
 namespace warp::server {
 
 server_builder &server_builder::address(std::string address) {
@@ -54,42 +52,9 @@ template <http::event_loop_mode Mode>
 
 template <http::event_loop_mode Mode>
 [[nodiscard]] std::shared_ptr<server::impl_base> server_builder::make_impl() const {
-	// TODO: this needs to be revisited pretty soon bc we send raw params for everything but the registry
-	registry registry;
-	std::vector<http::handler> route_handlers(routes_.size());
-	for (const auto &[verb, path, constraints, handler] : routes_) {
-		const auto route_id = registry.add(verb, path, constraints);
-		// we just store the route_handler as std::variant here and then we push it down into the listener which
-		// converts it into the actual route executor table that normalizes the variant into a single handler so runtime
-		// dispatch doesn't have the overhead of std::get or std::visit over overloaded{...}, only at startup
-		// registration time
-		route_handlers.at(route_id.index()) = handler;
-	}
-
-	auto req_chain_entries = make_sorted_interceptor_entries(req_interceptors_);
-	auto resp_chain_entries = make_sorted_interceptor_entries(resp_interceptors_);
-
-	return std::make_shared<server::server_impl<Mode>>(
-	    address_, port_, workers_, std::move(registry), std::move(route_handlers), ssl_config_, jobs_,
-	    std::move(req_chain_entries), std::move(resp_chain_entries), logger_.value_or(log::default_logger()));
-}
-
-template <detail::erased_interceptor_type Interceptor>
-std::vector<Interceptor>
-server_builder::make_sorted_interceptor_entries(std::vector<interceptor_definition<Interceptor>> interceptors) {
-	// we use stable sort for sorting the request/response interceptors so that we can preserve
-	// the order in which they were registered for interceptors with the same priority
-	std::stable_sort(interceptors.begin(), interceptors.end(),
-	                 [](const auto &lhs, const auto &rhs) { return lhs.priority < rhs.priority; });
-
-	std::vector<Interceptor> chain_entries;
-	chain_entries.reserve(interceptors.size());
-
-	// convert from interceptor_def to Interceptor object itself for the chain
-	std::ranges::transform(interceptors, std::back_inserter(chain_entries),
-	                       [](auto &entry) { return std::move(entry.callback); });
-
-	return chain_entries;
+	return std::make_shared<server::server_impl<Mode>>(address_, port_, workers_, routes_, ssl_config_, jobs_,
+	                                                   req_interceptors_, resp_interceptors_,
+	                                                   logger_.value_or(log::default_logger()));
 }
 
 // tell the compiler to instantiate these concrete specializations, otherwise we would need the entire

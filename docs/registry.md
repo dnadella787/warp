@@ -2,17 +2,17 @@
 
 ## Purpose
 
-`warp::server::registry` is the in-memory route table used by the HTTP server runtime.
+`warp::server::registry` is the lookup half of Warp's in-memory route table.
 
 Its job is intentionally narrow:
 
-- store route patterns and their handlers
+- store route patterns and route ids
 - bucket routes by HTTP method
 - match an incoming request against a compiled path trie plus query-aware route variants
 - extract path parameters such as `/{id}`
 - inject those path parameters into `warp::request` before the handler runs
 
-The registry does not perform socket I/O, request parsing, or response serialization.
+The registry does not own route handler dispatch, socket I/O, request parsing, or response serialization.
 
 ## Main Types
 
@@ -20,6 +20,7 @@ The implementation lives in:
 
 - [registry.hpp](../src/server/router/registry.hpp)
 - [registry.cpp](../src/server/router/registry.cpp)
+- [route_runtime.hpp](../src/server/router/route_runtime.hpp)
 
 Important types:
 
@@ -29,9 +30,6 @@ Important types:
 - `warp::http::response`
   The public response type returned by route handlers.
 
-- `warp::http::handler`
-  The stored route callback variant used by the HTTP sessions. It wraps either a sync or coroutine handler.
-
 - `warp::server::registry::node`
   One trie node for a specific HTTP method. A node may have:
   - literal children keyed by segment text
@@ -39,10 +37,17 @@ Important types:
   - zero or more terminal route variants for the same normalized path shape
 
 - `warp::server::registry::route_entry`
-  The stored handler plus:
+  The stored route id plus:
   - compiled path parameter slots
   - query constraints for that route variant
-  - registration order for deterministic tie-breaking
+  - deterministic registration order through `route_id`
+
+- `warp::server::route_runtime<Session>`
+  The server-owned bound route set for one concrete session type. It owns:
+  - one immutable `registry`
+  - one prebound `route_executor_table<Session>`
+  - `find(req)` for lookup
+  - `dispatch(route_id, session, sequence, request)` for handler launch
 
 - `warp::http::compiled_query_constraint`
   One query matcher attached to a route variant. Each constraint stores:
@@ -52,12 +57,12 @@ Important types:
 
 ## Route Registration
 
-Routes are registered through:
+Routes are registered into the registry through:
 
 ```cpp
-void add(method verb, std::string path, handler h);
-void add_route(method verb, std::string path, handler h);
-void add_compiled(compiled_route route, handler h);
+route_id add(http::method verb,
+             std::string_view path,
+             const std::vector<http::query_constraint_descriptor> &query_constraints);
 ```
 
 When a route is added:
@@ -71,7 +76,7 @@ When a route is added:
    - the single parameter child
 4. The terminal node appends a new route variant to its `routes` vector.
 
-Typed and generated route registration now flows through `compiled_route` metadata. `warp::server::server_builder` uses `registry.add_compiled(...)` for compile-time route specs and keeps `add(...)` / `add_route(...)` for string-based registrations.
+Typed and generated route registration now flows through `compiled_route` metadata. At server construction time, `warp::server::route_runtime<Session>` builds the registry from the collected route definitions and binds each resulting `route_id` to the pre-normalized handler executor for that session type.
 
 Because each HTTP method has its own root, paths such as `GET /name/{id}` and `DELETE /name/{id}` can coexist without conflict.
 
@@ -147,10 +152,10 @@ Notes:
 
 ## Lookup
 
-Incoming lookup happens through:
+Incoming lookup on the registry happens through:
 
 ```cpp
-const handler *find(request &req) const;
+std::optional<route_match> find(request &req) const;
 ```
 
 The matching flow is:
@@ -163,9 +168,9 @@ The matching flow is:
 6. Once the terminal node is reached, evaluate every registered route variant at that node against `req.query_param(...)`.
 7. Pick the best matching variant by deterministic score ordering.
 8. If a variant wins, inject captured path params into `req`.
-9. Return a pointer to the stored handler.
+9. Return the matched `route_id`.
 
-The registry no longer returns a separate match structure. The caller gets the final handler pointer directly.
+The registry stays lookup-only. Handler binding lives one layer deeper in `route_runtime`.
 
 ## Example Match
 
@@ -271,14 +276,14 @@ There is still no full route-table scan on every lookup. Only the variants that 
 
 ## End-to-End Request Flow
 
-The registry participates in the HTTP pipeline like this:
+The route runtime participates in the HTTP pipeline like this:
 
-1. A listener accepts a socket.
-2. A session reads an HTTP request with Beast.
-3. The Beast request is wrapped as `warp::request`.
-4. `registry::find(req)` looks up the route and injects path params into that request.
-5. The session launches the returned handler if one exists.
+1. `server_impl` materializes one immutable `route_runtime<Session>` before constructing the listener.
+2. A listener accepts a socket and gives each session a borrowed reference to that route runtime.
+3. A session reads an HTTP request with Beast and wraps it as `warp::request`.
+4. `route_runtime.find(req)` delegates to `registry::find(req)` to look up the route and inject path params.
+5. `route_runtime.dispatch(match->id, session, sequence, request)` launches the prebound sync or async handler without re-inspecting `warp::http::handler` on the request path.
 6. The handler eventually completes with a `warp::response`.
 7. The session writes the response back through Beast.
 
-This keeps the registry focused on deterministic route lookup while the listener and session implementations own transport behavior.
+This keeps the registry focused on deterministic route lookup, keeps dispatch binding server-owned and immutable, and leaves listeners and sessions responsible only for transport and request lifecycle.

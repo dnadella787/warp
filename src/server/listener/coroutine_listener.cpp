@@ -11,13 +11,15 @@
 namespace warp::server {
 
 template <warp_session_transport Transport>
-coroutine_listener<Transport>::coroutine_listener(
-    boost::asio::io_context &ioc, transport_provider<Transport> transport_provider, const registry &registry,
-    const std::vector<http::handler> &route_handlers, const interceptor_chain<request> &req_interceptor_chain,
-    const interceptor_chain<response> &resp_interceptor_chain, const std::string &address, const unsigned short port,
-    log::logger logger)
-    : base_type(ioc, std::move(transport_provider), registry, route_handlers, req_interceptor_chain,
-                resp_interceptor_chain, address, port, std::move(logger)) {
+coroutine_listener<Transport>::coroutine_listener(boost::asio::io_context &ioc,
+                                                  transport_provider<Transport> transport_provider,
+                                                  const typename base_type::route_runtime_t &routes,
+                                                  const interceptor_chain<request> &req_interceptor_chain,
+                                                  const interceptor_chain<response> &resp_interceptor_chain,
+                                                  const std::string &address, const unsigned short port,
+                                                  log::logger logger)
+    : base_type(ioc, std::move(transport_provider), routes, req_interceptor_chain, resp_interceptor_chain, address,
+                port, std::move(logger)) {
 }
 
 template <warp_session_transport Transport>

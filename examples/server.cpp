@@ -57,7 +57,7 @@ int main() {
 	        // build() captures this logger for Warp's internal listener/session/server logs.
 	        .logger(app_logger)
 	        .interceptor<1>(interceptor)
-	        .interceptor<2>(authz_interceptor)
+	        // .interceptor<2>(authz_interceptor)
 	        .interceptor<1>(resp_interceptor)
 	        .ssl_config(tls_enabled ? warp::ssl::ssl_config(true, warp::ssl::file_cert_loader(tls_pem_bundle))
 	                                : warp::ssl::ssl_config {})
@@ -67,10 +67,15 @@ int main() {
 		        auto resp = warp::http::response::ok("Hello, " + std::string(name) + "!", "text/plain");
 		        return resp;
 	        })
-	        .get<"/hello", warp::http::optional_query<"name">>(
+	        .get<"/hello">([](const warp::http::request req) -> warp::http::response {
+		        warp::log::info("Received a hello world request with no name query parameter");
+		        auto resp = warp::response::ok(warp::body_builder().set("name", nullptr).build());
+		        return resp;
+	        })
+	        .get<"/hello", warp::http::required_query<"name">>(
 	            [](const warp::http::request req) -> warp::http::response {
 		            auto name = req.query_param("name").value_or("World");
-		            warp::log::info("Received a hello world request with query parameter name={}", name);
+		            warp::log::info("Received a hello world request with required query parameter name={}", name);
 		            auto resp = warp::response::ok(warp::body_builder().set("name", std::string(name)).build());
 		            return resp;
 	            })
