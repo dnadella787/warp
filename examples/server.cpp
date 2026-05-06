@@ -57,7 +57,7 @@ int main() {
 	        // build() captures this logger for Warp's internal listener/session/server logs.
 	        .logger(app_logger)
 	        .interceptor<1>(interceptor)
-	        // .interceptor<2>(authz_interceptor)
+	        .interceptor<2>(authz_interceptor)
 	        .interceptor<1>(resp_interceptor)
 	        .ssl_config(tls_enabled ? warp::ssl::ssl_config(true, warp::ssl::file_cert_loader(tls_pem_bundle))
 	                                : warp::ssl::ssl_config {})

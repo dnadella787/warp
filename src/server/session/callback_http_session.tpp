@@ -125,7 +125,10 @@ void callback_http_session<Transport>::on_read(beast::error_code ec, std::size_t
 	if (const auto match = routes_.find(request)) {
 		routes_.dispatch(match->id, *this, sequence, std::move(request));
 	} else {
-		on_handler_complete(sequence, nullptr, http::response::not_found());
+		if (request.target_error().has_value())
+			on_handler_complete(sequence, nullptr, http::response::bad_request(request.target_error().value().message));
+		else
+			on_handler_complete(sequence, nullptr, http::response::not_found());
 	}
 
 	maybe_read();

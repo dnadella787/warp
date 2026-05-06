@@ -88,7 +88,10 @@ boost::asio::awaitable<void> coroutine_http_session<Transport>::read_loop() {
 		if (const auto match = routes_.find(req)) {
 			routes_.dispatch(match->id, *this, sequence, std::move(req));
 		} else {
-			complete_request(sequence, http::response::not_found());
+			if (req.target_error().has_value())
+				complete_request(sequence, http::response::bad_request(req.target_error().value().message));
+			else
+				complete_request(sequence, http::response::not_found());
 		}
 	}
 }
