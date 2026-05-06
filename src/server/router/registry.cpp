@@ -139,6 +139,8 @@ std::optional<registry::route_match> registry::find(http::request &req) const {
 	// if we find a match, return the ID that is expected in the executor table
 	if (const auto *route = match_route(it->second, req, segments)) {
 		apply_path_params(req, segments, *route);
+		if (req.target_error().has_value())
+			return std::nullopt;
 		return route_match {.id = route->id};
 	}
 
@@ -260,7 +262,8 @@ const registry::route_entry *registry::match_leaf_routes(const node &current, co
 	for (const auto &route : current.routes) {
 		const auto score = match_query_constraints(route, req);
 		// no score returned indicates not a match to the route at all, we use no score instead of 0 score
-		// otherwise, the best will get set on the first run even for a 0 score
+		// otherwise, the best will get set on the first run even or even worse, for a 0 score which is possible
+		// when you match on a route with no query params GET /users/{userId} will match with score 0
 		if (!score.has_value())
 			continue;
 		// if its the first possible match or the current match is a better match from the previous one,
@@ -339,25 +342,26 @@ void registry::apply_path_params(http::request &req, const std::vector<std::stri
                                  const route_entry &route) {
 	http::request::parameter_map params;
 	params.reserve(route.parameters.size());
-
-	if (!route.parameters.empty()) {
-		for (const auto &parameter : route.parameters) {
-			if (parameter.index >= segments.size()) {
-				break;
-			}
-			auto decoded = warp::http::try_decode_url_component(segments[parameter.index]);
-			if (!decoded.has_value()) {
-				req.set_target_error(warp::http::target_parse_error {
-				    .code = "malformed_path_parameter",
-				    .message = "malformed percent-encoding in path parameter '" + parameter.name + "'",
-				});
-				req.set_path_params({});
-				return;
-			}
-			params.emplace(parameter.name, std::move(*decoded));
+	for (const auto &[index, name] : route.parameters) {
+		// now we actually decode the path param, the search originally just looks by splitting
+		// the string, now we search for invalid strings like /users/%xz for /users/{userId}
+		// note that we do the path parsing after matching bc the path param location cannot be known without
+		// matching. Query params, you can do easily at request obj construction time and is required
+		// for the matching itself.
+		auto decoded = warp::http::try_decode_url_component(segments[index]);
+		if (!decoded.has_value()) {
+			// this error
+			req.set_target_error(warp::http::target_parse_error {
+			    .code = "malformed_path_parameter",
+			    .message = "malformed percent-encoding in path parameter '" + name + "'",
+			});
+			// we set it to an empty path param and exit
+			req.set_path_params({});
+			return;
 		}
+		// add this path param to the request now since its properly parsed.
+		params.emplace(name, std::move(*decoded));
 	}
-
 	req.set_path_params(std::move(params));
 }
 

@@ -40,9 +40,10 @@ public:
 	                           const std::vector<http::query_constraint_descriptor> &query_constraints);
 
 private:
+	// how the {userId} style path params are represented internally
 	struct route_parameter {
-		std::size_t index {};
-		std::string name;
+		std::size_t index {}; // index in the route path i.e. /users/{userId} would make userId have index of 1
+		std::string name;     // name of the param, i.e. userId here
 	};
 
 	struct route_entry {
