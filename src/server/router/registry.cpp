@@ -135,10 +135,9 @@ std::optional<registry::route_match> registry::find(http::request &req) const {
 		return std::nullopt;
 	}
 
-	// now try to match the path list using the method root trie node
-	// if we find a match, return the ID that is expected in the executor table
-	// if there is an error just return it and let the session dump it back to client
-	// as 400
+	// now try to match the path list using the method root trie node. If we find a
+	// match, return the ID that is expected in the executor table. if there is an
+	// error just return it and let the session dump it back to client as 400
 	if (const auto *route = match_route(it->second, req, segments)) {
 		apply_path_params(req, segments, *route);
 		return route_match {.id = route->id};
