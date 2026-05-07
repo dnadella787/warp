@@ -369,7 +369,7 @@ resources:
 	EXPECT_NE(output.find("using reports_api_routes = warp::codegen::generated_resource<"), std::string::npos);
 }
 
-TEST(ResourceEmitterTest, KeepsSingletonRequiredQueryRoutesUnconstrained) {
+TEST(ResourceEmitterTest, EmitsSingletonRequiredQueryRoutesWithConstraints) {
 	const auto spec = parse_api_spec(R"(
 resources:
   - name: reports
@@ -392,11 +392,14 @@ resources:
 
 	const auto output = resource_emitter().emit_header(build_api_model(spec, "generated_api"));
 
-	EXPECT_NE(output.find("using reports_fetch_report_summary_request_route = "
-	                      "warp::http::route_spec<warp::method::get, \"/reports/{report_id}\">;"),
+	EXPECT_NE(output.find("using reports_fetch_report_summary_query_route = "
+	                      "warp::http::route_spec<warp::method::get, \"/reports/{report_id}\", "
+	                      "warp::http::required_query<\"summary\">>;"),
 	          std::string::npos);
-	EXPECT_EQ(output.find("reports_fetch_report_summary_query_route"), std::string::npos);
-	EXPECT_EQ(output.find("warp::http::required_query<\"summary\">"), std::string::npos);
+	EXPECT_NE(output.find("using reports_fetch_report_summary_query_route = warp::http::route_spec<"),
+	          std::string::npos);
+	EXPECT_NE(output.find("warp::http::required_query<\"summary\">"), std::string::npos);
+	EXPECT_EQ(output.find("using reports_fetch_report_summary_request_route"), std::string::npos);
 }
 
 TEST(ResourceEmitterTest, ValidatedRequestContractRunsPostBindingChecksWithWireNames) {

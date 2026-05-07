@@ -1,23 +1,24 @@
 #include "codegen/model.hpp"
 
 #include <algorithm>
-#include <array>
 #include <cctype>
+#include <stdexcept>
+#include <string>
 #include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
 
-#include "server/router/query_constraint_semantics.hpp"
+#include "codegen/model_diagnostics.hpp"
+#include "codegen/query_route_analyzer.hpp"
+#include "codegen/validation_rule_normalizer.hpp"
 
 namespace warp::codegen {
 
 namespace {
 
-[[noreturn]] void fail(source_span span, std::string code, std::string message) {
-	throw diagnostic_error(diagnostic {
-	    .severity = diagnostic_severity::error, .code = std::move(code), .message = std::move(message), .span = span});
-}
+using detail::fail;
+using detail::validation_subject;
 
 bool is_cpp_keyword(std::string_view value) {
 	static const std::unordered_set<std::string_view> keywords {
@@ -62,7 +63,7 @@ bool is_valid_cpp_namespace(std::string_view value) {
 		return false;
 	}
 	for (char c : value) {
-		if (std::isspace(static_cast<unsigned char>(c)) != 0) {
+		if (std::isspace(c) != 0) {
 			return false;
 		}
 	}
@@ -153,29 +154,6 @@ schema_type::kind primitive_kind(value_kind kind) {
 	throw std::invalid_argument("expected a primitive schema kind");
 }
 
-source_span validation_span_or(source_span span, source_span fallback) {
-	return span.line == 0 ? fallback : span;
-}
-
-[[nodiscard]] std::string validation_subject(std::string_view noun, std::string_view name) {
-	return std::string(noun) + " '" + std::string(name) + "'";
-}
-
-[[nodiscard]] bool is_validation_value_integral(const numeric_validation_value &value) {
-	return std::holds_alternative<std::int64_t>(value);
-}
-
-[[nodiscard]] std::int64_t as_int64_validation_value(const numeric_validation_value &value) {
-	return std::get<std::int64_t>(value);
-}
-
-[[nodiscard]] double as_double_validation_value(const numeric_validation_value &value) {
-	if (const auto *integer = std::get_if<std::int64_t>(&value)) {
-		return static_cast<double>(*integer);
-	}
-	return std::get<double>(value);
-}
-
 bool status_forbids_body(int status_code) {
 	return (status_code >= 100 && status_code < 200) || status_code == 204 || status_code == 205 || status_code == 304;
 }
@@ -233,220 +211,12 @@ struct reserved_route_identity {
 	std::string path;
 };
 
-[[nodiscard]] bool ordered_contains(const std::vector<std::string> &values, std::string_view value) {
-	return std::find(values.begin(), values.end(), value) != values.end();
-}
-
-void append_unique(std::vector<std::string> &values, std::string_view value) {
-	if (!ordered_contains(values, value)) {
-		values.emplace_back(value);
-	}
-}
-
-[[nodiscard]] std::optional<warp::http::compiled_query_constraint>
-find_query_constraint(const std::vector<warp::http::compiled_query_constraint> &constraints, std::string_view name) {
-	for (const auto &constraint : constraints) {
-		if (constraint.name == name) {
-			return constraint;
-		}
-	}
-	return std::nullopt;
-}
-
-[[nodiscard]] bool
-query_routes_can_tie_on_score(const std::vector<warp::http::compiled_query_constraint> &lhs,
-                              const std::vector<warp::http::compiled_query_constraint> &rhs,
-                              const std::vector<std::string_view> &constraint_names, std::size_t index = 0,
-                              warp::http::routing_detail::query_constraint_match_score lhs_score = {},
-                              warp::http::routing_detail::query_constraint_match_score rhs_score = {}) {
-	if (index == constraint_names.size()) {
-		return warp::http::routing_detail::query_match_scores_equal(lhs_score, rhs_score);
-	}
-
-	const auto lhs_descriptor = find_query_constraint(lhs, constraint_names[index]);
-	const auto rhs_descriptor = find_query_constraint(rhs, constraint_names[index]);
-	const auto lhs_exact_value = lhs_descriptor.has_value() && lhs_descriptor->value.has_value()
-	                                 ? std::string_view(*lhs_descriptor->value)
-	                                 : std::string_view {};
-	const auto rhs_exact_value = rhs_descriptor.has_value() && rhs_descriptor->value.has_value()
-	                                 ? std::string_view(*rhs_descriptor->value)
-	                                 : std::string_view {};
-
-	constexpr std::array<warp::http::routing_detail::query_value_state, 4> states {
-	    warp::http::routing_detail::query_value_state::absent,
-	    warp::http::routing_detail::query_value_state::lhs_exact,
-	    warp::http::routing_detail::query_value_state::rhs_exact,
-	    warp::http::routing_detail::query_value_state::other_present,
-	};
-
-	for (const auto state : states) {
-		if (!warp::http::routing_detail::query_constraint_accepts_state(lhs_descriptor, lhs_exact_value,
-		                                                                rhs_exact_value, state) ||
-		    !warp::http::routing_detail::query_constraint_accepts_state(rhs_descriptor, lhs_exact_value,
-		                                                                rhs_exact_value, state)) {
-			continue;
-		}
-
-		if (query_routes_can_tie_on_score(
-		        lhs, rhs, constraint_names, index + 1,
-		        warp::http::routing_detail::add_query_match_scores(
-		            lhs_score, warp::http::routing_detail::query_constraint_score(lhs_descriptor, state)),
-		        warp::http::routing_detail::add_query_match_scores(
-		            rhs_score, warp::http::routing_detail::query_constraint_score(rhs_descriptor, state)))) {
-			return true;
-		}
-	}
-
-	return false;
-}
-
-[[nodiscard]] std::vector<warp::http::compiled_query_constraint>
-effective_query_route_constraints(const query_route_model &query_route, const route_group_model &group) {
-	std::vector<warp::http::compiled_query_constraint> constraints;
-	constraints.reserve(group.routing_query_parameters.size());
-	for (const auto &name : group.routing_query_parameters) {
-		if (const auto constraint = find_query_constraint(query_route.constraints, name); constraint.has_value()) {
-			constraints.push_back(*constraint);
-			continue;
-		}
-		constraints.push_back(warp::http::compiled_query_constraint {
-		    .name = name,
-		    .presence = warp::http::query_constraint_presence::forbidden,
-		});
-	}
-	warp::http::detail::sort_compiled_query_constraints(constraints);
-	return constraints;
-}
-
-[[nodiscard]] bool query_route_specs_overlap(const std::vector<warp::http::compiled_query_constraint> &lhs,
-                                             const std::vector<warp::http::compiled_query_constraint> &rhs) {
-	std::vector<std::string_view> constraint_names;
-	constraint_names.reserve(lhs.size() + rhs.size());
-	for (const auto &constraint : lhs) {
-		if (std::ranges::find(constraint_names, constraint.name) == constraint_names.end()) {
-			constraint_names.push_back(constraint.name);
-		}
-	}
-	for (const auto &constraint : rhs) {
-		if (std::ranges::find(constraint_names, constraint.name) == constraint_names.end()) {
-			constraint_names.push_back(constraint.name);
-		}
-	}
-	for (const auto &lhs_constraint : lhs) {
-		for (const auto &rhs_constraint : rhs) {
-			if (lhs_constraint.name == rhs_constraint.name &&
-			    !warp::http::routing_detail::query_constraints_can_overlap(lhs_constraint, rhs_constraint)) {
-				return false;
-			}
-		}
-	}
-	return query_routes_can_tie_on_score(lhs, rhs, constraint_names);
-}
-
 struct model_builder {
 	api_model model;
 	global_symbol_table global_symbols;
 	std::unordered_map<std::string, reserved_route_identity> route_identities;
-
-	[[nodiscard]] validation_rules normalize_validation_rules(const validation_rule_spec &input, value_kind kind,
-	                                                          source_span fallback_span,
-	                                                          std::string_view subject) const {
-		validation_rules output;
-
-		auto reject = [&](source_span span, std::string message) {
-			fail(validation_span_or(span, fallback_span), "model.invalid_validation_rule", std::move(message));
-		};
-
-		switch (kind) {
-		case value_kind::string_value:
-			if (input.min.has_value()) {
-				reject(input.min_span, std::string(subject) + " cannot use numeric rule 'min' with string type");
-			}
-			if (input.max.has_value()) {
-				reject(input.max_span, std::string(subject) + " cannot use numeric rule 'max' with string type");
-			}
-			output.min_length = input.min_length;
-			output.max_length = input.max_length;
-			if (output.min_length.has_value() && output.max_length.has_value() &&
-			    *output.min_length > *output.max_length) {
-				fail(validation_span_or(input.max_length_span, fallback_span), "model.invalid_validation_range",
-				     std::string(subject) + " has min_length greater than max_length");
-			}
-			return output;
-		case value_kind::int64_value:
-			if (input.min_length.has_value()) {
-				reject(input.min_length_span,
-				       std::string(subject) + " cannot use string rule 'min_length' with int64 type");
-			}
-			if (input.max_length.has_value()) {
-				reject(input.max_length_span,
-				       std::string(subject) + " cannot use string rule 'max_length' with int64 type");
-			}
-			if (input.min.has_value()) {
-				if (!is_validation_value_integral(*input.min)) {
-					reject(input.min_span, std::string(subject) + " must use an integer value for rule 'min'");
-				}
-				output.min = as_int64_validation_value(*input.min);
-			}
-			if (input.max.has_value()) {
-				if (!is_validation_value_integral(*input.max)) {
-					reject(input.max_span, std::string(subject) + " must use an integer value for rule 'max'");
-				}
-				output.max = as_int64_validation_value(*input.max);
-			}
-			if (output.min.has_value() && output.max.has_value() &&
-			    as_int64_validation_value(*output.min) > as_int64_validation_value(*output.max)) {
-				fail(validation_span_or(input.max_span, fallback_span), "model.invalid_validation_range",
-				     std::string(subject) + " has min greater than max");
-			}
-			return output;
-		case value_kind::double_value:
-			if (input.min_length.has_value()) {
-				reject(input.min_length_span,
-				       std::string(subject) + " cannot use string rule 'min_length' with double type");
-			}
-			if (input.max_length.has_value()) {
-				reject(input.max_length_span,
-				       std::string(subject) + " cannot use string rule 'max_length' with double type");
-			}
-			if (input.min.has_value()) {
-				output.min = as_double_validation_value(*input.min);
-			}
-			if (input.max.has_value()) {
-				output.max = as_double_validation_value(*input.max);
-			}
-			if (output.min.has_value() && output.max.has_value() &&
-			    as_double_validation_value(*output.min) > as_double_validation_value(*output.max)) {
-				fail(validation_span_or(input.max_span, fallback_span), "model.invalid_validation_range",
-				     std::string(subject) + " has min greater than max");
-			}
-			return output;
-		case value_kind::bool_value:
-			break;
-		case value_kind::object_value:
-			break;
-		case value_kind::array_value:
-			break;
-		}
-
-		if (input.min.has_value()) {
-			reject(input.min_span, std::string(subject) + " cannot use validation rule 'min' with type " +
-			                           std::string(to_string(kind)));
-		}
-		if (input.max.has_value()) {
-			reject(input.max_span, std::string(subject) + " cannot use validation rule 'max' with type " +
-			                           std::string(to_string(kind)));
-		}
-		if (input.min_length.has_value()) {
-			reject(input.min_length_span, std::string(subject) + " cannot use validation rule 'min_length' with type " +
-			                                  std::string(to_string(kind)));
-		}
-		if (input.max_length.has_value()) {
-			reject(input.max_length_span, std::string(subject) + " cannot use validation rule 'max_length' with type " +
-			                                  std::string(to_string(kind)));
-		}
-		return output;
-	}
+	detail::validation_rule_normalizer validation_normalizer;
+	detail::query_route_analyzer route_analyzer;
 
 	[[nodiscard]] std::string cpp_type_name(const schema_type &type) const {
 		switch (type.type) {
@@ -493,8 +263,8 @@ struct model_builder {
 		if (input.nullable) {
 			fail(input.span, "model.nullable_unsupported", "nullable schemas are not supported");
 		}
-		static_cast<void>(
-		    normalize_validation_rules(input.validation, input.kind, input.span, validation_subject("schema", hint)));
+		static_cast<void>(validation_normalizer.normalize(input.validation, input.kind, input.span,
+		                                                  validation_subject("schema", hint)));
 
 		switch (input.kind) {
 		case value_kind::string_value:
@@ -534,7 +304,7 @@ struct model_builder {
 			if (field.value == nullptr) {
 				fail(field.span, "model.missing_field_schema", "field '" + field.name + "' is missing a schema");
 			}
-			const auto field_validation = normalize_validation_rules(
+			const auto field_validation = validation_normalizer.normalize(
 			    field.value->validation, field.value->kind, field.span, validation_subject("field", field.name));
 			object.fields.push_back(field_model {
 			    .span = field.span,
@@ -588,8 +358,8 @@ struct model_builder {
 			    .location = parameter.location,
 			    .type = schema_type {primitive_kind(parameter.kind)},
 			    .required = parameter.required,
-			    .validation = normalize_validation_rules(parameter.validation, parameter.kind, parameter.span,
-			                                             validation_subject("parameter", parameter.name)),
+			    .validation = validation_normalizer.normalize(parameter.validation, parameter.kind, parameter.span,
+			                                                  validation_subject("parameter", parameter.name)),
 			});
 		}
 
@@ -642,91 +412,6 @@ struct model_builder {
 		return response;
 	}
 
-	[[nodiscard]] std::optional<query_route_model>
-	build_query_route_model(const request_model &request, const std::string &spec_name, source_span span) {
-		query_route_model query_route;
-		query_route.span = span;
-		query_route.spec_name = spec_name;
-		bool has_required_constraint = false;
-
-		for (const auto &parameter : request.parameters) {
-			if (parameter.location != parameter_location::query) {
-				continue;
-			}
-			query_route.constraints.push_back(warp::http::compiled_query_constraint {
-			    .name = parameter.source_name,
-			    .presence = parameter.required ? warp::http::query_constraint_presence::required
-			                                   : warp::http::query_constraint_presence::optional,
-			});
-			has_required_constraint = has_required_constraint || parameter.required;
-		}
-
-		if (!has_required_constraint) {
-			return std::nullopt;
-		}
-		warp::http::detail::sort_compiled_query_constraints(query_route.constraints);
-		return query_route;
-	}
-
-	void validate_route_group(resource_model &resource, route_group_model &group) {
-		group.query_route_endpoint_indices.clear();
-		group.fallback_endpoint_index.reset();
-		group.routing_query_parameters.clear();
-
-		for (const auto endpoint_index : group.endpoint_indices) {
-			const auto &endpoint = resource.endpoints.at(endpoint_index);
-			if (endpoint.query_route.has_value()) {
-				group.query_route_endpoint_indices.push_back(endpoint_index);
-				for (const auto constraint : endpoint.query_route->constraints) {
-					append_unique(group.routing_query_parameters, constraint.name);
-				}
-				continue;
-			}
-
-			if (group.fallback_endpoint_index.has_value()) {
-				fail(endpoint.span, "model.duplicate_route",
-				     "duplicate route '" + group.path + "' for method " + std::string(to_string(group.method)) +
-				         " requires deterministic query constraints or a single fallback endpoint");
-			}
-			group.fallback_endpoint_index = endpoint_index;
-		}
-
-		if (group.endpoint_indices.size() == 1 && group.query_route_endpoint_indices.size() == 1) {
-			// A singleton endpoint does not need route-level query gating. Keeping it unconstrained
-			// preserves binder-driven 400s for missing required query parameters.
-			resource.endpoints.at(group.query_route_endpoint_indices.front()).query_route.reset();
-			group.query_route_endpoint_indices.clear();
-			group.routing_query_parameters.clear();
-			return;
-		}
-
-		if (group.query_route_endpoint_indices.empty()) {
-			if (group.endpoint_indices.size() > 1) {
-				fail(resource.endpoints.at(group.endpoint_indices.back()).span, "model.duplicate_route",
-				     "duplicate route '" + group.path + "' for method " + std::string(to_string(group.method)) +
-				         " is ambiguous without required query parameter constraints");
-			}
-			return;
-		}
-
-		for (std::size_t i = 0; i < group.query_route_endpoint_indices.size(); ++i) {
-			const auto left_index = group.query_route_endpoint_indices[i];
-			const auto &left_endpoint = resource.endpoints.at(left_index);
-			const auto left_constraints = effective_query_route_constraints(*left_endpoint.query_route, group);
-			for (std::size_t j = i + 1; j < group.query_route_endpoint_indices.size(); ++j) {
-				const auto right_index = group.query_route_endpoint_indices[j];
-				const auto &right_endpoint = resource.endpoints.at(right_index);
-				const auto right_constraints = effective_query_route_constraints(*right_endpoint.query_route, group);
-				if (query_route_specs_overlap(left_constraints, right_constraints)) {
-					fail(right_endpoint.span, "model.ambiguous_query_route",
-					     "query-aware routes '" + left_endpoint.endpoint_name + "' and '" +
-					         right_endpoint.endpoint_name + "' for " + std::string(to_string(group.method)) + " " +
-					         group.path + " accept overlapping query parameter sets");
-				}
-			}
-		}
-	}
-
 	resource_model build_resource_model(const resource_spec &resource) {
 		resource_model resource_model;
 		resource_model.span = resource.span;
@@ -761,7 +446,7 @@ struct model_builder {
 			    "resource '" + resource.name + "'");
 			endpoint_model.request = build_request_model(endpoint, endpoint_model.request_name, endpoint_model.route);
 			endpoint_model.response = build_response_model(endpoint, endpoint_model.result_name);
-			endpoint_model.query_route = build_query_route_model(
+			endpoint_model.query_route = route_analyzer.build_query_route(
 			    endpoint_model.request, reserve_public_type(prefix + "_query_route", endpoint.span, "query route spec"),
 			    endpoint.span);
 
@@ -779,9 +464,7 @@ struct model_builder {
 			resource_model.route_groups.at(group_it->second).endpoint_indices.push_back(endpoint_index);
 		}
 
-		for (auto &group : resource_model.route_groups) {
-			validate_route_group(resource_model, group);
-		}
+		route_analyzer.validate_route_groups(resource_model);
 
 		return resource_model;
 	}
@@ -814,11 +497,13 @@ schema_type &schema_type::operator=(const schema_type &other) {
 
 api_model build_api_model(const spec_ast &spec, std::string_view namespace_override) {
 	model_builder builder;
+	// use spec namespace if not provided via cli flag, otherwise its a spec error
 	builder.model.cpp_namespace = namespace_override.empty() ? spec.cpp_namespace : std::string(namespace_override);
 	if (builder.model.cpp_namespace.empty()) {
 		fail(spec.namespace_span.line == 0 ? spec.span : spec.namespace_span, "model.invalid_namespace",
 		     "C++ namespace cannot be empty");
 	}
+
 	if (!is_valid_cpp_namespace(builder.model.cpp_namespace)) {
 		fail(spec.namespace_span.line == 0 ? spec.span : spec.namespace_span, "model.invalid_namespace",
 		     "C++ namespace must be a '::'-separated list of valid identifiers");

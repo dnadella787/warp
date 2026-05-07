@@ -116,11 +116,15 @@ set(warp_codegen_sources
     src/codegen/data_class_emitter.cpp
     src/codegen/generator.cpp
     src/codegen/model.cpp
+    src/codegen/query_route_analyzer.cpp
     src/codegen/resource_emitter.cpp
     src/codegen/resource_stub_emitter.cpp
+    src/codegen/spec_ast_decoder.cpp
     src/codegen/spec_model.cpp
     src/codegen/spec_parser.cpp
-    src/codegen/stub_generator.cpp)
+    src/codegen/stub_generator.cpp
+    src/codegen/validation_rule_normalizer.cpp
+    src/codegen/yaml_document_parser.cpp)
 
 set(warp_http_sources
         src/logging/logger.cpp

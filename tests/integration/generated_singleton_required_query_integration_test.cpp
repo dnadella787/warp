@@ -53,8 +53,7 @@ struct EventLoopModeNames {
 
 TYPED_TEST_SUITE(GeneratedSingletonRequiredQueryIntegrationTest, EventLoopModes, EventLoopModeNames);
 
-TYPED_TEST(GeneratedSingletonRequiredQueryIntegrationTest,
-           MissingRequiredQueryReturnsBadRequestInsteadOfNotFoundForSingletonEndpoint) {
+TYPED_TEST(GeneratedSingletonRequiredQueryIntegrationTest, MissingRequiredQueryMissesRoutingForSingletonEndpoint) {
 	auto service = std::make_shared<generated_singleton_required_query_resource>();
 	generated::reports_api_routes<generated_singleton_required_query_resource> routes(service);
 
@@ -75,11 +74,9 @@ TYPED_TEST(GeneratedSingletonRequiredQueryIntegrationTest,
 
 	const auto missing = support::read_response(*client);
 	const auto valid = support::read_response(*client);
-	const auto missing_body = support::parse_object_body(missing);
 	const auto valid_body = support::parse_object_body(valid);
 
-	EXPECT_EQ(missing.result(), http::status::bad_request);
-	EXPECT_EQ(std::string(missing_body.at("error").as_string()), "missing required query parameter 'query'");
+	EXPECT_EQ(missing.result(), http::status::not_found);
 
 	EXPECT_EQ(valid.result(), http::status::ok);
 	EXPECT_EQ(std::string(valid_body.at("route").as_string()), "search");

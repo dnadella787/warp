@@ -272,7 +272,7 @@ Each generated endpoint binds the incoming `warp::request` exactly once into a t
 - generated model headers describe JSON object schemas through reusable public-member metadata in `warp/codegen/json_object_contract.hpp`
 - JSON bodies require a JSON `Content-Type` such as `application/json` or `application/*+json`, and are converted with `boost::json::value_to`
 - request validation runs after typed request binding and before handler dispatch
-- invalid bindings become `400 Bad Request` responses with an error payload
+- invalid bindings become `400 Bad Request` responses with an error payload once a route matches; missing required query constraints on generated routes fail routing and return `404 Not Found`
 - validation errors use wire names, not sanitized C++ member names
 
 Responses are serialized from the generated result type using reusable response contracts:

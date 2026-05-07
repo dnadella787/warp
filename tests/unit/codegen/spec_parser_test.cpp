@@ -137,6 +137,22 @@ TEST(SpecParserTest, ReportsInvalidIndentationWithLocation) {
 	}
 }
 
+TEST(SpecParserTest, PreservesQuotedHashesWhileIgnoringComments) {
+	const auto spec = parse_api_spec(R"(
+resources: # root comment
+  - name: "users#internal" # resource comment
+    endpoints:
+      - path: /health # endpoint comment
+        response:
+          status: 204
+)");
+
+	ASSERT_EQ(spec.resources.size(), 1U);
+	EXPECT_EQ(spec.resources.front().name, "users#internal");
+	ASSERT_EQ(spec.resources.front().endpoints.size(), 1U);
+	EXPECT_EQ(spec.resources.front().endpoints.front().path, "/health");
+}
+
 TEST(SpecParserTest, RejectsUnsupportedScalarKinds) {
 	EXPECT_THROW(static_cast<void>(parse_api_spec(R"(
 resources:

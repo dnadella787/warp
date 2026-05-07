@@ -353,12 +353,7 @@ namespace detail {
 
 template <typename T>
 parse_result<T> required_path_param_unchecked(const request &req, std::string_view name) {
-	const auto value = req.path_param(name);
-	if (!value.has_value()) {
-		return parse_result<T>::failure(
-		    make_bad_request("missing_path_parameter", "missing required path parameter '" + std::string(name) + "'"));
-	}
-	return detail::parse_scalar_impl<T>(*value, name, "path parameter");
+	return detail::parse_scalar_impl<T>(req.path_param(name).value(), name, "path parameter");
 }
 
 } // namespace detail
@@ -380,12 +375,7 @@ namespace detail {
 
 template <typename T>
 parse_result<T> required_query_param_unchecked(const request &req, std::string_view name) {
-	const auto value = req.query_param(name);
-	if (!value.has_value()) {
-		return parse_result<T>::failure(make_bad_request(
-		    "missing_query_parameter", "missing required query parameter '" + std::string(name) + "'"));
-	}
-	return detail::parse_scalar_impl<T>(*value, name, "query parameter");
+	return detail::parse_scalar_impl<T>(req.query_param(name).value(), name, "query parameter");
 }
 
 } // namespace detail

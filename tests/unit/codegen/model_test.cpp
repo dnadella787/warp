@@ -355,7 +355,7 @@ resources:
 	EXPECT_NE(item.message.find("query-aware routes"), std::string::npos);
 }
 
-TEST(ApiModelTest, LeavesSingletonRequiredQueryEndpointsUnconstrained) {
+TEST(ApiModelTest, KeepsSingletonRequiredQueryEndpointsConstrained) {
 	const auto spec = parse_api_spec(R"(
 resources:
   - name: reports
@@ -383,9 +383,15 @@ resources:
 	const auto &resource = model.resources.front();
 	ASSERT_EQ(resource.endpoints.size(), 1U);
 	ASSERT_EQ(resource.route_groups.size(), 1U);
-	EXPECT_FALSE(resource.endpoints.front().query_route.has_value());
-	EXPECT_TRUE(resource.route_groups.front().query_route_endpoint_indices.empty());
-	EXPECT_TRUE(resource.route_groups.front().routing_query_parameters.empty());
+	ASSERT_TRUE(resource.endpoints.front().query_route.has_value());
+	ASSERT_EQ(resource.endpoints.front().query_route->constraints.size(), 1U);
+	EXPECT_EQ(resource.endpoints.front().query_route->constraints.front().name, "summary");
+	EXPECT_EQ(resource.endpoints.front().query_route->constraints.front().presence,
+	          warp::http::query_constraint_presence::required);
+	ASSERT_EQ(resource.route_groups.front().query_route_endpoint_indices.size(), 1U);
+	EXPECT_EQ(resource.route_groups.front().query_route_endpoint_indices.front(), 0U);
+	ASSERT_EQ(resource.route_groups.front().routing_query_parameters.size(), 1U);
+	EXPECT_EQ(resource.route_groups.front().routing_query_parameters.front(), "summary");
 }
 
 TEST(ApiModelTest, RejectsResponseBodyForNoContentStatuses) {
