@@ -106,6 +106,7 @@ std::vector<source_line> tokenize_lines(std::string_view yaml_text) {
 	return lines;
 }
 
+// Search for a colon that is outside both a single quote and double quote.
 std::size_t find_mapping_separator(std::string_view text) {
 	bool single_quoted = false;
 	bool double_quoted = false;
@@ -150,6 +151,7 @@ public:
 
 	[[nodiscard]] yaml_node parse_document() {
 		if (lines_.empty()) {
+			// empty node with no map values and starts at line 1 column 1
 			return yaml_node {.type = yaml_node::kind::map, .line = 1, .column = 1};
 		}
 		std::size_t index = 0;
@@ -161,6 +163,7 @@ public:
 	}
 
 private:
+	// parse a list or map which starts at
 	[[nodiscard]] yaml_node parse_block(std::size_t &index, std::size_t indent) {
 		if (index >= lines_.size()) {
 			throw spec_error(lines_.back().line, lines_.back().indent + 1, "expected nested YAML block");
@@ -174,22 +177,29 @@ private:
 		// then we parse as a list
 		// but we check '- ' otherwise we would parse --bob or -- bob as lists too
 		if (lines_[index].text == "-" || lines_[index].text.starts_with("- ")) {
+			// note that the indent is based on the '-' at the starting, not the first word
 			return parse_list(index, indent);
 		}
 		// otherwise we parse it as a map
 		return parse_map(index, indent);
 	}
 
+	// this parses a list of scalar key value pairs in a map,
+	// it does not allow key to another map or list mapping
 	[[nodiscard]] yaml_node parse_map(std::size_t &index, std::size_t indent) {
 		yaml_node node {.type = yaml_node::kind::map, .line = lines_[index].line, .column = indent + 1};
 		while (index < lines_.size()) {
 			const auto &line = lines_[index];
+			// current line indent is less than the map indent then we have moved past the map
 			if (line.indent < indent) {
 				break;
 			}
+			// if the current line indent is greater than the map indent, then that would indicate another map,
+			// which is an error because that can only happen through parse_block
 			if (line.indent > indent) {
 				throw spec_error(line.line, line.indent + 1, "unexpected indentation inside mapping");
 			}
+			// if this line is a list then it's an error because we only want scaler key value pairs
 			if (line.text.rfind("- ", 0) == 0 || line.text == "-") {
 				throw spec_error(line.line, line.indent + 1, "list item cannot appear at mapping scope");
 			}
@@ -210,14 +220,18 @@ private:
 
 			yaml_node value;
 			if (!remainder.empty()) {
+				// this means that there is a value immediately after the ':'
 				value.type = yaml_node::kind::scalar;
 				value.scalar = parse_scalar_text(remainder);
 				value.line = line.line;
 				value.column = line.indent + separator + 2;
 			} else {
+				// this means that we ran into a 'key:' so we validate that the next
+				// line has an indent that is greater than the key indent
 				if (index >= lines_.size() || lines_[index].indent <= indent) {
 					throw spec_error(line.line, line.indent + separator + 1, "expected nested block after mapping key");
 				}
+				// way we rehearsed parse it
 				value = parse_block(index, lines_[index].indent);
 			}
 			node.map_values.emplace_back(key, std::move(value));
@@ -229,12 +243,15 @@ private:
 		yaml_node node {.type = yaml_node::kind::list, .line = lines_[index].line, .column = indent + 1};
 		while (index < lines_.size()) {
 			const auto &line = lines_[index];
+			// list over, we are back to a new block
 			if (line.indent < indent) {
 				break;
 			}
+			// malformatted list that is too far off to the side
 			if (line.indent > indent) {
 				throw spec_error(line.line, line.indent + 1, "unexpected indentation inside list");
 			}
+			// list entry is actually a map entry, we break out and parse this entry as a map node
 			if (!(line.text == "-" || line.text.starts_with("- "))) {
 				break;
 			}
@@ -243,7 +260,8 @@ private:
 			++index;
 
 			if (remainder.empty()) {
-				if (index >= lines_.size() || lines_[index].indent <= indent) {
+				// A bare "-" means this list element's value is the following indented block.
+				if (index == lines_.size() || lines_[index].indent <= indent) {
 					throw spec_error(line.line, line.indent + 1, "expected nested block after list item");
 				}
 				node.list_values.push_back(parse_block(index, lines_[index].indent));
@@ -251,47 +269,59 @@ private:
 			}
 
 			const auto separator = find_mapping_separator(remainder);
-			if (separator != std::string_view::npos) {
-				yaml_node item {.type = yaml_node::kind::map, .line = line.line, .column = indent + 1};
-				const std::string key = trim(std::string_view(remainder).substr(0, separator));
-				if (key.empty()) {
-					throw spec_error(line.line, line.indent + 3, "list item mapping key cannot be empty");
-				}
-				reject_duplicate_key(item.map_values, key, {.line = line.line, .column = line.indent + 3});
-				const std::string value_text = trim(std::string_view(remainder).substr(separator + 1));
-				if (!value_text.empty()) {
-					item.map_values.emplace_back(key, yaml_node {
-					                                      .type = yaml_node::kind::scalar,
-					                                      .scalar = parse_scalar_text(value_text),
-					                                      .line = line.line,
-					                                      .column = indent + separator + 4,
-					                                  });
-				} else {
-					if (index >= lines_.size() || lines_[index].indent <= indent) {
-						throw spec_error(line.line, line.indent + separator + 3,
-						                 "expected nested block after mapping key");
-					}
-					item.map_values.emplace_back(key, parse_block(index, lines_[index].indent));
-				}
-
-				if (index < lines_.size() && lines_[index].indent > indent) {
-					auto continuation = parse_map(index, lines_[index].indent);
-					for (auto &entry : continuation.map_values) {
-						reject_duplicate_key(item.map_values, entry.first, span_of(entry.second));
-						item.map_values.push_back(std::move(entry));
-					}
-				}
-
-				node.list_values.push_back(std::move(item));
+			// No separator found means that it is a raw value.
+			if (separator == std::string_view::npos) {
+				node.list_values.push_back(yaml_node {
+					.type = yaml_node::kind::scalar,
+					.scalar = parse_scalar_text(remainder),
+					.line = line.line,
+					.column = indent + 3,
+				});
 				continue;
 			}
 
-			node.list_values.push_back(yaml_node {
-			    .type = yaml_node::kind::scalar,
-			    .scalar = parse_scalar_text(remainder),
-			    .line = line.line,
-			    .column = indent + 3,
-			});
+			yaml_node item {.type = yaml_node::kind::map, .line = line.line, .column = indent + 1};
+			const std::string key = trim(std::string_view(remainder).substr(0, separator));
+			if (key.empty()) {
+				throw spec_error(line.line, line.indent + 3, "list item mapping key cannot be empty");
+			}
+			reject_duplicate_key(item.map_values, key, {.line = line.line, .column = line.indent + 3});
+			const std::string value_text = trim(std::string_view(remainder).substr(separator + 1));
+			// This means there is a value on this line after the separator indicating it is a scalar
+			if (!value_text.empty()) {
+				// this only adds the first key-value pair in the map as a scaler
+				item.map_values.emplace_back(key, yaml_node {
+				                                      .type = yaml_node::kind::scalar,
+				                                      .scalar = parse_scalar_text(value_text),
+				                                      .line = line.line,
+				                                      .column = indent + separator + 4,
+				                                  });
+			} else {
+				// Otherwise the key, i.e. the part before the separator, is actually a key to another map.
+				// So we ensure that the indent is greater than the key indent
+				// then we also ensure that they're actually is a value for this key.
+				if (index >= lines_.size() || lines_[index].indent <= indent) {
+					throw spec_error(line.line, line.indent + separator + 3,
+					                 "expected nested block after mapping key");
+				}
+				// we recursively parse the next block as well how are you?
+				item.map_values.emplace_back(key, parse_block(index, lines_[index].indent));
+			}
+
+			// if this list entry itself is a key-value map then we add the rest of the key value pairs in this part
+			// we check if there are more lines to read, and also if the indent of each succeeding line is greater
+			// than the indent of the original list entry meaning that it is a continuation of the entry
+			if (index < lines_.size() && lines_[index].indent > indent) {
+				// we parked the rest of the key value pairs as a map
+				auto continuation = parse_map(index, lines_[index].indent);
+				// now we iterate over that map and add each value to the map values of the current list entry
+				for (auto &entry : continuation.map_values) {
+					reject_duplicate_key(item.map_values, entry.first, span_of(entry.second));
+					item.map_values.push_back(std::move(entry));
+				}
+			}
+
+			node.list_values.push_back(std::move(item));
 		}
 		return node;
 	}

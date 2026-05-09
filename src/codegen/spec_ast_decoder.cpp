@@ -16,13 +16,12 @@
 namespace warp::codegen::detail {
 
 namespace {
-
 const yaml_node &expect_kind(const yaml_node &node, yaml_node::kind kind, std::string_view context);
 
 void reject_unknown_keys(const yaml_node &node, std::initializer_list<std::string_view> allowed,
                          std::string_view context) {
 	expect_kind(node, yaml_node::kind::map, context);
-	const std::unordered_set<std::string_view> allowed_keys(allowed.begin(), allowed.end());
+	const std::unordered_set allowed_keys(allowed.begin(), allowed.end());
 	for (const auto &entry : node.map_values) {
 		if (!allowed_keys.contains(entry.first)) {
 			throw spec_error(source_span {.line = entry.second.line, .column = node.column}, "spec.unknown_key",
@@ -31,6 +30,7 @@ void reject_unknown_keys(const yaml_node &node, std::initializer_list<std::strin
 	}
 }
 
+// get a value for a specific key in a map node, return null otherwise
 const yaml_node *find_key(const yaml_node &node, std::string_view key) {
 	if (node.type != yaml_node::kind::map) {
 		return nullptr;
@@ -441,8 +441,8 @@ request_spec parse_request(const yaml_node &node) {
 	reject_unknown_keys(node, {"parameters", "body"}, "request");
 	expect_kind(node, yaml_node::kind::map, "request");
 	if (const auto *parameters = find_key(node, "parameters")) {
-		const auto &list = expect_kind(*parameters, yaml_node::kind::list, "request parameters");
-		for (const auto &parameter_node : list.list_values) {
+		expect_kind(*parameters, yaml_node::kind::list, "request parameters");
+		for (const auto &parameter_node : parameters->list_values) {
 			request.parameters.push_back(parse_parameter(parameter_node));
 		}
 	}
@@ -524,52 +524,62 @@ spec_ast decode_spec_ast(const yaml_node &document) {
 	spec_ast spec;
 	spec.span = span_of(document);
 
-	const auto &root = expect_kind(document, yaml_node::kind::map, "root YAML document");
-	reject_unknown_keys(root, {"name", "namespace", "cpp_namespace", "resources", "endpoints"}, "root YAML document");
-	if (find_key(root, "namespace") != nullptr && find_key(root, "cpp_namespace") != nullptr) {
-		throw spec_error(span_of(root), "spec.duplicate_semantic_key",
+	expect_kind(document, yaml_node::kind::map, "root YAML document");
+	reject_unknown_keys(document, {"name", "namespace", "cpp_namespace", "resources", "endpoints"}, "root YAML document");
+
+	const auto *namespace_node = find_key(document, "namespace");
+	const auto *cpp_namespace_node = find_key(document, "cpp_namespace");
+	// cannot allow both namespace and cpp_namespace
+	if (namespace_node && cpp_namespace_node) {
+		throw spec_error(span_of(document), "spec.duplicate_semantic_key",
 		                 "root YAML document cannot specify both 'namespace' and 'cpp_namespace'");
 	}
-	if (const auto *namespace_node = find_key(root, "namespace")) {
+
+	// choose between one or the other, defaults to generated otherwise
+	if (namespace_node) {
 		spec.namespace_span = span_of(*namespace_node);
 		spec.cpp_namespace = parse_string(*namespace_node, "namespace");
-	} else if (const auto *namespace_node = find_key(root, "cpp_namespace")) {
-		spec.namespace_span = span_of(*namespace_node);
-		spec.cpp_namespace = parse_string(*namespace_node, "cpp namespace");
+	} else if (cpp_namespace_node) {
+		spec.namespace_span = span_of(*cpp_namespace_node);
+		spec.cpp_namespace = parse_string(*cpp_namespace_node, "cpp namespace");
 	}
-	if (find_key(root, "resources") != nullptr && find_key(root, "endpoints") != nullptr) {
-		throw spec_error(span_of(root), "spec.ambiguous_root",
+
+	const auto *resources = find_key(document, "resources");
+	const auto *endpoints = find_key(document, "endpoints");
+	// only allow one of either resources or end points
+	if (resources && endpoints) {
+		throw spec_error(span_of(document), "spec.ambiguous_root",
 		                 "root YAML document cannot contain both 'resources' and 'endpoints'");
 	}
-	if (const auto *resources = find_key(root, "resources")) {
-		if (find_key(root, "name") != nullptr) {
-			throw spec_error(span_of(root), "spec.invalid_root_name",
+	if (resources) {
+		if (find_key(document, "name") != nullptr) {
+			throw spec_error(span_of(document), "spec.invalid_root_name",
 			                 "top-level 'name' is only allowed with top-level 'endpoints'");
 		}
-		const auto &list = expect_kind(*resources, yaml_node::kind::list, "resources");
-		for (const auto &resource_node : list.list_values) {
+		expect_kind(*resources, yaml_node::kind::list, "resources");
+		for (const auto &resource_node : resources->list_values) {
 			spec.resources.push_back(parse_resource(resource_node));
 		}
 		return spec;
 	}
 
-	if (const auto *endpoints = find_key(root, "endpoints")) {
+	if (endpoints) {
 		resource_spec resource;
-		resource.span = span_of(root);
+		resource.span = span_of(document);
 		resource.name =
-		    find_key(root, "name") == nullptr ? "default" : parse_string(*find_key(root, "name"), "resource name");
-		if (const auto *name = find_key(root, "name")) {
+		    find_key(document, "name") == nullptr ? "default" : parse_string(*find_key(document, "name"), "resource name");
+		if (const auto *name = find_key(document, "name")) {
 			resource.name_span = span_of(*name);
 		}
-		const auto &list = expect_kind(*endpoints, yaml_node::kind::list, "endpoints");
-		for (const auto &endpoint_node : list.list_values) {
+		expect_kind(*endpoints, yaml_node::kind::list, "endpoints");
+		for (const auto &endpoint_node : endpoints->list_values) {
 			resource.endpoints.push_back(parse_endpoint(endpoint_node));
 		}
 		spec.resources.push_back(std::move(resource));
 		return spec;
 	}
 
-	throw spec_error(root.line, root.column, "root YAML document must contain 'resources' or 'endpoints'");
+	throw spec_error(document.line, document.column, "root YAML document must contain 'resources' or 'endpoints'");
 }
 
 } // namespace warp::codegen::detail

@@ -84,6 +84,7 @@ void require_value(int argc, int index, std::string_view option) {
 	return options;
 }
 
+// write to a temp file first and then update that file to the actual locatioin
 void write_file_atomically(const std::filesystem::path &path, std::string_view content) {
 	if (!path.parent_path().empty()) {
 		std::filesystem::create_directories(path.parent_path());
