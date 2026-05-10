@@ -525,7 +525,8 @@ spec_ast decode_spec_ast(const yaml_node &document) {
 	spec.span = span_of(document);
 
 	expect_kind(document, yaml_node::kind::map, "root YAML document");
-	reject_unknown_keys(document, {"name", "namespace", "cpp_namespace", "resources", "endpoints"}, "root YAML document");
+	reject_unknown_keys(document, {"name", "namespace", "cpp_namespace", "resources", "endpoints"},
+	                    "root YAML document");
 
 	const auto *namespace_node = find_key(document, "namespace");
 	const auto *cpp_namespace_node = find_key(document, "cpp_namespace");
@@ -546,7 +547,7 @@ spec_ast decode_spec_ast(const yaml_node &document) {
 
 	const auto *resources = find_key(document, "resources");
 	const auto *endpoints = find_key(document, "endpoints");
-	// only allow one of either resources or end points
+	// only allow one of either resources or endpoints
 	if (resources && endpoints) {
 		throw spec_error(span_of(document), "spec.ambiguous_root",
 		                 "root YAML document cannot contain both 'resources' and 'endpoints'");
@@ -566,8 +567,9 @@ spec_ast decode_spec_ast(const yaml_node &document) {
 	if (endpoints) {
 		resource_spec resource;
 		resource.span = span_of(document);
-		resource.name =
-		    find_key(document, "name") == nullptr ? "default" : parse_string(*find_key(document, "name"), "resource name");
+		resource.name = find_key(document, "name") == nullptr
+		                    ? "default"
+		                    : parse_string(*find_key(document, "name"), "resource name");
 		if (const auto *name = find_key(document, "name")) {
 			resource.name_span = span_of(*name);
 		}

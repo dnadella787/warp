@@ -533,9 +533,12 @@ std::optional<binding_error> validate_max_value(std::string_view location_name, 
 
 namespace detail {
 
+// general purpose definition that sets up the contract
 template <typename MemberPtr>
 struct binding_member_object_pointer_traits;
 
+// This is a specialization allow us to extract the class type given just the ptr
+// as well as the actual value of the ptr
 template <typename Class, typename Value>
 struct binding_member_object_pointer_traits<Value Class::*> {
 	using class_type = Class;
@@ -568,30 +571,49 @@ struct member_accessor {
 	}
 };
 
+// set the value of a class using a setter function which is later used to set the value
 template <auto Setter>
 struct deduced_member_setter {
+	// deduce the type of the class at this function is a member of,
+	// the type of the input value with any of the refs or const
+	// descriptors removed
 	using traits = detail::member_function_traits<decltype(Setter)>;
 	using class_type = traits::class_type;
 	using value_type = traits::argument_type;
 
+	// invoke the setter method on the original class and use move on the value passed
 	static void set(class_type &out, value_type value) noexcept(noexcept(std::invoke(Setter, out, std::move(value)))) {
-		static_cast<void>(std::invoke(Setter, out, std::move(value)));
+		std::invoke(Setter, out, std::move(value));
 	}
 };
 
+// out.*Member if out is the parent class and member is a pointer to a member variable of out
+// is how we say we assign value to the member var of out itself
 template <auto Member>
 struct deduced_member_accessor {
+	// extract the class name as well as the member variable type
+	// from the pointer to the member variable that was passed
 	using traits = binding_member_object_pointer_traits<decltype(Member)>;
 	using class_type = typename traits::class_type;
 	using value_type = typename traits::value_type;
 
+	// noexcept expr ask the question of whether we can actually move value for assignment into the member variable
+	// if it cannot be assigned without noexcept then set the method signature
 	static void set(class_type &out, value_type value) noexcept(noexcept(out.*Member = std::move(value))) {
+		// set the pointer to the member variable to the val
 		out.*Member = std::move(value);
 	}
 };
 
 } // namespace detail
 
+/**
+note that even though there is a parse_unchecked and parse method on
+this binding, and on the query binding underneath the parse_unchecked
+method is always the one that is called since we can rely on the registry
+itself to auto populate query and path parameters, and we are guaranteed
+that they are matched properly before the request handler is even executed
+*/
 template <typename Accessor, http::fixed_string Name>
 struct path_binding {
 	using request_type = Accessor::class_type;
@@ -640,6 +662,10 @@ struct query_binding {
 	}
 };
 
+/**
+ * the header and Jason binding objects do only have the parse method because we cannot rely on the registry
+ * to guarantee that the parameters are properly populated and passed on.
+ */
 template <typename Accessor, http::fixed_string Name>
 struct header_binding {
 	using request_type = typename Accessor::class_type;
@@ -652,10 +678,6 @@ struct header_binding {
 		} else {
 			return required_header_param<value_type>(req, Name.view());
 		}
-	}
-
-	static parse_result<value_type> parse_unchecked(const request &req) {
-		return parse(req);
 	}
 
 	static void set(request_type &out, value_type value) {
@@ -673,10 +695,6 @@ struct json_body_binding {
 
 	static parse_result<value_type> parse(const request &req) {
 		return json_body<value_type>(req);
-	}
-
-	static parse_result<value_type> parse_unchecked(const request &req) {
-		return parse(req);
 	}
 
 	static void set(request_type &out, value_type value) {
@@ -730,10 +748,12 @@ struct generated_request_contract {
 	static parse_result<Request> parse(const request &req) {
 		// this will be true if there was a parse error when converting the beast http request into
 		// the warp::request object in the parser (basically when the query/path params are being
-		// parsed since beast doesnt do this by default for you).
+		// parsed since beast doesn't do this by default for you).
 		if (const auto target_error = detail::request_target_binding_error(req); target_error.has_value())
 			return parse_result<Request>::failure(*target_error);
 
+		// now apply each binding to each corresponding request parameter
+		// if any of them cause an error, we will return 400 error
 		Request out;
 		binding_error error;
 		if (!(apply_binding<Bindings>(out, req, error) && ...))
@@ -743,6 +763,8 @@ struct generated_request_contract {
 	}
 
 private:
+	// parse the value from the warp::request object into the typed request object
+	// and then set it in the typed request object
 	template <typename Binding>
 	static bool apply_binding(Request &out, const request &req, binding_error &error) {
 		auto parsed = parse_binding<Binding>(req);
@@ -750,10 +772,11 @@ private:
 			error = parsed.error();
 			return false;
 		}
-		Binding::set(out, std::move(parsed).value());
+		Binding::set(out, std::move(parsed.value()));
 		return true;
 	}
 
+	// return the proper type of the request parameter by passing it first
 	template <typename Binding>
 	static auto parse_binding(const request &req) {
 		if constexpr (requires { Binding::parse_unchecked(req); }) {

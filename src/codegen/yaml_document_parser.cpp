@@ -272,10 +272,10 @@ private:
 			// No separator found means that it is a raw value.
 			if (separator == std::string_view::npos) {
 				node.list_values.push_back(yaml_node {
-					.type = yaml_node::kind::scalar,
-					.scalar = parse_scalar_text(remainder),
-					.line = line.line,
-					.column = indent + 3,
+				    .type = yaml_node::kind::scalar,
+				    .scalar = parse_scalar_text(remainder),
+				    .line = line.line,
+				    .column = indent + 3,
 				});
 				continue;
 			}
@@ -301,8 +301,7 @@ private:
 				// So we ensure that the indent is greater than the key indent
 				// then we also ensure that they're actually is a value for this key.
 				if (index >= lines_.size() || lines_[index].indent <= indent) {
-					throw spec_error(line.line, line.indent + separator + 3,
-					                 "expected nested block after mapping key");
+					throw spec_error(line.line, line.indent + separator + 3, "expected nested block after mapping key");
 				}
 				// we recursively parse the next block as well how are you?
 				item.map_values.emplace_back(key, parse_block(index, lines_[index].indent));
